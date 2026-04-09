@@ -29,13 +29,18 @@ impl CtxforgeRoot {
     }
 
     /// Finds an existing root or creates one at `start/.ctxforge`.
+    /// Ensures `profiles/` and `memory/` subdirs exist in either case
+    /// so older `.ctxforge/` layouts are transparently upgraded.
     pub fn find_or_create(start: &Path) -> Result<CtxforgeRoot> {
         if let Some(existing) = Self::find(start) {
+            std::fs::create_dir_all(existing.profiles_dir())?;
+            std::fs::create_dir_all(existing.memory_dir())?;
             return Ok(existing);
         }
         let root = start.join(".ctxforge");
         std::fs::create_dir_all(&root)?;
         std::fs::create_dir_all(root.join("profiles"))?;
+        std::fs::create_dir_all(root.join("memory"))?;
         Ok(CtxforgeRoot { root })
     }
 
@@ -49,6 +54,24 @@ impl CtxforgeRoot {
 
     pub fn profile_path(&self, name: &str) -> PathBuf {
         self.profiles_dir().join(format!("{name}.json"))
+    }
+
+    pub fn memory_dir(&self) -> PathBuf {
+        self.root.join("memory")
+    }
+
+    pub fn memory_index_path(&self) -> PathBuf {
+        self.memory_dir().join("_index.jsonl")
+    }
+
+    /// Resolves the markdown file path for a tagged note. Untagged notes
+    /// (`tag = None`) go to `decisions.md`.
+    pub fn memory_tag_path(&self, tag: Option<&str>) -> PathBuf {
+        let filename = match tag {
+            Some(t) => format!("{t}.md"),
+            None => "decisions.md".to_string(),
+        };
+        self.memory_dir().join(filename)
     }
 
     /// Resolves project root = parent of `.ctxforge`.
@@ -92,5 +115,49 @@ mod tests {
         let td = TempDir::new().unwrap();
         let root = CtxforgeRoot::find_or_create(td.path()).unwrap();
         assert_eq!(root.bundle_path(), root.root.join("bundle.json"));
+    }
+
+    #[test]
+    fn memory_dir_is_inside_root() {
+        let td = TempDir::new().unwrap();
+        let root = CtxforgeRoot::find_or_create(td.path()).unwrap();
+        assert_eq!(root.memory_dir(), root.root.join("memory"));
+    }
+
+    #[test]
+    fn memory_index_path_is_inside_memory_dir() {
+        let td = TempDir::new().unwrap();
+        let root = CtxforgeRoot::find_or_create(td.path()).unwrap();
+        assert_eq!(
+            root.memory_index_path(),
+            root.root.join("memory").join("_index.jsonl")
+        );
+    }
+
+    #[test]
+    fn memory_tag_path_untagged_goes_to_decisions() {
+        let td = TempDir::new().unwrap();
+        let root = CtxforgeRoot::find_or_create(td.path()).unwrap();
+        assert_eq!(
+            root.memory_tag_path(None),
+            root.root.join("memory").join("decisions.md")
+        );
+    }
+
+    #[test]
+    fn memory_tag_path_named_tag() {
+        let td = TempDir::new().unwrap();
+        let root = CtxforgeRoot::find_or_create(td.path()).unwrap();
+        assert_eq!(
+            root.memory_tag_path(Some("auth")),
+            root.root.join("memory").join("auth.md")
+        );
+    }
+
+    #[test]
+    fn find_or_create_creates_memory_dir() {
+        let td = TempDir::new().unwrap();
+        let root = CtxforgeRoot::find_or_create(td.path()).unwrap();
+        assert!(root.memory_dir().is_dir());
     }
 }
