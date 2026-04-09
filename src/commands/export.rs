@@ -3,15 +3,25 @@
 use crate::bundle::Bundle;
 use crate::error::Result;
 use crate::format::{self, Format};
+use crate::memory;
 use crate::paths::CtxforgeRoot;
 use crate::resolve;
 use std::io::Write;
 use std::path::PathBuf;
 
-pub fn run(root: &CtxforgeRoot, output: Option<PathBuf>) -> Result<()> {
+pub fn run(
+    root: &CtxforgeRoot,
+    output: Option<PathBuf>,
+    no_memory: bool,
+    memory_tag: Option<String>,
+    memory_limit: usize,
+) -> Result<()> {
     let bundle = Bundle::load_or_default(root)?;
     let resolved = resolve::resolve_all(&bundle.items, root.project_root())?;
-    let rendered = format::render(Format::Markdown, &resolved);
+    let memory_notes =
+        memory::collect_for_attach(root, no_memory, memory_tag.as_deref(), memory_limit)?;
+
+    let rendered = format::render(Format::Markdown, &resolved, &memory_notes);
 
     match output {
         Some(path) => {

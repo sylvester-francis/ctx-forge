@@ -46,10 +46,34 @@ pub enum Command {
         /// Write to file instead of stdout.
         #[arg(short, long)]
         output: Option<std::path::PathBuf>,
+
+        /// Do not auto-attach memory notes to the export.
+        #[arg(long)]
+        no_memory: bool,
+
+        /// Only include notes with this tag.
+        #[arg(long)]
+        memory_tag: Option<String>,
+
+        /// Maximum number of notes to attach.
+        #[arg(long, default_value_t = 10)]
+        memory_limit: usize,
     },
 
     /// Copy the current bundle to the system clipboard.
-    Copy,
+    Copy {
+        /// Do not auto-attach memory notes.
+        #[arg(long)]
+        no_memory: bool,
+
+        /// Only include notes with this tag.
+        #[arg(long)]
+        memory_tag: Option<String>,
+
+        /// Maximum number of notes to attach.
+        #[arg(long, default_value_t = 10)]
+        memory_limit: usize,
+    },
 
     /// Save the current bundle as a named profile.
     Save { name: String },
@@ -61,6 +85,44 @@ pub enum Command {
     Profiles {
         #[command(subcommand)]
         action: Option<ProfilesAction>,
+    },
+
+    /// Write a memory note. Accumulates across sessions.
+    Note {
+        /// Tag for the note (e.g. "auth", "tls"). Untagged notes go to
+        /// `decisions.md`.
+        #[arg(long)]
+        tag: Option<String>,
+
+        /// The note body. Remaining args are joined with spaces.
+        body: Vec<String>,
+    },
+
+    /// Show memory notes, filtered.
+    Recall {
+        /// Only notes with this tag.
+        #[arg(long)]
+        tag: Option<String>,
+
+        /// Only notes whose body or tag contains this string (case-insensitive).
+        #[arg(long)]
+        search: Option<String>,
+
+        /// Only notes newer than this duration (e.g. `1w`, `3d`, `12h`, `30m`).
+        #[arg(long)]
+        since: Option<String>,
+
+        /// Maximum number of notes to show.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
+
+    /// Show the current bundle plus recent memory notes — "pick up where
+    /// you left off".
+    Resume {
+        /// Maximum number of recent notes to show.
+        #[arg(long, default_value_t = 5)]
+        memory_limit: usize,
     },
 }
 

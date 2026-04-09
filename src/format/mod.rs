@@ -4,6 +4,7 @@
 
 pub mod markdown;
 
+use crate::memory::Note;
 use crate::resolve::ResolvedItem;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -13,8 +14,8 @@ pub enum Format {
     // Xml and Json added in Plan 3.
 }
 
-pub fn render(format: Format, items: &[ResolvedItem]) -> String {
+pub fn render(format: Format, items: &[ResolvedItem], memory: &[Note]) -> String {
     match format {
-        Format::Markdown => markdown::render(items),
+        Format::Markdown => markdown::render(items, memory),
     }
 }
