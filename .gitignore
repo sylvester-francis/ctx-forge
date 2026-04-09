@@ -1,0 +1,22 @@
+# Internal planning and drafting
+prompt.md
+docs/superpowers/plans/
+docs/superpowers/specs/
+
+# Claude Code workspace
+.claude/
+
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock
+
+# primer runtime state
+.primer/bundle.json
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
