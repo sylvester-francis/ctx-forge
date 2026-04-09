@@ -247,7 +247,12 @@ project/
 
 ## Project status
 
-ctxforge is under active development. The v1.0 surface is ruthlessly scoped around two hero features — the TUI composer and cross-session continuity via MCP — plus a complete CLI for every action the TUI exposes.
+- ✅ **v0.1 — core CLI** (`add`, `rm`, `clear`, `status`, `export`, `copy`, `save`, `load`, `profiles`, `--diff`, tiktoken counting)
+- ✅ **v0.2 — memory + continuity** (`note`, `recall`, `resume`, auto-attach to exports)
+- ⏳ **v0.3 — interactive TUI** (ratatui composer with live token gauge, hotspot panel, memory panel)
+- ⏳ **v0.4 — MCP server** (`ctxforge mcp` — give Claude Code persistent memory across sessions in one command)
+
+The v1.0 surface is ruthlessly scoped around two hero features — the TUI composer and cross-session continuity via MCP — plus a complete CLI for every action the TUI exposes.
 
 Supported languages for `--fn` / `--type` extraction at launch: Go, Rust, Python, TypeScript/JavaScript.
 
