@@ -36,8 +36,8 @@ Run `ctxforge` with no args to open a fullscreen ratatui composer:
 │      ■ server.go        1,204 │  4 ■ README.md               892  6.9% │
 │      ■ check.go         1,837 │  5 ■ docs/architecture.md  7,912 61.6% │
 │        ▸ fn:ProcessCheck  187 │  6 ■ PROMPT.md                18  0.1% │
-│        ▸ fn:Validate      203 │                                         │
-│      ▫ server_test.go     445 │  ── Hotspot ──────────────────────────  │
+│        ▸ fn:Validate      203 │                                        │
+│      ▫ server_test.go     445 │  ── Hotspot ────────────────────────── │
 │    ▾ config/                  │  5 consumes 61% of the budget.         │
 │      ▫ config.go          612 │  Narrow to :10-50? [press n]           │
 │    ▫ main.go              301 │                                         │
@@ -255,4 +255,21 @@ Supported languages for `--fn` / `--type` extraction at launch: Go, Rust, Python
 
 ## License
 
-MIT
+ctxforge is licensed under **[GNU Affero General Public License v3.0 or later](LICENSE)** (AGPL-3.0-or-later).
+
+### What this means for you
+
+- **Use it freely** — run ctxforge for any purpose, personal or commercial.
+- **Modify it freely** — fork, patch, experiment, go wild.
+- **Distribute it freely** — share your fork, publish your modifications.
+- **But**: if you distribute a modified version or run it as a hosted network service, your modifications must also be released under AGPL-3.0-or-later. No SaaS wrappers that hide the source.
+
+### Contributing
+
+All contributions are subject to the [Contributor License Agreement](CLA.md), which assigns copyright in your contribution to Sylvester Francis. This is the same model used by Qt, MongoDB, and Canonical — it lets the project be maintained and relicensed over its lifetime without requiring approval from every past contributor. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+
+### Copyright
+
+Copyright © 2026 Sylvester Francis. All rights reserved.
+
+ctxforge is created and maintained by [Sylvester Francis](https://github.com/sylvester-francis). Contributions from the community are welcome under the terms of the CLA.

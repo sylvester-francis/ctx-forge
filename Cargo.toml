@@ -1,10 +1,10 @@
 [package]
 name = "ctxforge"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.75"
 description = "The missing CLI for AI coding — assemble, count, and export perfect context bundles."
-license = "MIT"
+license = "AGPL-3.0-or-later"
 repository = "https://github.com/sylvester-francis/ctx-forge"
 homepage = "https://github.com/sylvester-francis/ctx-forge"
 keywords = ["ai", "llm", "cli", "context", "claude"]

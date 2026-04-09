@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1 — 2026-04-09
+
+### Licensing
+- **Relicensed from MIT to AGPL-3.0-or-later.** The new license closes the SaaS loophole: anyone who distributes a modified version or runs ctxforge as a hosted network service must release their modifications under AGPL-3.0-or-later.
+- **Added Contributor License Agreement (`CLA.md`).** All contributions to ctxforge are assigned to Sylvester Francis, the project's copyright holder. Contributors retain the right to use their code elsewhere but cannot claim ownership of it inside ctxforge. Same model as Qt, MongoDB, and Canonical.
+- **Added `CONTRIBUTING.md`** explaining the CLA and contribution workflow.
+- **Added `NOTICE`** with explicit copyright attribution.
+
 ## 0.1.0 — 2026-04-09
 
 Initial release.
