@@ -18,11 +18,7 @@ impl TokenCount {
     /// Format as `"1,204"` (exact) or `"~1,204"` (estimate).
     pub fn format(&self) -> String {
         let sep = thousands(self.tokens);
-        if self.exact {
-            sep
-        } else {
-            format!("~{sep}")
-        }
+        if self.exact { sep } else { format!("~{sep}") }
     }
 }
 
