@@ -1,0 +1,36 @@
+[package]
+name = "ctxforge"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "The missing CLI for AI coding — assemble, count, and export perfect context bundles."
+license = "MIT"
+repository = "https://github.com/sylvester-francis/ctx-forge"
+homepage = "https://github.com/sylvester-francis/ctx-forge"
+keywords = ["ai", "llm", "cli", "context", "claude"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+arboard = "3.4"
+tiktoken-rs = "0.5"
+ignore = "0.4"
+globset = "0.4"
+git2 = { version = "0.18", default-features = false, features = ["vendored-libgit2"] }
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
+tempfile = "3.10"
+pretty_assertions = "1.4"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

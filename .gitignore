@@ -9,14 +9,16 @@ docs/superpowers/specs/
 # Rust
 /target
 **/*.rs.bk
-Cargo.lock
+Cargo.lock.bak
 
-# primer runtime state
-.primer/bundle.json
+# ctxforge runtime state
+.ctxforge/bundle.json
 
 # Editor / OS
 .DS_Store
 .idea/
 .vscode/
+*.iml
+.env
 *.swp
 *.swo
