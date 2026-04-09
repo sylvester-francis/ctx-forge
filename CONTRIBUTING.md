@@ -34,10 +34,30 @@ This pattern is the same one used by Qt, MongoDB, and Canonical.
 
 ### How to accept the CLA
 
-By submitting a pull request or other contribution, you affirm that you
-have read and agree to [CLA.md](CLA.md). For external pull requests, a
-CLA assistant bot may require a click-through signature before the PR
-can be merged.
+Every pull request is automatically checked by the **CLA Assistant bot**
+([contributor-assistant/github-action](https://github.com/contributor-assistant/github-action)).
+The bot's flow:
+
+1. You open a pull request.
+2. The bot posts a comment linking to [CLA.md](CLA.md) and asking you
+   to sign.
+3. You reply in the PR with this exact comment:
+   ```
+   I have read the CLA Document and I hereby sign the CLA
+   ```
+4. The bot records your signature (GitHub username + timestamp) in
+   `signatures/version1/cla.json`.
+5. Once signed, the CLA status check turns green and your PR becomes
+   eligible to merge. Future PRs you open are auto-approved.
+
+Your signature is a **legally affirmative act** — it is the point at
+which the assignment of copyright in Section 2 of the CLA takes effect.
+Do not post the signature comment unless you have read and understood
+the CLA in full.
+
+If you do not wish to sign the CLA, you may still fork the project and
+use it under the terms of the AGPL-3.0-or-later, but your changes
+cannot be merged back into the upstream repository.
 
 ## 3. Development setup
 

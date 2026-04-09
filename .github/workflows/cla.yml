@@ -1,0 +1,91 @@
+name: "CLA Assistant"
+
+# Triggers on PR open/update and on comment creation.
+# When a contributor opens a PR, the bot checks whether they've signed
+# the CLA. If they haven't, it posts a comment asking them to sign by
+# replying with a specific phrase. That reply is recorded as affirmative
+# consent — the legally binding part.
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, closed, synchronize]
+
+# Explicit permissions so the action can comment on PRs, update status
+# checks, and write the signatures file to the repo.
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  CLAssistant:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "CLA Assistant"
+        if: >
+          (github.event.comment.body == 'recheck'
+            || github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA')
+          || github.event_name == 'pull_request_target'
+        uses: contributor-assistant/github-action@v2.6.1
+        env:
+          # Built-in token for status checks + PR comments.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # User-provided PAT with `repo` scope. Required because the
+          # action needs to push updates to the signatures file, which
+          # GITHUB_TOKEN cannot do from inside a workflow.
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+        with:
+          # Where signature records are stored. The action creates this
+          # file on first signing and updates it on each new signer.
+          path-to-signatures: 'signatures/version1/cla.json'
+
+          # Public URL where contributors can read the CLA.
+          path-to-document: 'https://github.com/sylvester-francis/ctx-forge/blob/main/CLA.md'
+
+          # Branch where signatures are stored.
+          branch: 'main'
+
+          # PR comment posted when a contributor needs to sign.
+          custom-notsigned-prcomment: >
+            Thank you for your contribution to **ctxforge**. Before we
+            can merge your pull request, we need you to read and agree
+            to our [Contributor License Agreement](https://github.com/sylvester-francis/ctx-forge/blob/main/CLA.md).
+
+
+            By signing, you irrevocably assign copyright in this
+            contribution to Sylvester Francis. You retain the right to
+            use your code for your own purposes outside ctxforge, but
+            you cannot claim ownership of it inside this project. This
+            is the same pattern used by Qt, MongoDB, and Canonical.
+
+
+            **To sign, please post the following comment in this PR
+            exactly as written:**
+
+
+            ```
+            I have read the CLA Document and I hereby sign the CLA
+            ```
+
+
+            Once you sign, your signature is recorded and all future
+            pull requests you open will be pre-approved. If you have
+            questions before signing, please open an issue.
+
+          # PR comment posted on successful signing.
+          custom-pr-sign-comment: 'I have read the CLA Document and I hereby sign the CLA'
+
+          # Message posted after a successful signing.
+          custom-allsigned-prcomment: >
+            All contributors have signed the CLA. Thank you!
+
+          # Users who are pre-approved and never need to sign
+          # (project owner, bots, etc.).
+          allowlist: sylvester-francis,dependabot[bot],renovate[bot]
+
+          # Optional: remote repo where signatures are stored. Omit to
+          # store signatures in this same repo.
+          # remote-organization-name: sylvester-francis
+          # remote-repository-name: ctx-forge-cla-signatures
