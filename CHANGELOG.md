@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0 — 2026-04-09
+
+### Pipe to agent (new!)
+- **`ctxforge pipe <target> [-- <extra-args>]`** — pipe the rendered bundle to a local agent CLI via stdin. Known targets auto-select the best format: `claude` → XML, everything else → markdown. Override with `--format`.
+- Spawns the target as a subprocess, writes to its stdin, waits for exit. Never makes HTTP calls — the target CLI holds its own credentials.
+- Supports all memory flags: `--no-memory`, `--memory-tag`, `--memory-limit`.
+- Extra arguments after `--` are passed through to the target CLI (e.g. `ctxforge pipe cat -- -n`).
+- Clear error messages when the target binary is not found ("Is it installed and in your PATH?").
+
 ## 0.3.0 — 2026-04-09
 
 ### XML + JSON export formats (new!)

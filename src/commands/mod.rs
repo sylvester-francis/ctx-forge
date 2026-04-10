@@ -7,6 +7,7 @@ pub mod copy;
 pub mod export;
 pub mod load;
 pub mod note;
+pub mod pipe;
 pub mod profiles;
 pub mod recall;
 pub mod resume;
@@ -73,6 +74,22 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             limit,
         }) => recall::run(&root, tag, search, since, limit),
         Some(Command::Resume { memory_limit }) => resume::run(&root, memory_limit),
+        Some(Command::Pipe {
+            target,
+            format,
+            no_memory,
+            memory_tag,
+            memory_limit,
+            extra_args,
+        }) => pipe::run(
+            &root,
+            &target,
+            format.as_deref(),
+            no_memory,
+            memory_tag,
+            memory_limit,
+            &extra_args,
+        ),
     }
 }
 

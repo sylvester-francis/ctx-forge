@@ -149,6 +149,40 @@ pub enum Command {
         #[arg(long, default_value_t = 5)]
         memory_limit: usize,
     },
+
+    /// Pipe the current bundle to a local agent CLI via stdin.
+    ///
+    /// Known targets auto-select the best format:
+    ///   claude       → XML (Claude-optimized semantic tags)
+    ///   cursor-agent → markdown
+    ///   gemini       → markdown
+    ///
+    /// Any other name is treated as a binary in your PATH (markdown default).
+    /// Pass extra args to the target CLI after `--`.
+    Pipe {
+        /// Target agent CLI name (e.g. `claude`, `cursor-agent`, `gemini`).
+        target: String,
+
+        /// Override the auto-selected format.
+        #[arg(long)]
+        format: Option<String>,
+
+        /// Do not auto-attach memory notes.
+        #[arg(long)]
+        no_memory: bool,
+
+        /// Only include notes with this tag.
+        #[arg(long)]
+        memory_tag: Option<String>,
+
+        /// Maximum number of notes to attach.
+        #[arg(long, default_value_t = 10)]
+        memory_limit: usize,
+
+        /// Extra arguments passed to the target CLI after `--`.
+        #[arg(last = true)]
+        extra_args: Vec<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]

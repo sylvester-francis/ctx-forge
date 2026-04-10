@@ -250,7 +250,7 @@ project/
 - ✅ **v0.1 — core CLI** (`add`, `rm`, `clear`, `status`, `export`, `copy`, `save`, `load`, `profiles`, `--diff`, tiktoken counting)
 - ✅ **v0.2 — memory + continuity** (`note`, `recall`, `resume`, auto-attach to exports)
 - ✅ **v0.3 — XML and JSON export formats** (`--xml`, `--json`, `--format`)
-- ⏳ **v0.4 — pipe-to-agent** (`ctxforge pipe claude / cursor-agent / gemini`)
+- ✅ **v0.4 — pipe-to-agent** (`ctxforge pipe claude / cursor-agent / gemini`)
 - ⏳ **v0.5 — interactive TUI** (ratatui composer with live token gauge, hotspot panel, memory panel)
 - ⏳ **v0.6 — MCP server** (`ctxforge mcp` — give Claude Code persistent memory across sessions in one command)
 
