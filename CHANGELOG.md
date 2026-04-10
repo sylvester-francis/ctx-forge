@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0 — 2026-04-09
+
+### MCP Server (new!)
+- **`ctxforge mcp`** — stdio JSON-RPC server implementing the Model Context Protocol (2024-11-05). Install for Claude Code with `claude mcp add ctxforge -- ctxforge mcp`.
+- **4 tools exposed**: `ctxforge_recall` (search memory), `ctxforge_note` (write memory), `ctxforge_load_bundle` (load a profile), `ctxforge_status` (check token budget).
+- Hand-written JSON-RPC — no external MCP dependency. Single-threaded, synchronous, ~300 lines.
+
+### README
+- Complete professional rewrite with feature-accurate documentation, ASCII art banner, badge bar, comparison table, full CLI reference, export format examples, supported models table, and tech stack summary.
+
 ## 0.5.0 — 2026-04-09
 
 ### Interactive TUI (new!)

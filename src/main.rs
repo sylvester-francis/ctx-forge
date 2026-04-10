@@ -6,6 +6,7 @@ mod error;
 mod format;
 mod git;
 mod lang;
+mod mcp;
 mod memory;
 mod models;
 mod paths;
