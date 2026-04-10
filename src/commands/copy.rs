@@ -9,6 +9,7 @@ use crate::resolve;
 
 pub fn run(
     root: &CtxforgeRoot,
+    format: Format,
     no_memory: bool,
     memory_tag: Option<String>,
     memory_limit: usize,
@@ -18,7 +19,7 @@ pub fn run(
     let memory_notes =
         memory::collect_for_attach(root, no_memory, memory_tag.as_deref(), memory_limit)?;
 
-    let rendered = format::render(Format::Markdown, &resolved, &memory_notes);
+    let rendered = format::render(format, &resolved, &memory_notes);
 
     crate::clipboard::set(&rendered)?;
 
@@ -26,15 +27,17 @@ pub fn run(
     let note_count = memory_notes.len();
     if note_count > 0 {
         println!(
-            "copied {} items + {} memory note(s) ({} chars) to clipboard",
+            "copied {} items + {} memory note(s) ({}, {} chars) to clipboard",
             bundle.len(),
             note_count,
+            format.name(),
             chars
         );
     } else {
         println!(
-            "copied {} items ({} chars) to clipboard",
+            "copied {} items ({}, {} chars) to clipboard",
             bundle.len(),
+            format.name(),
             chars
         );
     }

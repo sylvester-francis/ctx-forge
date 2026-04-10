@@ -15,7 +15,8 @@ pub mod save;
 pub mod status;
 
 use crate::cli::{Cli, Command};
-use crate::error::Result;
+use crate::error::{CtxforgeError, Result};
+use crate::format::Format;
 use crate::paths::CtxforgeRoot;
 
 pub fn dispatch(cli: Cli) -> Result<()> {
@@ -40,15 +41,27 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Some(Command::Status) => status::run(&root, model_override.as_deref()),
         Some(Command::Export {
             output,
+            format,
+            xml,
+            json,
             no_memory,
             memory_tag,
             memory_limit,
-        }) => export::run(&root, output, no_memory, memory_tag, memory_limit),
+        }) => {
+            let fmt = resolve_format(format.as_deref(), xml, json)?;
+            export::run(&root, output, fmt, no_memory, memory_tag, memory_limit)
+        }
         Some(Command::Copy {
+            format,
+            xml,
+            json,
             no_memory,
             memory_tag,
             memory_limit,
-        }) => copy::run(&root, no_memory, memory_tag, memory_limit),
+        }) => {
+            let fmt = resolve_format(format.as_deref(), xml, json)?;
+            copy::run(&root, fmt, no_memory, memory_tag, memory_limit)
+        }
         Some(Command::Save { name }) => save::run(&root, &name),
         Some(Command::Load { name }) => load::run(&root, &name),
         Some(Command::Profiles { action }) => profiles::run(&root, action),
@@ -60,5 +73,25 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             limit,
         }) => recall::run(&root, tag, search, since, limit),
         Some(Command::Resume { memory_limit }) => resume::run(&root, memory_limit),
+    }
+}
+
+/// Resolves the effective format from the `--format` string and the
+/// `--xml` / `--json` shortcut flags. The clap `conflicts_with` rules
+/// ensure at most one of the three is set.
+fn resolve_format(format: Option<&str>, xml: bool, json: bool) -> Result<Format> {
+    if xml {
+        return Ok(Format::Xml);
+    }
+    if json {
+        return Ok(Format::Json);
+    }
+    match format {
+        Some(name) => Format::parse(name).ok_or_else(|| {
+            CtxforgeError::Msg(format!(
+                "invalid --format `{name}` (expected one of: markdown, md, xml, json)"
+            ))
+        }),
+        None => Ok(Format::default()),
     }
 }

@@ -12,6 +12,7 @@ use std::path::PathBuf;
 pub fn run(
     root: &CtxforgeRoot,
     output: Option<PathBuf>,
+    format: Format,
     no_memory: bool,
     memory_tag: Option<String>,
     memory_limit: usize,
@@ -21,12 +22,17 @@ pub fn run(
     let memory_notes =
         memory::collect_for_attach(root, no_memory, memory_tag.as_deref(), memory_limit)?;
 
-    let rendered = format::render(Format::Markdown, &resolved, &memory_notes);
+    let rendered = format::render(format, &resolved, &memory_notes);
 
     match output {
         Some(path) => {
             std::fs::write(&path, &rendered)?;
-            eprintln!("wrote {} bytes to {}", rendered.len(), path.display());
+            eprintln!(
+                "wrote {} bytes ({}) to {}",
+                rendered.len(),
+                format.name(),
+                path.display()
+            );
         }
         None => {
             let stdout = std::io::stdout();

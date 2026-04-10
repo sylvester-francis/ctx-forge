@@ -47,6 +47,19 @@ pub enum Command {
         #[arg(short, long)]
         output: Option<std::path::PathBuf>,
 
+        /// Output format. Defaults to `markdown`. Accepts `markdown`, `md`,
+        /// `xml`, `json`.
+        #[arg(long)]
+        format: Option<String>,
+
+        /// Shortcut for `--format xml`.
+        #[arg(long, conflicts_with = "format")]
+        xml: bool,
+
+        /// Shortcut for `--format json`.
+        #[arg(long, conflicts_with_all = ["format", "xml"])]
+        json: bool,
+
         /// Do not auto-attach memory notes to the export.
         #[arg(long)]
         no_memory: bool,
@@ -62,6 +75,18 @@ pub enum Command {
 
     /// Copy the current bundle to the system clipboard.
     Copy {
+        /// Output format. Defaults to `markdown`.
+        #[arg(long)]
+        format: Option<String>,
+
+        /// Shortcut for `--format xml`.
+        #[arg(long, conflicts_with = "format")]
+        xml: bool,
+
+        /// Shortcut for `--format json`.
+        #[arg(long, conflicts_with_all = ["format", "xml"])]
+        json: bool,
+
         /// Do not auto-attach memory notes.
         #[arg(long)]
         no_memory: bool,
