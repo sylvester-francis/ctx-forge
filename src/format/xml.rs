@@ -166,7 +166,10 @@ mod tests {
         let item = ResolvedItem {
             item: Item {
                 path: PathBuf::from("src/hub.rs"),
-                kind: ItemKind::Range(Range { start: 45, end: 120 }),
+                kind: ItemKind::Range(Range {
+                    start: 45,
+                    end: 120,
+                }),
                 label: None,
             },
             content: "slice\n".into(),
