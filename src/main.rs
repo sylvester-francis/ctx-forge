@@ -3,6 +3,8 @@ mod cli;
 mod clipboard;
 mod commands;
 mod error;
+#[cfg(feature = "extract")]
+mod extract;
 mod format;
 mod git;
 mod lang;

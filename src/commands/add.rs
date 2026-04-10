@@ -1,10 +1,11 @@
-//! `ctxforge add` — add files, globs, line-ranges, or diff'd files to the bundle.
+//! `ctxforge add` — add files, globs, line-ranges, functions, types, or
+//! diff'd files to the bundle.
 
-use crate::bundle::{Bundle, Item};
+use crate::bundle::{Bundle, Item, ItemKind};
 use crate::error::{CtxforgeError, Result};
 use crate::paths::CtxforgeRoot;
 use crate::walk;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub fn run(
     root: &CtxforgeRoot,
@@ -12,10 +13,50 @@ pub fn run(
     patterns: Vec<String>,
     exclude: Vec<String>,
     diff: Option<String>,
+    functions: Vec<String>,
+    types: Vec<String>,
 ) -> Result<()> {
     let project_root = root.project_root().to_path_buf();
     let mut bundle = Bundle::load_or_default(root)?;
     let mut added_count: usize = 0;
+
+    // --fn <name>: requires exactly one file path in patterns.
+    if !functions.is_empty() {
+        let file_path = require_single_file(&patterns, "--fn")?;
+        for name in &functions {
+            let item = Item {
+                path: PathBuf::from(&file_path),
+                kind: ItemKind::Function { name: name.clone() },
+                label: None,
+            };
+            bundle.add(item);
+            added_count += 1;
+        }
+    }
+
+    // --type <name>: requires exactly one file path in patterns.
+    if !types.is_empty() {
+        let file_path = require_single_file(&patterns, "--type")?;
+        for name in &types {
+            let item = Item {
+                path: PathBuf::from(&file_path),
+                kind: ItemKind::Type { name: name.clone() },
+                label: None,
+            };
+            bundle.add(item);
+            added_count += 1;
+        }
+    }
+
+    // If --fn or --type were used, we're done with patterns (they served as the file path).
+    if !functions.is_empty() || !types.is_empty() {
+        bundle.save(root)?;
+        println!(
+            "added {added_count} item(s); bundle now has {}",
+            bundle.len()
+        );
+        return Ok(());
+    }
 
     // --diff mode: fetch changed files from git and queue them as whole-file items.
     if let Some(branch) = diff {
@@ -23,7 +64,7 @@ pub fn run(
         for p in changed {
             let item = Item {
                 path: p,
-                kind: crate::bundle::ItemKind::File,
+                kind: ItemKind::File,
                 label: None,
             };
             if !exclude_matches(&item.path, &exclude)? {
@@ -53,7 +94,7 @@ pub fn run(
         for p in paths {
             let item = Item {
                 path: p,
-                kind: crate::bundle::ItemKind::File,
+                kind: ItemKind::File,
                 label: None,
             };
             bundle.add(item);
@@ -63,7 +104,8 @@ pub fn run(
 
     if patterns.is_empty() && added_count == 0 {
         return Err(CtxforgeError::Msg(
-            "ctxforge add: no patterns provided (use --diff or pass path arguments)".into(),
+            "ctxforge add: no patterns provided (use --diff, --fn, --type, or pass path arguments)"
+                .into(),
         ));
     }
 
@@ -73,6 +115,17 @@ pub fn run(
         bundle.len()
     );
     Ok(())
+}
+
+/// When using `--fn` or `--type`, exactly one file path must be provided.
+fn require_single_file(patterns: &[String], flag: &str) -> Result<String> {
+    if patterns.len() != 1 {
+        return Err(CtxforgeError::Msg(format!(
+            "{flag} requires exactly one file path (got {})",
+            patterns.len()
+        )));
+    }
+    Ok(patterns[0].clone())
 }
 
 fn looks_like_ranged_path(s: &str) -> bool {

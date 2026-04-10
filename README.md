@@ -374,7 +374,7 @@ project/
 - ✅ **v0.4** — Pipe to agent (ctxforge pipe claude / cursor-agent / gemini)
 - ✅ **v0.5** — Interactive TUI (ratatui composer, live token gauge, hotspot highlighting)
 - ✅ **v0.6** — MCP server (ctxforge mcp — stdio JSON-RPC, 4 tools)
-- ⏳ **v0.7** — Tree-sitter function/type extraction (`--fn`, `--type` behind `--features=extract`)
+- ✅ **v0.7** — Tree-sitter function/type extraction (`--fn`, `--type` behind `--features=extract`; Rust, Go, Python, TypeScript, JavaScript)
 
 ---
 

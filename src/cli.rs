@@ -27,6 +27,16 @@ pub enum Command {
         /// Add files changed vs. this branch.
         #[arg(long)]
         diff: Option<String>,
+
+        /// Extract a specific function by name (requires --features=extract).
+        /// Usage: ctxforge add --fn ProcessCheck src/hub/check.go
+        #[arg(long = "fn")]
+        function: Vec<String>,
+
+        /// Extract a specific type/struct/interface by name (requires --features=extract).
+        /// Usage: ctxforge add --type Config src/config/config.go
+        #[arg(long = "type")]
+        type_name: Vec<String>,
     },
 
     /// Remove an item by index (1-based) or path.

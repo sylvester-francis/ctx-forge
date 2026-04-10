@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.0 — 2026-04-10
+
+### Tree-sitter extraction (new!)
+- **`ctxforge add --fn <name> <file>`** — extract a specific function by name using tree-sitter. Adds only that function's text to the bundle, not the whole file.
+- **`ctxforge add --type <name> <file>`** — extract a specific type (struct, class, interface, enum) by name.
+- Behind `--features=extract`: `cargo install ctxforge --features=extract`
+- **Supported languages**: Rust, Go, Python, TypeScript, JavaScript.
+- 9 unit tests covering all languages, not-found cases, and unsupported-language errors.
+- Uses tree-sitter 0.26 with `StreamingIterator` API (2026 pattern).
+- Default install (`cargo install ctxforge`) is unchanged — extract is opt-in.
+
 ## 0.6.1 — 2026-04-09
 
 ### Modernization

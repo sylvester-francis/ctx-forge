@@ -34,9 +34,35 @@ pub fn resolve_one(item: &Item, project_root: &Path) -> Result<ResolvedItem> {
     let content = match &item.kind {
         ItemKind::File => std::fs::read_to_string(&full)?,
         ItemKind::Range(range) => read_range(&full, *range)?,
+        #[cfg(feature = "extract")]
+        ItemKind::Function { name } => {
+            let source = std::fs::read_to_string(&full)?;
+            crate::extract::extract_function(&source, language, name)
+                .map_err(CtxforgeError::Msg)?
+                .ok_or_else(|| {
+                    CtxforgeError::Msg(format!(
+                        "function `{name}` not found in {}",
+                        item.path.display()
+                    ))
+                })?
+        }
+        #[cfg(feature = "extract")]
+        ItemKind::Type { name } => {
+            let source = std::fs::read_to_string(&full)?;
+            crate::extract::extract_type(&source, language, name)
+                .map_err(CtxforgeError::Msg)?
+                .ok_or_else(|| {
+                    CtxforgeError::Msg(format!(
+                        "type `{name}` not found in {}",
+                        item.path.display()
+                    ))
+                })?
+        }
+        #[cfg(not(feature = "extract"))]
         ItemKind::Function { .. } | ItemKind::Type { .. } => {
             return Err(CtxforgeError::Msg(
-                "function/type extraction requires --features=extract (not in v0.1)".into(),
+                "function/type extraction requires `cargo install ctxforge --features=extract`"
+                    .into(),
             ));
         }
     };
