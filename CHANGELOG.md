@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 — 2026-04-09
+
+### XML + JSON export formats (new!)
+- **`ctxforge export --xml`** — Claude-optimized XML with semantic `<context>` / `<source>` / `<documentation>` / `<memory>` tags. Code content wrapped in `<![CDATA[...]]>`; markdown files become `<documentation>`, everything else becomes `<source>`.
+- **`ctxforge export --json`** — structured JSON with `schema_version`, `items_count`, typed item kinds (`file`/`range`/`function`/`type`), and RFC3339 timestamps on memory notes. Built on serde for forward compatibility.
+- Same flags work with **`ctxforge copy`** for clipboard output.
+- New `--format <name>` flag accepts `markdown`, `md`, `xml`, or `json` (case-insensitive). `--xml` and `--json` are shortcuts.
+
 ## 0.2.0 — 2026-04-09
 
 ### Memory + continuity (new!)
