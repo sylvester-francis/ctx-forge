@@ -1,9 +1,16 @@
 # Changelog
 
+## 0.6.1 — 2026-04-09
+
+### Modernization
+- **MCP protocol version** bumped from `2024-11-05` to `2025-11-25` (current spec). No breaking changes — the protocol version string in the `initialize` handshake now matches the latest MCP specification.
+- **Claude Code install command** updated to explicit transport: `claude mcp add --transport stdio ctxforge -- ctxforge mcp` (follows 2026 `claude mcp add` conventions).
+- **TUI initialization** refactored to use `ratatui::run()` convenience function (ratatui 0.30 idiom). Eliminates manual `enable_raw_mode` / `EnterAlternateScreen` / `Terminal::new` boilerplate and guarantees terminal restore even on panic.
+
 ## 0.6.0 — 2026-04-09
 
 ### MCP Server (new!)
-- **`ctxforge mcp`** — stdio JSON-RPC server implementing the Model Context Protocol (2024-11-05). Install for Claude Code with `claude mcp add ctxforge -- ctxforge mcp`.
+- **`ctxforge mcp`** — stdio JSON-RPC server implementing the Model Context Protocol (2025-11-25). Install for Claude Code with `claude mcp add --transport stdio ctxforge -- ctxforge mcp`.
 - **4 tools exposed**: `ctxforge_recall` (search memory), `ctxforge_note` (write memory), `ctxforge_load_bundle` (load a profile), `ctxforge_status` (check token budget).
 - Hand-written JSON-RPC — no external MCP dependency. Single-threaded, synchronous, ~300 lines.
 

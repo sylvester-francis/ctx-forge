@@ -184,11 +184,11 @@ pub enum Command {
         extra_args: Vec<String>,
     },
 
-    /// Start the MCP (Model Context Protocol) server.
+    /// Start the MCP (Model Context Protocol) server (protocol 2025-11-25).
     ///
     /// Reads JSON-RPC requests from stdin, writes responses to stdout.
     /// Install for Claude Code:
-    ///   claude mcp add ctxforge -- ctxforge mcp
+    ///   claude mcp add --transport stdio ctxforge -- ctxforge mcp
     Mcp,
 }
 

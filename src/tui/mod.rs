@@ -13,43 +13,16 @@ pub mod ui;
 use crate::error::Result;
 use crate::paths::CtxforgeRoot;
 use app::App;
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
-use crossterm::execute;
-use crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
-};
-use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
-use std::io;
 
-/// Entry point: set up the terminal, run the event loop, restore terminal.
+/// Entry point: uses ratatui 0.30's `run()` convenience function which
+/// handles terminal init, alternate screen, raw mode, and guaranteed
+/// restore (even on panic) automatically.
 pub fn run(root: CtxforgeRoot) -> Result<()> {
-    // Set up terminal.
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-
-    // Run.
-    let result = run_loop(&mut terminal, root);
-
-    // Restore terminal no matter what.
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
-    result
+    ratatui::run(|terminal| run_loop(terminal, root))?;
+    Ok(())
 }
 
-fn run_loop(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    root: CtxforgeRoot,
-) -> Result<()> {
+fn run_loop(terminal: &mut ratatui::DefaultTerminal, root: CtxforgeRoot) -> Result<()> {
     let mut app = App::new(root);
 
     loop {

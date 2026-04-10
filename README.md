@@ -145,7 +145,7 @@ ctxforge resume                      # shows bundle + 5 most recent notes
 Give Claude Code persistent memory in one command:
 
 ```bash
-claude mcp add ctxforge -- ctxforge mcp
+claude mcp add --transport stdio ctxforge -- ctxforge mcp
 ```
 
 That's it. Claude Code can now read and write memory notes, load saved profiles, and check token budgets — all without leaving the conversation.

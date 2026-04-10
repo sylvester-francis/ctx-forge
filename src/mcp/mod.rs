@@ -1,7 +1,7 @@
-//! MCP (Model Context Protocol) server.
+//! MCP (Model Context Protocol) server — protocol version 2025-11-25.
 //!
 //! Runs as a stdio JSON-RPC server started by:
-//!   `claude mcp add ctxforge -- ctxforge mcp`
+//!   `claude mcp add --transport stdio ctxforge -- ctxforge mcp`
 //!
 //! Reads JSON-RPC requests from stdin (one per line), processes them,
 //! writes JSON-RPC responses to stdout. No network, no async.
@@ -17,7 +17,7 @@ use std::io::{self, BufRead, Write};
 
 const SERVER_NAME: &str = "ctxforge";
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
-const PROTOCOL_VERSION: &str = "2024-11-05";
+const PROTOCOL_VERSION: &str = "2025-11-25";
 
 pub fn run(root: CtxforgeRoot) -> Result<()> {
     let stdin = io::stdin();
