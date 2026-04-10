@@ -12,7 +12,10 @@ mod paths;
 mod profile;
 mod resolve;
 mod tokens;
+mod tui;
 mod walk;
+
+use std::io::IsTerminal;
 
 use clap::Parser;
 use cli::Cli;
@@ -27,5 +30,13 @@ fn main() {
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
+
+    // No subcommand + TTY → launch TUI.
+    if cli.command.is_none() && std::io::stdin().is_terminal() {
+        let cwd = std::env::current_dir()?;
+        let root = paths::CtxforgeRoot::find_or_create(&cwd)?;
+        return tui::run(root);
+    }
+
     commands::dispatch(cli)
 }

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0 — 2026-04-09
+
+### Interactive TUI (new!)
+- **Run `ctxforge` with no subcommand** to launch the interactive TUI composer.
+- **Two-panel layout**: file tree (left) with project files, bundle list (right) with selected items and per-item token counts + percentages.
+- **Live token gauge** at the top — color grades green → yellow → orange → red as you approach the model's context window. The viral detail.
+- **Hotspot highlighting** — items consuming >25% of the budget are highlighted in orange.
+- **Vim-style keybindings**: `j`/`k` navigate, `space` toggles selection, `Tab` switches panels, `g`/`G` jump to top/bottom, `c` copies to clipboard, `q` quits.
+- `.gitignore`-aware file tree built via the `ignore` crate — target/, .git/, etc. are hidden automatically.
+- Auto-detects TTY: launches TUI when stdin is a terminal, falls back to help text when piped.
+- New dependencies: `ratatui` 0.30, `crossterm` 0.29.
+
 ## 0.4.0 — 2026-04-09
 
 ### Pipe to agent (new!)
