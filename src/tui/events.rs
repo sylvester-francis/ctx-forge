@@ -33,6 +33,8 @@ pub fn handle(app: &mut App, key: KeyEvent) {
         Mode::Normal => handle_normal(app, key),
         Mode::Search { .. } => handle_search(app, key),
         Mode::Narrow { .. } => handle_narrow(app, key),
+        Mode::SaveProfile { .. } => handle_save_profile(app, key),
+        Mode::LoadProfile { .. } => handle_load_profile(app, key),
         // Other modes are added in later tasks.
         _ => {}
     }
@@ -95,6 +97,69 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
         }
         KeyCode::Char('n') => {
             app.start_narrow();
+        }
+        KeyCode::Char('s') => {
+            app.mode = Mode::SaveProfile {
+                name: String::new(),
+            };
+        }
+        KeyCode::Char('l') => {
+            app.start_load_profile();
+        }
+        _ => {}
+    }
+}
+
+fn handle_save_profile(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            app.mode = Mode::Normal;
+        }
+        KeyCode::Enter => {
+            let name = if let Mode::SaveProfile { name } = &app.mode {
+                name.clone()
+            } else {
+                return;
+            };
+            if name.is_empty() {
+                app.status_message = "Profile name cannot be empty".into();
+                return;
+            }
+            app.save_profile(&name);
+        }
+        KeyCode::Backspace => {
+            if let Mode::SaveProfile { name } = &mut app.mode {
+                name.pop();
+            }
+        }
+        KeyCode::Char(ch) => {
+            if let Mode::SaveProfile { name } = &mut app.mode {
+                name.push(ch);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn handle_load_profile(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            app.mode = Mode::Normal;
+        }
+        KeyCode::Enter => {
+            app.load_selected_profile();
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            if let Mode::LoadProfile { cursor, profiles } = &mut app.mode {
+                if *cursor + 1 < profiles.len() {
+                    *cursor += 1;
+                }
+            }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            if let Mode::LoadProfile { cursor, .. } = &mut app.mode {
+                *cursor = cursor.saturating_sub(1);
+            }
         }
         _ => {}
     }

@@ -33,9 +33,15 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         format!("~{}", app.total_tokens)
     };
 
+    let profile_str = app
+        .profile_name
+        .as_deref()
+        .map(|n| format!("profile: {n} │ "))
+        .unwrap_or_default();
+
     let label = format!(
-        " ctxforge │ {} │ {} / {} ({:.1}%)",
-        app.model_name, token_str, app.model_window, pct
+        " ctxforge │ {}{} │ {} / {} ({:.1}%)",
+        profile_str, app.model_name, token_str, app.model_window, pct
     );
 
     let ratio = (pct / 100.0).min(1.0);
@@ -57,6 +63,12 @@ fn draw_panels(f: &mut Frame, app: &App, area: Rect) {
 
     draw_file_tree(f, app, chunks[0]);
 
+    // LoadProfile mode replaces the right panel with the profile picker.
+    if let crate::tui::mode::Mode::LoadProfile { cursor, profiles } = &app.mode {
+        draw_profile_list(f, *cursor, profiles, chunks[1]);
+        return;
+    }
+
     // Split right column to show the hotspot panel below the bundle list
     // when one item dominates the token budget.
     if let Some((idx, pct)) = app.hotspot() {
@@ -69,6 +81,30 @@ fn draw_panels(f: &mut Frame, app: &App, area: Rect) {
     } else {
         draw_bundle_list(f, app, chunks[1]);
     }
+}
+
+fn draw_profile_list(f: &mut Frame, cursor: usize, profiles: &[String], area: Rect) {
+    let block = Block::default()
+        .title(" Load Profile ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ratatui::style::Color::Cyan));
+
+    let items: Vec<ListItem> = profiles
+        .iter()
+        .enumerate()
+        .map(|(i, name)| {
+            let style = if i == cursor {
+                Style::default()
+                    .fg(ratatui::style::Color::Black)
+                    .bg(ratatui::style::Color::White)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Line::from(vec![Span::styled(format!("  {name}"), style)]))
+        })
+        .collect();
+
+    f.render_widget(List::new(items).block(block), area);
 }
 
 fn draw_hotspot(f: &mut Frame, idx: usize, pct: f64, area: Rect) {
@@ -289,6 +325,21 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
             ]);
             f.render_widget(Paragraph::new(line), chunks[0]);
         }
+        Mode::SaveProfile { name } => {
+            let line = Line::from(vec![
+                Span::raw(" Profile name: "),
+                Span::styled(
+                    if name.is_empty() {
+                        "type a name"
+                    } else {
+                        name.as_str()
+                    },
+                    Style::default().fg(ratatui::style::Color::Cyan),
+                ),
+                Span::raw("  (Enter save, Esc cancel)"),
+            ]);
+            f.render_widget(Paragraph::new(line), chunks[0]);
+        }
         _ => {
             let status = Paragraph::new(format!(" {}", app.status_message))
                 .style(Style::default().add_modifier(Modifier::DIM));
@@ -299,7 +350,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     // Keybindings.
     let keys_text = match &app.mode {
         Mode::Normal => {
-            " ␣ toggle  ↵ expand  / search  n narrow  c copy  q quit"
+            " ␣ toggle  ↵ expand  / search  n narrow  s save  l load  c copy  q quit"
         }
         _ => " Esc cancel",
     };

@@ -40,6 +40,8 @@ pub struct App {
     pub bundled_paths: HashSet<PathBuf>,
     /// Indices into `tree_entries` for fuzzy-search results, ranked by score.
     pub search_results: Vec<usize>,
+    /// Currently loaded/saved profile name (shown in header).
+    pub profile_name: Option<String>,
     /// Active input/overlay mode. Drives key dispatch and overlay rendering.
     pub mode: mode::Mode,
     pub should_quit: bool,
@@ -74,6 +76,7 @@ impl App {
             exact_tokens: false,
             bundled_paths: HashSet::new(),
             search_results: Vec::new(),
+            profile_name: None,
             mode: mode::Mode::Normal,
             should_quit: false,
             status_message: String::new(),
@@ -267,6 +270,66 @@ impl App {
         self.recalculate_tokens();
         let _ = self.bundle.save(&self.root);
         self.status_message = format!("Narrowed to lines {start_num}-{end_num}");
+        self.mode = mode::Mode::Normal;
+    }
+
+    /// Save current bundle as a named profile under `.ctxforge/profiles/`.
+    pub fn save_profile(&mut self, name: &str) {
+        match crate::profile::save(&self.root, name, &self.bundle) {
+            Ok(()) => {
+                self.profile_name = Some(name.to_string());
+                self.status_message = format!("Saved profile '{name}'");
+            }
+            Err(e) => {
+                self.status_message = format!("Save error: {e}");
+            }
+        }
+        self.mode = mode::Mode::Normal;
+    }
+
+    /// Open the load-profile picker. If no profiles exist, sets a status
+    /// message and returns to Normal mode without entering LoadProfile mode.
+    pub fn start_load_profile(&mut self) {
+        match crate::profile::list(&self.root) {
+            Ok(profiles) => {
+                if profiles.is_empty() {
+                    self.status_message = "No profiles saved yet".into();
+                } else {
+                    self.mode = mode::Mode::LoadProfile {
+                        cursor: 0,
+                        profiles,
+                    };
+                }
+            }
+            Err(e) => {
+                self.status_message = format!("Profile list error: {e}");
+            }
+        }
+    }
+
+    /// Load whichever profile the cursor is on inside `LoadProfile` mode.
+    pub fn load_selected_profile(&mut self) {
+        // Pull the chosen name out of the mode before mutating self.
+        let chosen = if let mode::Mode::LoadProfile { cursor, profiles } = &self.mode {
+            profiles.get(*cursor).cloned()
+        } else {
+            None
+        };
+        if let Some(name) = chosen {
+            match crate::profile::load(&self.root, &name) {
+                Ok(bundle) => {
+                    self.bundle = bundle;
+                    self.rebuild_bundled_paths();
+                    self.recalculate_tokens();
+                    let _ = self.bundle.save(&self.root);
+                    self.profile_name = Some(name.clone());
+                    self.status_message = format!("Loaded profile '{name}'");
+                }
+                Err(e) => {
+                    self.status_message = format!("Load error: {e}");
+                }
+            }
+        }
         self.mode = mode::Mode::Normal;
     }
 
