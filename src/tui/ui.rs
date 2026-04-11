@@ -60,7 +60,7 @@ fn draw_panels(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
-    let title = format!(" files ({}) ", app.tree_entries.len());
+    let title = format!(" files ({}) ", app.visible_tree.len());
     let border_style = if app.focus == Focus::FileTree {
         Style::default().fg(ratatui::style::Color::Cyan)
     } else {
@@ -72,20 +72,21 @@ fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
         .border_style(border_style);
 
     let items: Vec<ListItem> = app
-        .tree_entries
+        .visible_tree
         .iter()
         .enumerate()
-        .map(|(i, entry)| {
+        .map(|(vi, &actual_idx)| {
+            let entry = &app.tree_entries[actual_idx];
             let indent = "  ".repeat(entry.depth);
             let marker = if entry.is_dir {
-                "▸ "
+                if entry.expanded { "▾ " } else { "▸ " }
             } else if app.bundled_paths.contains(&entry.rel_path) {
                 "■ "
             } else {
                 "▫ "
             };
 
-            let style = if i == app.tree_cursor && app.focus == Focus::FileTree {
+            let style = if vi == app.tree_cursor && app.focus == Focus::FileTree {
                 Style::default()
                     .fg(ratatui::style::Color::Black)
                     .bg(ratatui::style::Color::White)

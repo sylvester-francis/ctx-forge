@@ -23,6 +23,8 @@ pub struct App {
     pub project_root: PathBuf,
     pub bundle: Bundle,
     pub tree_entries: Vec<TreeEntry>,
+    /// Indices into `tree_entries` for currently visible (non-collapsed) entries.
+    pub visible_tree: Vec<usize>,
     pub tree_cursor: usize,
     pub bundle_cursor: usize,
     pub focus: Focus,
@@ -45,6 +47,7 @@ impl App {
         let project_root = root.project_root().to_path_buf();
         let bundle = Bundle::load_or_default(&root).unwrap_or_default();
         let tree_entries = tree::build(&project_root);
+        let visible_tree = tree::visible_indices(&tree_entries);
 
         let model_name = bundle
             .model
@@ -56,6 +59,7 @@ impl App {
             project_root,
             bundle,
             tree_entries,
+            visible_tree,
             tree_cursor: 0,
             bundle_cursor: 0,
             focus: Focus::FileTree,
@@ -74,9 +78,37 @@ impl App {
         app
     }
 
+    /// Number of currently visible (non-collapsed) tree rows.
+    pub fn visible_tree_len(&self) -> usize {
+        self.visible_tree.len()
+    }
+
+    /// Toggle expand/collapse for the directory at the current tree cursor.
+    /// No-op if the cursor is on a file.
+    pub fn toggle_expand(&mut self) {
+        let Some(&actual_idx) = self.visible_tree.get(self.tree_cursor) else {
+            return;
+        };
+        let Some(entry) = self.tree_entries.get_mut(actual_idx) else {
+            return;
+        };
+        if !entry.is_dir {
+            return;
+        }
+        entry.expanded = !entry.expanded;
+        self.visible_tree = tree::visible_indices(&self.tree_entries);
+        // Clamp cursor to new visible range.
+        if !self.visible_tree.is_empty() && self.tree_cursor >= self.visible_tree.len() {
+            self.tree_cursor = self.visible_tree.len() - 1;
+        }
+    }
+
     /// Toggle selection of the file at the current tree cursor.
     pub fn toggle_current(&mut self) {
-        let Some(entry) = self.tree_entries.get(self.tree_cursor) else {
+        let Some(&actual_idx) = self.visible_tree.get(self.tree_cursor) else {
+            return;
+        };
+        let Some(entry) = self.tree_entries.get(actual_idx) else {
             return;
         };
         if entry.is_dir {
@@ -134,11 +166,11 @@ impl App {
     }
 
     pub fn move_tree_cursor(&mut self, delta: i32) {
-        if self.tree_entries.is_empty() {
+        if self.visible_tree.is_empty() {
             return;
         }
         let new = self.tree_cursor as i32 + delta;
-        self.tree_cursor = new.clamp(0, self.tree_entries.len() as i32 - 1) as usize;
+        self.tree_cursor = new.clamp(0, self.visible_tree.len() as i32 - 1) as usize;
     }
 
     pub fn move_bundle_cursor(&mut self, delta: i32) {

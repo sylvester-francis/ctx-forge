@@ -52,9 +52,14 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
             Focus::FileTree => app.move_tree_cursor(-1),
             Focus::BundleList => app.move_bundle_cursor(-1),
         },
-        KeyCode::Char(' ') | KeyCode::Enter => {
+        KeyCode::Char(' ') => {
             if app.focus == Focus::FileTree {
                 app.toggle_current();
+            }
+        }
+        KeyCode::Enter => {
+            if app.focus == Focus::FileTree {
+                app.toggle_expand();
             }
         }
         KeyCode::Tab => {
@@ -65,8 +70,9 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
         }
         KeyCode::Char('G') => match app.focus {
             Focus::FileTree => {
-                if !app.tree_entries.is_empty() {
-                    app.tree_cursor = app.tree_entries.len() - 1;
+                let len = app.visible_tree_len();
+                if len > 0 {
+                    app.tree_cursor = len - 1;
                 }
             }
             Focus::BundleList => {
