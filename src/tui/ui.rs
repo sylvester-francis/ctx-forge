@@ -21,6 +21,68 @@ pub fn draw(f: &mut Frame, app: &App) {
     draw_header(f, app, chunks[0]);
     draw_panels(f, app, chunks[1]);
     draw_footer(f, app, chunks[2]);
+
+    // Render overlays on top of the main layout.
+    draw_overlay(f, app);
+}
+
+fn draw_overlay(f: &mut Frame, app: &App) {
+    use crate::tui::mode::Mode;
+    match &app.mode {
+        Mode::PipeMenu => {
+            let area = centered_rect(30, 7, f.area());
+            f.render_widget(ratatui::widgets::Clear, area);
+            let block = Block::default()
+                .title(" Pipe to Agent ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(ratatui::style::Color::Cyan));
+            let text = vec![
+                Line::from("  c  claude (XML)"),
+                Line::from("  a  agent (markdown)"),
+                Line::from("  g  gemini (markdown)"),
+                Line::from(""),
+                Line::from("  Esc cancel"),
+            ];
+            f.render_widget(Paragraph::new(text).block(block), area);
+        }
+        Mode::ModelSwitch { cursor } => {
+            let models = crate::models::all_models();
+            let height = (models.len() + 2).min(20) as u16;
+            let area = centered_rect(45, height, f.area());
+            f.render_widget(ratatui::widgets::Clear, area);
+            let block = Block::default()
+                .title(" Switch Model ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(ratatui::style::Color::Cyan));
+            let items: Vec<ListItem> = models
+                .iter()
+                .enumerate()
+                .map(|(i, m)| {
+                    let style = if i == *cursor {
+                        Style::default()
+                            .fg(ratatui::style::Color::Black)
+                            .bg(ratatui::style::Color::White)
+                    } else {
+                        Style::default()
+                    };
+                    ListItem::new(Span::styled(
+                        format!("  {:25} {:>10}", m.name, m.window),
+                        style,
+                    ))
+                })
+                .collect();
+            f.render_widget(List::new(items).block(block), area);
+        }
+        _ => {}
+    }
+}
+
+/// Helper to create a centered rect of given width/height inside `area`,
+/// clamped to fit if `area` is too small.
+fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
+    let x = area.x + area.width.saturating_sub(width) / 2;
+    let y = area.y + area.height.saturating_sub(height) / 2;
+    Rect::new(x, y, width.min(area.width), height.min(area.height))
 }
 
 fn draw_header(f: &mut Frame, app: &App, area: Rect) {

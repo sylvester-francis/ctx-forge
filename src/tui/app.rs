@@ -42,6 +42,13 @@ pub struct App {
     pub search_results: Vec<usize>,
     /// Currently loaded/saved profile name (shown in header).
     pub profile_name: Option<String>,
+    /// Pending stdout output (for `x` export). The TUI run loop drains this
+    /// each iteration: it restores the terminal, prints the content, waits
+    /// for a keypress, and re-initializes the alternate screen.
+    pub pending_stdout: Option<String>,
+    /// Pending pipe (target, content). Drained by the run loop the same way
+    /// as `pending_stdout` but spawns the target binary and writes to its stdin.
+    pub pending_pipe: Option<(String, String)>,
     /// Active input/overlay mode. Drives key dispatch and overlay rendering.
     pub mode: mode::Mode,
     pub should_quit: bool,
@@ -77,6 +84,8 @@ impl App {
             bundled_paths: HashSet::new(),
             search_results: Vec::new(),
             profile_name: None,
+            pending_stdout: None,
+            pending_pipe: None,
             mode: mode::Mode::Normal,
             should_quit: false,
             status_message: String::new(),
@@ -328,6 +337,57 @@ impl App {
                 Err(e) => {
                     self.status_message = format!("Load error: {e}");
                 }
+            }
+        }
+        self.mode = mode::Mode::Normal;
+    }
+
+    /// Render the bundle as XML and stash it in `pending_stdout` so the run
+    /// loop can drain the alternate screen before printing.
+    pub fn export_xml_to_stdout(&mut self) {
+        match resolve::resolve_all(&self.bundle.items, &self.project_root) {
+            Ok(items) => {
+                let memory = crate::memory::collect_for_attach(&self.root, false, None, 10)
+                    .unwrap_or_default();
+                let rendered =
+                    crate::format::render(crate::format::Format::Xml, &items, &memory);
+                self.pending_stdout = Some(rendered);
+                self.status_message = "Exported XML to stdout".into();
+            }
+            Err(e) => {
+                self.status_message = format!("Export error: {e}");
+            }
+        }
+    }
+
+    /// Switch to a different model and recompute token counts. Persists the
+    /// new model on the bundle so it survives restart.
+    pub fn switch_model(&mut self, model_name: &str) {
+        self.model_name = model_name.to_string();
+        self.bundle.model = Some(model_name.to_string());
+        self.recalculate_tokens();
+        let _ = self.bundle.save(&self.root);
+        self.status_message = format!("Switched to {model_name}");
+        self.mode = mode::Mode::Normal;
+    }
+
+    /// Pipe the rendered bundle to a local agent CLI. Targets `claude` get
+    /// XML; everything else gets markdown. The actual subprocess spawn is
+    /// deferred to the run loop via `pending_pipe`.
+    pub fn pipe_to_agent(&mut self, target: &str) {
+        let fmt = match target {
+            "claude" => crate::format::Format::Xml,
+            _ => crate::format::Format::Markdown,
+        };
+        match resolve::resolve_all(&self.bundle.items, &self.project_root) {
+            Ok(items) => {
+                let memory = crate::memory::collect_for_attach(&self.root, false, None, 10)
+                    .unwrap_or_default();
+                let rendered = crate::format::render(fmt, &items, &memory);
+                self.pending_pipe = Some((target.to_string(), rendered));
+            }
+            Err(e) => {
+                self.status_message = format!("Pipe error: {e}");
             }
         }
         self.mode = mode::Mode::Normal;

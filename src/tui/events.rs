@@ -35,6 +35,8 @@ pub fn handle(app: &mut App, key: KeyEvent) {
         Mode::Narrow { .. } => handle_narrow(app, key),
         Mode::SaveProfile { .. } => handle_save_profile(app, key),
         Mode::LoadProfile { .. } => handle_load_profile(app, key),
+        Mode::PipeMenu => handle_pipe_menu(app, key),
+        Mode::ModelSwitch { .. } => handle_model_switch(app, key),
         // Other modes are added in later tasks.
         _ => {}
     }
@@ -105,6 +107,65 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
         }
         KeyCode::Char('l') => {
             app.start_load_profile();
+        }
+        KeyCode::Char('x') => {
+            app.export_xml_to_stdout();
+        }
+        KeyCode::Char('p') => {
+            app.mode = Mode::PipeMenu;
+        }
+        KeyCode::Char('m') => {
+            app.mode = Mode::ModelSwitch { cursor: 0 };
+        }
+        _ => {}
+    }
+}
+
+fn handle_pipe_menu(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            app.mode = Mode::Normal;
+        }
+        KeyCode::Char('c') => {
+            app.pipe_to_agent("claude");
+        }
+        KeyCode::Char('a') => {
+            app.pipe_to_agent("agent");
+        }
+        KeyCode::Char('g') => {
+            app.pipe_to_agent("gemini");
+        }
+        _ => {}
+    }
+}
+
+fn handle_model_switch(app: &mut App, key: KeyEvent) {
+    let models = crate::models::all_models();
+    match key.code {
+        KeyCode::Esc => {
+            app.mode = Mode::Normal;
+        }
+        KeyCode::Enter => {
+            let chosen = if let Mode::ModelSwitch { cursor } = &app.mode {
+                models.get(*cursor).map(|m| m.name.to_string())
+            } else {
+                None
+            };
+            if let Some(name) = chosen {
+                app.switch_model(&name);
+            }
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            if let Mode::ModelSwitch { cursor } = &mut app.mode {
+                if *cursor + 1 < models.len() {
+                    *cursor += 1;
+                }
+            }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            if let Mode::ModelSwitch { cursor } = &mut app.mode {
+                *cursor = cursor.saturating_sub(1);
+            }
         }
         _ => {}
     }

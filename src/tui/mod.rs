@@ -29,6 +29,44 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, root: CtxforgeRoot) -> Resu
     loop {
         terminal.draw(|f| ui::draw(f, &app))?;
 
+        // Drain any pending stdout export (e.g. `x` key). We restore the
+        // terminal, print, wait for a keypress, then re-init a fresh terminal
+        // and restart the draw loop.
+        if let Some(content) = app.pending_stdout.take() {
+            ratatui::restore();
+            println!("{content}");
+            eprintln!("\nPress any key to return to ctxforge...");
+            let _ = crossterm::event::read();
+            *terminal = ratatui::init();
+            continue;
+        }
+
+        // Drain any pending pipe (e.g. `p` menu choice). Same dance, but
+        // spawn the target binary and pipe content into its stdin.
+        if let Some((target, content)) = app.pending_pipe.take() {
+            ratatui::restore();
+            match std::process::Command::new(&target)
+                .stdin(std::process::Stdio::piped())
+                .spawn()
+            {
+                Ok(mut child) => {
+                    if let Some(mut stdin) = child.stdin.take() {
+                        use std::io::Write;
+                        let _ = stdin.write_all(content.as_bytes());
+                    }
+                    let _ = child.wait();
+                    app.status_message = format!("Piped to {target}");
+                }
+                Err(e) => {
+                    eprintln!("Failed to start `{target}`: {e}");
+                    eprintln!("Press any key to return...");
+                    let _ = crossterm::event::read();
+                }
+            }
+            *terminal = ratatui::init();
+            continue;
+        }
+
         if let Some(key) = events::poll() {
             events::handle(&mut app, key);
         }
