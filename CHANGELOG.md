@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.2 — 2026-04-11
+
+### Documentation
+- **README refresh** to reflect v1.0 reality: install section now lists the four feature flags (`tui`, `mcp`, `extract`, `minimal`) and the three install modes. The Interactive TUI section has an updated ASCII mockup (collapsible `▾`/`▸` markers, profile in header, `λ`/`τ` icons on bundle items, hotspot panel, new footer). Added a full keybinding reference table. `ctxforge add --fn` / `--type` examples added to Quick Start and CLI Reference. MCP protocol version corrected from the stale `2024-11-05` to the actual `2025-11-25`. Project Status rolled forward to include v1.0 and v1.0.1.
+
+This is a **docs-only release** — no code changes, no behavior changes. Published so that the README displayed on crates.io matches the current README on GitHub.
+
 ## 1.0.1 — 2026-04-11
 
 ### Fixed
