@@ -23,9 +23,9 @@ tiktoken-rs = "0.11"
 ignore = "0.4.25"
 globset = "0.4.18"
 git2 = { version = "0.20", default-features = false, features = ["vendored-libgit2"] }
-ratatui = "0.30"
-crossterm = "0.29"
-fuzzy-matcher = "0.3"
+ratatui = { version = "0.30", optional = true }
+crossterm = { version = "0.29", optional = true }
+fuzzy-matcher = { version = "0.3", optional = true }
 
 # Optional: tree-sitter extraction (behind --features=extract)
 tree-sitter = { version = "0.26", optional = true }
@@ -42,7 +42,9 @@ tempfile = "3.27"
 pretty_assertions = "1.4.1"
 
 [features]
-default = []
+default = ["tui", "mcp"]
+tui = ["dep:ratatui", "dep:crossterm", "dep:fuzzy-matcher"]
+mcp = []
 extract = [
     "dep:tree-sitter",
     "dep:tree-sitter-go",
@@ -51,6 +53,7 @@ extract = [
     "dep:tree-sitter-typescript",
     "dep:tree-sitter-javascript",
 ]
+minimal = []
 
 [profile.release]
 lto = true

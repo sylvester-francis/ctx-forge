@@ -199,6 +199,7 @@ pub enum Command {
     /// Reads JSON-RPC requests from stdin, writes responses to stdout.
     /// Install for Claude Code:
     ///   claude mcp add --transport stdio ctxforge -- ctxforge mcp
+    #[cfg(feature = "mcp")]
     Mcp,
 }
 

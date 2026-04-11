@@ -73,6 +73,7 @@ impl Default for Mode {
 
 impl Mode {
     /// Whether the mode is Normal (for key dispatch).
+    #[allow(dead_code)]
     pub fn is_normal(&self) -> bool {
         matches!(self, Mode::Normal)
     }
