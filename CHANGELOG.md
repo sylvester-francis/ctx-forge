@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.3 — 2026-04-11
+
+### Fixed
+- **`ctxforge add <dir>` no longer drags in `.git/`, `.ctxforge/`, and other dotfiles.** `walk::expand` now walks with `hidden(true)`, matching the TUI file tree's existing behavior. Previously, running `ctxforge add .` (or `ctxforge add /path/to/project`, or `ctxforge add '**/*'`) would recursively walk the target directory with `hidden(false)` and include every dotfile in its path — `.git/HEAD`, `.git/config`, `.git/hooks/*.sample`, `.DS_Store`, `.env.example`, `.claude/projects/*`, etc. One user ended up with a 528-item bundle full of git internals. Users who still want to add a specific dotfile can name it explicitly (`ctxforge add .gitignore`) — the literal-file branch of `walk::expand` bypasses the walker entirely.
+- **Non-UTF-8 files in a bundle no longer zero out the entire token budget.** `resolve::resolve_one` now calls a new `read_to_utf8_or_placeholder` helper: non-UTF-8 files (e.g. `.git/index`, images, compiled binaries) resolve to `<non-UTF-8 file, N bytes — omitted>` instead of returning `io::Error`. Before this fix, a single binary file in the bundle would make `resolve_all` fail, which the TUI's `recalculate_tokens` swallowed via `.unwrap_or_default()`, causing the gauge to display `~0 / 200,000 (0.0%)` and the "Resolve error: stream did not contain valid UTF-8" status message. Now the gauge is accurate and each binary item shows up in the bundle list with its own small placeholder cost.
+
+### Added
+- 5 regression tests in `src/walk.rs` and `src/resolve.rs` covering: dotfiles skipped during glob walks, dotfiles skipped when walking a directory literally, explicit-dotfile-literal still works, non-UTF-8 files resolve to a placeholder, `resolve_all` succeeds when a bundle mixes text and binary files.
+
 ## 1.0.2 — 2026-04-11
 
 ### Documentation

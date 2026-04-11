@@ -32,9 +32,13 @@ pub fn expand(pattern: &str, cwd: &Path, excludes: &[String]) -> Result<Vec<Path
 
     let mut results: Vec<PathBuf> = Vec::new();
 
+    // `hidden(true)` skips dotfiles (`.git/`, `.ctxforge/`, `.DS_Store`, etc.)
+    // during directory traversal. Users can still add hidden files explicitly
+    // by naming them on the command line — the literal-file branch below
+    // bypasses the walker entirely.
     if is_glob {
         let matcher = Glob::new(pattern)?.compile_matcher();
-        for entry in WalkBuilder::new(cwd).hidden(false).build().flatten() {
+        for entry in WalkBuilder::new(cwd).hidden(true).build().flatten() {
             if !entry.file_type().is_some_and(|t| t.is_file()) {
                 continue;
             }
@@ -52,7 +56,7 @@ pub fn expand(pattern: &str, cwd: &Path, excludes: &[String]) -> Result<Vec<Path
                 results.push(rel);
             }
         } else if target.is_dir() {
-            for entry in WalkBuilder::new(&target).hidden(false).build().flatten() {
+            for entry in WalkBuilder::new(&target).hidden(true).build().flatten() {
                 if !entry.file_type().is_some_and(|t| t.is_file()) {
                     continue;
                 }
@@ -150,5 +154,62 @@ mod tests {
         let r = expand("**/*", td.path(), &[]).unwrap();
         assert!(r.contains(&PathBuf::from("src/main.rs")));
         assert!(!r.iter().any(|p| p.starts_with("target")));
+    }
+
+    #[test]
+    fn dotfiles_are_skipped_during_glob_walk() {
+        // Regression test for v1.0.3: previously, `ctxforge add '**/*'` (or
+        // `ctxforge add <dir>`) walked with `hidden(false)`, which dragged
+        // `.git/HEAD`, `.git/config`, `.git/hooks/*.sample`, `.DS_Store`,
+        // and other dotfiles into the bundle. Now dotfiles are skipped.
+        let td = TempDir::new().unwrap();
+        write(td.path(), "src/main.rs", "");
+        write(td.path(), "README.md", "");
+        write(td.path(), ".git/HEAD", "ref: refs/heads/main");
+        write(td.path(), ".git/config", "[core]");
+        write(td.path(), ".git/hooks/pre-commit.sample", "#!/bin/sh");
+        write(td.path(), ".DS_Store", "");
+        write(td.path(), ".env.example", "KEY=");
+
+        let r = expand("**/*", td.path(), &[]).unwrap();
+        assert!(r.contains(&PathBuf::from("src/main.rs")));
+        assert!(r.contains(&PathBuf::from("README.md")));
+        assert!(
+            !r.iter().any(|p| p.starts_with(".git")),
+            "dotfile paths under .git/ must be skipped during walk, got: {r:?}"
+        );
+        assert!(
+            !r.iter().any(|p| p == &PathBuf::from(".DS_Store")),
+            ".DS_Store must be skipped"
+        );
+        assert!(
+            !r.iter().any(|p| p == &PathBuf::from(".env.example")),
+            ".env.example must be skipped"
+        );
+    }
+
+    #[test]
+    fn dotfiles_are_skipped_when_walking_a_directory() {
+        // Same bug as above but via `ctxforge add <dir>` (literal path,
+        // not glob).
+        let td = TempDir::new().unwrap();
+        write(td.path(), "src/main.rs", "");
+        write(td.path(), ".git/HEAD", "ref: refs/heads/main");
+
+        let r = expand(".", td.path(), &[]).unwrap();
+        assert!(r.contains(&PathBuf::from("src/main.rs")));
+        assert!(!r.iter().any(|p| p.starts_with(".git")));
+    }
+
+    #[test]
+    fn explicit_dotfile_literal_still_works() {
+        // Users should still be able to add a dotfile by naming it
+        // explicitly — the literal-file branch bypasses the walker.
+        let td = TempDir::new().unwrap();
+        write(td.path(), ".gitignore", "target/\n");
+        write(td.path(), "src/main.rs", "");
+
+        let r = expand(".gitignore", td.path(), &[]).unwrap();
+        assert_eq!(r, vec![PathBuf::from(".gitignore")]);
     }
 }
