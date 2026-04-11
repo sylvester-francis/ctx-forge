@@ -96,6 +96,11 @@ const MODELS: &[ModelInfo] = &[
     },
 ];
 
+/// Return the full list of known models. Used by the TUI model switcher.
+pub fn all_models() -> &'static [ModelInfo] {
+    MODELS
+}
+
 /// Lookup by name. Unknown names return a fallback with 200k window and
 /// estimate tokenizer so ctxforge degrades gracefully.
 pub fn lookup(name: &str) -> ModelInfo {

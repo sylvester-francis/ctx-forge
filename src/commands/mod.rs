@@ -92,6 +92,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             memory_limit,
             &extra_args,
         ),
+        #[cfg(feature = "mcp")]
         Some(Command::Mcp) => crate::mcp::run(root),
     }
 }

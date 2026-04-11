@@ -8,6 +8,7 @@ mod extract;
 mod format;
 mod git;
 mod lang;
+#[cfg(feature = "mcp")]
 mod mcp;
 mod memory;
 mod models;
@@ -15,9 +16,11 @@ mod paths;
 mod profile;
 mod resolve;
 mod tokens;
+#[cfg(feature = "tui")]
 mod tui;
 mod walk;
 
+#[cfg(feature = "tui")]
 use std::io::IsTerminal;
 
 use clap::Parser;
@@ -34,7 +37,8 @@ fn main() {
 fn run() -> Result<()> {
     let cli = Cli::parse();
 
-    // No subcommand + TTY → launch TUI.
+    // No subcommand + TTY → launch TUI (if feature enabled).
+    #[cfg(feature = "tui")]
     if cli.command.is_none() && std::io::stdin().is_terminal() {
         let cwd = std::env::current_dir()?;
         let root = paths::CtxforgeRoot::find_or_create(&cwd)?;

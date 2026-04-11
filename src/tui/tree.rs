@@ -20,6 +20,8 @@ pub struct TreeEntry {
     pub depth: usize,
     /// True if this entry is a directory header.
     pub is_dir: bool,
+    /// Whether this directory is expanded (always false / ignored for files).
+    pub expanded: bool,
 }
 
 /// Build the tree entries from a project root directory.
@@ -71,6 +73,8 @@ pub fn build(project_root: &Path) -> Vec<TreeEntry> {
                     rel_path: dir.clone(),
                     depth,
                     is_dir: true,
+                    // Top-level directories start expanded; deeper ones collapsed.
+                    expanded: depth == 0,
                 });
             }
         }
@@ -87,10 +91,38 @@ pub fn build(project_root: &Path) -> Vec<TreeEntry> {
             rel_path: file.clone(),
             depth,
             is_dir: false,
+            expanded: false,
         });
     }
 
     entries
+}
+
+/// Returns indices of entries visible given current expand/collapse state.
+/// A file or dir is visible if all its ancestor directories are expanded.
+pub fn visible_indices(entries: &[TreeEntry]) -> Vec<usize> {
+    let mut result = Vec::new();
+    let mut collapsed_depth: Option<usize> = None;
+
+    for (i, entry) in entries.iter().enumerate() {
+        // If we're inside a collapsed subtree, skip until we exit it.
+        if let Some(cd) = collapsed_depth {
+            if entry.depth > cd {
+                continue;
+            }
+            // We've exited the collapsed subtree.
+            collapsed_depth = None;
+        }
+
+        result.push(i);
+
+        // If this is a collapsed directory, mark its depth so children are hidden.
+        if entry.is_dir && !entry.expanded {
+            collapsed_depth = Some(entry.depth);
+        }
+    }
+
+    result
 }
 
 #[cfg(test)]
@@ -143,5 +175,108 @@ mod tests {
         let entries = build(td.path());
         let c_file = entries.iter().find(|e| e.name == "c.rs").unwrap();
         assert_eq!(c_file.depth, 2);
+    }
+
+    #[test]
+    fn visible_indices_hides_collapsed_children() {
+        let entries = vec![
+            TreeEntry {
+                name: "src/".into(),
+                rel_path: "src".into(),
+                depth: 0,
+                is_dir: true,
+                expanded: false,
+            },
+            TreeEntry {
+                name: "main.rs".into(),
+                rel_path: "src/main.rs".into(),
+                depth: 1,
+                is_dir: false,
+                expanded: false,
+            },
+            TreeEntry {
+                name: "lib.rs".into(),
+                rel_path: "src/lib.rs".into(),
+                depth: 1,
+                is_dir: false,
+                expanded: false,
+            },
+            TreeEntry {
+                name: "README.md".into(),
+                rel_path: "README.md".into(),
+                depth: 0,
+                is_dir: false,
+                expanded: false,
+            },
+        ];
+        let vis = visible_indices(&entries);
+        // src/ is visible but collapsed, so main.rs and lib.rs are hidden. README.md is visible.
+        assert_eq!(vis, vec![0, 3]);
+    }
+
+    #[test]
+    fn visible_indices_shows_expanded_children() {
+        let entries = vec![
+            TreeEntry {
+                name: "src/".into(),
+                rel_path: "src".into(),
+                depth: 0,
+                is_dir: true,
+                expanded: true,
+            },
+            TreeEntry {
+                name: "main.rs".into(),
+                rel_path: "src/main.rs".into(),
+                depth: 1,
+                is_dir: false,
+                expanded: false,
+            },
+            TreeEntry {
+                name: "README.md".into(),
+                rel_path: "README.md".into(),
+                depth: 0,
+                is_dir: false,
+                expanded: false,
+            },
+        ];
+        let vis = visible_indices(&entries);
+        assert_eq!(vis, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn visible_indices_nested_collapse() {
+        let entries = vec![
+            TreeEntry {
+                name: "src/".into(),
+                rel_path: "src".into(),
+                depth: 0,
+                is_dir: true,
+                expanded: true,
+            },
+            TreeEntry {
+                name: "hub/".into(),
+                rel_path: "src/hub".into(),
+                depth: 1,
+                is_dir: true,
+                expanded: false,
+            },
+            TreeEntry {
+                name: "server.go".into(),
+                rel_path: "src/hub/server.go".into(),
+                depth: 2,
+                is_dir: false,
+                expanded: false,
+            },
+            TreeEntry {
+                name: "main.rs".into(),
+                rel_path: "src/main.rs".into(),
+                depth: 1,
+                is_dir: false,
+                expanded: false,
+            },
+        ];
+        let vis = visible_indices(&entries);
+        // src/ expanded, hub/ visible but collapsed (hides server.go), main.rs visible
+        assert_eq!(vis, vec![0, 1, 3]);
     }
 }

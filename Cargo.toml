@@ -1,6 +1,6 @@
 [package]
 name = "ctxforge"
-version = "0.7.0"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.85"
 description = "The missing CLI for AI coding — assemble, count, and export perfect context bundles."
@@ -23,8 +23,9 @@ tiktoken-rs = "0.11"
 ignore = "0.4.25"
 globset = "0.4.18"
 git2 = { version = "0.20", default-features = false, features = ["vendored-libgit2"] }
-ratatui = "0.30"
-crossterm = "0.29"
+ratatui = { version = "0.30", optional = true }
+crossterm = { version = "0.29", optional = true }
+fuzzy-matcher = { version = "0.3", optional = true }
 
 # Optional: tree-sitter extraction (behind --features=extract)
 tree-sitter = { version = "0.26", optional = true }
@@ -41,7 +42,9 @@ tempfile = "3.27"
 pretty_assertions = "1.4.1"
 
 [features]
-default = []
+default = ["tui", "mcp"]
+tui = ["dep:ratatui", "dep:crossterm", "dep:fuzzy-matcher"]
+mcp = []
 extract = [
     "dep:tree-sitter",
     "dep:tree-sitter-go",
@@ -50,6 +53,7 @@ extract = [
     "dep:tree-sitter-typescript",
     "dep:tree-sitter-javascript",
 ]
+minimal = []
 
 [profile.release]
 lto = true
