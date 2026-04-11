@@ -131,6 +131,12 @@ fn draw_panels(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
+    // MemoryPanel mode replaces the right panel with the recall view.
+    if matches!(app.mode, crate::tui::mode::Mode::MemoryPanel { .. }) {
+        draw_memory_panel(f, app, chunks[1]);
+        return;
+    }
+
     // Split right column to show the hotspot panel below the bundle list
     // when one item dominates the token budget.
     if let Some((idx, pct)) = app.hotspot() {
@@ -142,6 +148,56 @@ fn draw_panels(f: &mut Frame, app: &App, area: Rect) {
         draw_hotspot(f, idx, pct, right[1]);
     } else {
         draw_bundle_list(f, app, chunks[1]);
+    }
+}
+
+fn draw_memory_panel(f: &mut Frame, app: &App, area: Rect) {
+    let block = Block::default()
+        .title(" Memory (recall) ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ratatui::style::Color::Cyan));
+
+    let mut notes = crate::memory::index::read_all(&app.root).unwrap_or_default();
+    // Show newest first to match recall semantics.
+    notes.reverse();
+
+    let cursor = if let crate::tui::mode::Mode::MemoryPanel { cursor, .. } = app.mode {
+        cursor
+    } else {
+        0
+    };
+
+    let items: Vec<ListItem> = notes
+        .iter()
+        .enumerate()
+        .map(|(i, note)| {
+            let ts = note.timestamp.format("%Y-%m-%d");
+            let tag_str = note
+                .tag
+                .as_deref()
+                .map(|t| format!(" {t}"))
+                .unwrap_or_default();
+            let style = if i == cursor {
+                Style::default()
+                    .fg(ratatui::style::Color::Black)
+                    .bg(ratatui::style::Color::White)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Span::styled(
+                format!("  [{ts}{tag_str}] {}", note.body),
+                style,
+            ))
+        })
+        .collect();
+
+    if items.is_empty() {
+        let msg = Paragraph::new("  (no notes yet)")
+            .style(Style::default().add_modifier(Modifier::DIM))
+            .block(block);
+        f.render_widget(msg, area);
+    } else {
+        f.render_widget(List::new(items).block(block), area);
     }
 }
 
@@ -399,6 +455,40 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
                     Style::default().fg(ratatui::style::Color::Cyan),
                 ),
                 Span::raw("  (Enter save, Esc cancel)"),
+            ]);
+            f.render_widget(Paragraph::new(line), chunks[0]);
+        }
+        Mode::AddNote { tag, body, field } => {
+            let tag_style = if *field == InputField::First {
+                Style::default().fg(ratatui::style::Color::Cyan)
+            } else {
+                Style::default()
+            };
+            let body_style = if *field == InputField::Second {
+                Style::default().fg(ratatui::style::Color::Cyan)
+            } else {
+                Style::default()
+            };
+            let line = Line::from(vec![
+                Span::raw(" Tag: "),
+                Span::styled(
+                    if tag.is_empty() {
+                        "(optional)"
+                    } else {
+                        tag.as_str()
+                    },
+                    tag_style,
+                ),
+                Span::raw("  Body: "),
+                Span::styled(
+                    if body.is_empty() {
+                        "type here"
+                    } else {
+                        body.as_str()
+                    },
+                    body_style,
+                ),
+                Span::raw("  (Tab switch, Enter save, Esc cancel)"),
             ]);
             f.render_widget(Paragraph::new(line), chunks[0]);
         }

@@ -371,6 +371,60 @@ impl App {
         self.mode = mode::Mode::Normal;
     }
 
+    /// Open or close the memory recall panel. Reads notes from the JSONL
+    /// index — sets a status message instead of opening if there are none.
+    pub fn toggle_memory_panel(&mut self) {
+        if matches!(self.mode, mode::Mode::MemoryPanel { .. }) {
+            self.mode = mode::Mode::Normal;
+            return;
+        }
+        match crate::memory::index::read_all(&self.root) {
+            Ok(notes) => {
+                let count = notes.len();
+                if count == 0 {
+                    self.status_message = "No memory notes yet".into();
+                } else {
+                    self.mode = mode::Mode::MemoryPanel { cursor: 0, count };
+                }
+            }
+            Err(e) => {
+                self.status_message = format!("Memory error: {e}");
+            }
+        }
+    }
+
+    /// Persist the inline note from `Mode::AddNote`. Validates the body is
+    /// not empty before writing. An empty tag becomes `None` (untagged → goes
+    /// to `decisions.md`).
+    pub fn write_note_inline(&mut self) {
+        let (tag, body) = if let mode::Mode::AddNote { tag, body, .. } = &self.mode {
+            (tag.clone(), body.clone())
+        } else {
+            return;
+        };
+
+        if body.trim().is_empty() {
+            self.status_message = "Note body cannot be empty".into();
+            self.mode = mode::Mode::Normal;
+            return;
+        }
+        let tag_opt = if tag.trim().is_empty() {
+            None
+        } else {
+            Some(tag)
+        };
+        match crate::memory::write_note(&self.root, body, tag_opt) {
+            Ok(note) => {
+                let ts = note.timestamp.format("%Y-%m-%d %H:%M");
+                self.status_message = format!("Noted: [{ts}] {}", note.body);
+            }
+            Err(e) => {
+                self.status_message = format!("Note error: {e}");
+            }
+        }
+        self.mode = mode::Mode::Normal;
+    }
+
     /// Pipe the rendered bundle to a local agent CLI. Targets `claude` get
     /// XML; everything else gets markdown. The actual subprocess spawn is
     /// deferred to the run loop via `pending_pipe`.
