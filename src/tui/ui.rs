@@ -250,18 +250,59 @@ fn draw_bundle_list(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
+    use crate::tui::mode::{InputField, Mode};
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Length(1)])
         .split(area);
 
-    // Status message.
-    let status = Paragraph::new(format!(" {}", app.status_message))
-        .style(Style::default().add_modifier(Modifier::DIM));
-    f.render_widget(status, chunks[0]);
+    // Status / input area — when in an input mode, render the inline prompt
+    // instead of the regular status message.
+    match &app.mode {
+        Mode::Narrow { start, end, field } => {
+            let start_style = if *field == InputField::First {
+                Style::default().fg(ratatui::style::Color::Cyan)
+            } else {
+                Style::default()
+            };
+            let end_style = if *field == InputField::Second {
+                Style::default().fg(ratatui::style::Color::Cyan)
+            } else {
+                Style::default()
+            };
+            let line = Line::from(vec![
+                Span::raw(" Narrow lines: "),
+                Span::styled(
+                    if start.is_empty() {
+                        "start"
+                    } else {
+                        start.as_str()
+                    },
+                    start_style,
+                ),
+                Span::raw(" - "),
+                Span::styled(
+                    if end.is_empty() { "end" } else { end.as_str() },
+                    end_style,
+                ),
+                Span::raw("  (Tab switch, Enter confirm, Esc cancel)"),
+            ]);
+            f.render_widget(Paragraph::new(line), chunks[0]);
+        }
+        _ => {
+            let status = Paragraph::new(format!(" {}", app.status_message))
+                .style(Style::default().add_modifier(Modifier::DIM));
+            f.render_widget(status, chunks[0]);
+        }
+    }
 
     // Keybindings.
-    let keys = Paragraph::new(" ␣ toggle  j/k move  ↹ switch panel  c copy  q quit")
-        .style(Style::default().add_modifier(Modifier::DIM));
+    let keys_text = match &app.mode {
+        Mode::Normal => {
+            " ␣ toggle  ↵ expand  / search  n narrow  c copy  q quit"
+        }
+        _ => " Esc cancel",
+    };
+    let keys = Paragraph::new(keys_text).style(Style::default().add_modifier(Modifier::DIM));
     f.render_widget(keys, chunks[1]);
 }

@@ -32,6 +32,7 @@ pub fn handle(app: &mut App, key: KeyEvent) {
     match &app.mode {
         Mode::Normal => handle_normal(app, key),
         Mode::Search { .. } => handle_search(app, key),
+        Mode::Narrow { .. } => handle_narrow(app, key),
         // Other modes are added in later tasks.
         _ => {}
     }
@@ -91,6 +92,60 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
                 query: String::new(),
             };
             app.run_search("");
+        }
+        KeyCode::Char('n') => {
+            app.start_narrow();
+        }
+        _ => {}
+    }
+}
+
+fn handle_narrow(app: &mut App, key: KeyEvent) {
+    use crate::tui::mode::InputField;
+    match key.code {
+        KeyCode::Esc => {
+            app.mode = Mode::Normal;
+        }
+        KeyCode::Tab => {
+            if let Mode::Narrow { ref mut field, .. } = app.mode {
+                *field = match *field {
+                    InputField::First => InputField::Second,
+                    InputField::Second => InputField::First,
+                };
+            }
+        }
+        KeyCode::Enter => {
+            app.confirm_narrow();
+        }
+        KeyCode::Backspace => {
+            if let Mode::Narrow {
+                ref mut start,
+                ref mut end,
+                ref field,
+            } = app.mode
+            {
+                match field {
+                    InputField::First => {
+                        start.pop();
+                    }
+                    InputField::Second => {
+                        end.pop();
+                    }
+                }
+            }
+        }
+        KeyCode::Char(ch) if ch.is_ascii_digit() => {
+            if let Mode::Narrow {
+                ref mut start,
+                ref mut end,
+                ref field,
+            } = app.mode
+            {
+                match field {
+                    InputField::First => start.push(ch),
+                    InputField::Second => end.push(ch),
+                }
+            }
         }
         _ => {}
     }

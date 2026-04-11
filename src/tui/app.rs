@@ -1,6 +1,6 @@
 //! App state for the TUI.
 
-use crate::bundle::{Bundle, Item, ItemKind};
+use crate::bundle::{Bundle, Item, ItemKind, Range};
 use crate::models;
 use crate::paths::CtxforgeRoot;
 use crate::resolve;
@@ -215,6 +215,59 @@ impl App {
             return 0.0;
         }
         (self.total_tokens as f64 / self.model_window as f64) * 100.0
+    }
+
+    /// Start narrow mode for the current bundle item. No-op unless the
+    /// BundleList panel is focused and the cursor is on a `File` item.
+    pub fn start_narrow(&mut self) {
+        if self.focus != Focus::BundleList {
+            return;
+        }
+        if let Some(item) = self.bundle.items.get(self.bundle_cursor) {
+            if matches!(item.kind, ItemKind::File) {
+                self.mode = mode::Mode::Narrow {
+                    start: String::new(),
+                    end: String::new(),
+                    field: mode::InputField::First,
+                };
+            }
+        }
+    }
+
+    /// Confirm narrow: replace the current bundle item's kind with a Range.
+    /// Validates that both inputs parse and that start <= end.
+    pub fn confirm_narrow(&mut self) {
+        // Pull start/end out of the mode before mutating self further.
+        let (start_str, end_str) = match &self.mode {
+            mode::Mode::Narrow { start, end, .. } => (start.clone(), end.clone()),
+            _ => return,
+        };
+
+        let start_num: usize = match start_str.parse() {
+            Ok(n) if n >= 1 => n,
+            _ => {
+                self.status_message = "Invalid start line".into();
+                return;
+            }
+        };
+        let end_num: usize = match end_str.parse() {
+            Ok(n) if n >= start_num => n,
+            _ => {
+                self.status_message = "Invalid end line (must be >= start)".into();
+                return;
+            }
+        };
+
+        if let Some(item) = self.bundle.items.get_mut(self.bundle_cursor) {
+            item.kind = ItemKind::Range(Range {
+                start: start_num,
+                end: end_num,
+            });
+        }
+        self.recalculate_tokens();
+        let _ = self.bundle.save(&self.root);
+        self.status_message = format!("Narrowed to lines {start_num}-{end_num}");
+        self.mode = mode::Mode::Normal;
     }
 
     /// Returns (1-based index, percentage) of the bundle item with the highest
