@@ -1,8 +1,10 @@
 //! Resolution of `.ctxforge/` directory paths.
 //!
-//! ctxforge looks for `.ctxforge/` in the current directory then walks up to
-//! find an existing one. If none exists, `find_or_create` creates one in the
-//! current working directory.
+//! ctxforge is always rooted at the current working directory: it uses
+//! `./.ctxforge/` if one exists, otherwise it creates one there. It does
+//! NOT walk up to find an ancestor `.ctxforge/` — that behavior was removed
+//! in v1.0.1 because a stray `$HOME/.ctxforge/` would silently capture
+//! every invocation run from anywhere under the home directory.
 #![allow(dead_code)]
 
 use crate::error::Result;
@@ -14,29 +16,22 @@ pub struct CtxforgeRoot {
 }
 
 impl CtxforgeRoot {
-    /// Walks up from `start` looking for an existing `.ctxforge/` directory.
-    /// Returns `None` if none is found.
+    /// Returns `Some` if `start/.ctxforge/` already exists, else `None`.
+    /// Does NOT walk up — strictly checks `start` itself.
     pub fn find(start: &Path) -> Option<CtxforgeRoot> {
-        let mut current = Some(start);
-        while let Some(dir) = current {
-            let candidate = dir.join(".ctxforge");
-            if candidate.is_dir() {
-                return Some(CtxforgeRoot { root: candidate });
-            }
-            current = dir.parent();
+        let candidate = start.join(".ctxforge");
+        if candidate.is_dir() {
+            Some(CtxforgeRoot { root: candidate })
+        } else {
+            None
         }
-        None
     }
 
-    /// Finds an existing root or creates one at `start/.ctxforge`.
-    /// Ensures `profiles/` and `memory/` subdirs exist in either case
-    /// so older `.ctxforge/` layouts are transparently upgraded.
+    /// Returns the root at `start/.ctxforge`, creating it if it does not
+    /// already exist. Ensures `profiles/` and `memory/` subdirs exist in
+    /// either case so older `.ctxforge/` layouts are transparently upgraded.
+    /// Never walks up from `start`.
     pub fn find_or_create(start: &Path) -> Result<CtxforgeRoot> {
-        if let Some(existing) = Self::find(start) {
-            std::fs::create_dir_all(existing.profiles_dir())?;
-            std::fs::create_dir_all(existing.memory_dir())?;
-            return Ok(existing);
-        }
         let root = start.join(".ctxforge");
         std::fs::create_dir_all(&root)?;
         std::fs::create_dir_all(root.join("profiles"))?;
@@ -92,14 +87,42 @@ mod tests {
     }
 
     #[test]
-    fn find_walks_up_to_parent() {
+    fn find_returns_some_when_ctxforge_dir_exists_in_start() {
+        let td = TempDir::new().unwrap();
+        std::fs::create_dir_all(td.path().join(".ctxforge")).unwrap();
+        let found = CtxforgeRoot::find(td.path()).expect("should find");
+        assert_eq!(found.root, td.path().join(".ctxforge"));
+    }
+
+    #[test]
+    fn find_does_not_walk_up_to_ancestor() {
+        // A .ctxforge/ in an ancestor directory must NOT be found when
+        // starting from a nested subdirectory. Regression test for v1.0.1:
+        // previously, a stray ~/.ctxforge/ captured every invocation run
+        // from anywhere under $HOME.
         let td = TempDir::new().unwrap();
         std::fs::create_dir_all(td.path().join(".ctxforge")).unwrap();
         let nested = td.path().join("a/b/c");
         std::fs::create_dir_all(&nested).unwrap();
 
-        let found = CtxforgeRoot::find(&nested).expect("should find");
-        assert_eq!(found.root, td.path().join(".ctxforge"));
+        assert!(
+            CtxforgeRoot::find(&nested).is_none(),
+            "find must not walk up past its start directory"
+        );
+    }
+
+    #[test]
+    fn find_or_create_does_not_walk_up_to_ancestor() {
+        // Ensure find_or_create creates a NEW .ctxforge at the nested
+        // location instead of reusing the ancestor's.
+        let td = TempDir::new().unwrap();
+        std::fs::create_dir_all(td.path().join(".ctxforge")).unwrap();
+        let nested = td.path().join("a/b/c");
+        std::fs::create_dir_all(&nested).unwrap();
+
+        let root = CtxforgeRoot::find_or_create(&nested).unwrap();
+        assert_eq!(root.root, nested.join(".ctxforge"));
+        assert!(root.root.is_dir());
     }
 
     #[test]

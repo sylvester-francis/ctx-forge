@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1 — 2026-04-11
+
+### Fixed
+- **Project root resolution:** ctxforge no longer walks up the directory tree to find an ancestor `.ctxforge/`. It is now strictly rooted at the current working directory: if `./.ctxforge/` exists it is used, otherwise one is created there. The previous walk-up behavior meant a stray `$HOME/.ctxforge/` (which could be created accidentally by running `ctxforge` from your home shell once) would silently capture every invocation run from anywhere under `$HOME`, showing the home directory as the "project" instead of the project you were actually in. This affected both the TUI launch and every CLI subcommand.
+
 ## 1.0.0 — 2026-04-10
 
 ### Added
