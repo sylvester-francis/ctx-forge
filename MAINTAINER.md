@@ -206,3 +206,31 @@ These are things the automated tooling could not fix for you:
 - [ ] Verify the CLA bot works by opening a test PR
 - [ ] Decide on commercial-license path (if anyone asks)
 - [ ] Write Plan 2 (memory + continuity) after v0.1.1 publish lands
+
+## Recording Demo GIFs
+
+### Prerequisites
+
+- `asciinema` — `brew install asciinema`
+- `agg` — `cargo install --git https://github.com/asciinema/agg`
+- `ctxforge` built and in `PATH`
+
+### Recording
+
+```bash
+./scripts/record-demo.sh hero.cast
+```
+
+This opens an interactive recording session at 120x35. Run through the demo (toggle files, watch the gauge, `c` to copy, `q` to quit). Press Ctrl-D when done.
+
+### Converting to GIF
+
+```bash
+./scripts/gif-convert.sh hero.cast hero.gif
+```
+
+Uses JetBrains Mono font, Monokai theme, 1.5x speed. Output is a single `.gif` suitable for README and social media.
+
+### Consistency
+
+All GIFs should use the same terminal size (120x35), font, and theme to maintain visual consistency across versions. Both scripts enforce these defaults.
