@@ -12,6 +12,19 @@ use std::io::IsTerminal;
 use std::path::Path;
 use std::time::Duration;
 
+/// Minimum Jaro-Winkler similarity score for `close_matches` to include
+/// a candidate. 0.7 cuts out obviously unrelated names while allowing
+/// single-character transpositions and minor typos.
+const CLOSE_MATCH_THRESHOLD: f64 = 0.7;
+
+/// Token-budget bucket thresholds for `colored_percent`.
+/// Below `PCT_WARN` is safe (green); `PCT_WARN..PCT_CAUTION` is caution
+/// (yellow); `PCT_CAUTION..PCT_DANGER` is warning (orange, xterm 208);
+/// `PCT_DANGER`+ is critical (red). The buckets match the TUI gauge.
+const PCT_WARN: f64 = 25.0;
+const PCT_CAUTION: f64 = 50.0;
+const PCT_DANGER: f64 = 75.0;
+
 /// Returns true if stdout is a terminal AND `NO_COLOR` is not set.
 /// Output color helpers should check this before emitting ANSI codes.
 pub fn color_enabled() -> bool {
@@ -101,14 +114,17 @@ pub fn colored_percent(pct: f64) -> String {
         return format!("{pct:5.1}%");
     }
     let formatted = format!("{pct:5.1}%");
-    if pct < 25.0 {
+    if pct < PCT_WARN {
         formatted.green().to_string()
-    } else if pct < 50.0 {
+    } else if pct < PCT_CAUTION {
         formatted.yellow().to_string()
-    } else if pct < 75.0 {
-        // 256-color orange (xterm 208 = FlushOrange; spec said DarkOrange but that
-        // variant does not exist in owo-colors 4.3.0 — FlushOrange is xterm 208)
-        formatted.color(owo_colors::XtermColors::FlushOrange).to_string()
+    } else if pct < PCT_DANGER {
+        // 256-color orange (xterm 208). Note: owo-colors 4.3.0 exposes
+        // xterm 208 as `FlushOrange`, not `DarkOrange` — do not "correct"
+        // this back to DarkOrange.
+        formatted
+            .color(owo_colors::XtermColors::FlushOrange)
+            .to_string()
     } else {
         formatted.red().bold().to_string()
     }
@@ -121,16 +137,21 @@ pub fn close_matches(query: &str, candidates: &[String], limit: usize) -> Vec<St
     let mut scored: Vec<(f64, &String)> = candidates
         .iter()
         .map(|c| (strsim::jaro_winkler(query, c), c))
-        .filter(|(s, _)| *s >= 0.7)
+        .filter(|(s, _)| *s >= CLOSE_MATCH_THRESHOLD)
         .collect();
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-    scored.into_iter().take(limit).map(|(_, c)| c.clone()).collect()
+    scored
+        .into_iter()
+        .take(limit)
+        .map(|(_, c)| c.clone())
+        .collect()
 }
 
-/// Create an indicatif spinner with our standard styling. Caller is
-/// responsible for calling `.set_message()`, `.tick()` periodically,
-/// and `.finish_with_message()` when done. Returns a no-op hidden bar
-/// when stdout is not a TTY.
+/// Create an indicatif spinner with our standard styling. The spinner
+/// auto-ticks every 100 ms via `enable_steady_tick`. The caller is
+/// responsible for `.set_message()` updates if the label should change,
+/// and `.finish_and_clear()` or `.finish_with_message()` when done.
+/// Returns a no-op hidden bar when stdout is not a TTY.
 pub fn spinner(label: &str) -> ProgressBar {
     if !is_tty() {
         return ProgressBar::hidden();
@@ -220,5 +241,28 @@ mod tests {
         unsafe {
             std::env::remove_var("NO_COLOR");
         }
+    }
+
+    #[test]
+    fn error_with_suggestion_handles_empty_suggestions() {
+        use std::path::Path;
+        // Just verify the function doesn't panic when called with empty
+        // suggestions and no hint. Output goes to stderr so we can't easily
+        // assert on its content, but "doesn't panic" is the real concern
+        // for the empty-suggestions branch.
+        error_with_suggestion(
+            "test error",
+            Path::new("foo"),
+            Path::new("/abs/foo"),
+            &[],
+            None,
+        );
+        error_with_suggestion(
+            "test with hint",
+            Path::new("foo"),
+            Path::new("/abs/foo"),
+            &[],
+            Some("try something else"),
+        );
     }
 }
