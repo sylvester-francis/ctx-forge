@@ -12,6 +12,7 @@ mod lang;
 mod mcp;
 mod memory;
 mod models;
+mod output;
 mod paths;
 mod profile;
 mod resolve;
