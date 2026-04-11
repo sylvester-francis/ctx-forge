@@ -14,8 +14,8 @@ fn resume_empty_project_prints_empty_bundle_and_no_notes() {
         .args(["resume"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("(empty"))
-        .stdout(predicates::str::contains("no notes yet"));
+        .stderr(predicates::str::contains("(empty"))
+        .stderr(predicates::str::contains("no notes yet"));
 }
 
 #[test]

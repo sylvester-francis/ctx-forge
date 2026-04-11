@@ -11,7 +11,7 @@ pub fn run(root: &CtxforgeRoot, target: String) -> Result<()> {
     if let Ok(idx) = target.parse::<usize>() {
         let removed = bundle.remove_by_index(idx)?;
         bundle.save(root)?;
-        println!("removed #{idx} {}", removed.display());
+        crate::output::success(&format!("removed #{idx} {}", removed.display()));
         return Ok(());
     }
 
@@ -21,6 +21,6 @@ pub fn run(root: &CtxforgeRoot, target: String) -> Result<()> {
         return Err(format!("no items matching `{target}`").into());
     }
     bundle.save(root)?;
-    println!("removed {count} item(s) matching `{target}`");
+    crate::output::success(&format!("removed {count} item(s) matching `{target}`"));
     Ok(())
 }

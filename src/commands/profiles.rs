@@ -10,7 +10,7 @@ pub fn run(root: &CtxforgeRoot, action: Option<ProfilesAction>) -> Result<()> {
         None => {
             let list = profile::list(root)?;
             if list.is_empty() {
-                println!("(no profiles)");
+                crate::output::warn("(no profiles)");
             } else {
                 for name in list {
                     println!("  {name}");
@@ -20,7 +20,7 @@ pub fn run(root: &CtxforgeRoot, action: Option<ProfilesAction>) -> Result<()> {
         }
         Some(ProfilesAction::Rm { name }) => {
             profile::remove(root, &name)?;
-            println!("removed profile `{name}`");
+            crate::output::success(&format!("removed profile `{name}`"));
             Ok(())
         }
     }

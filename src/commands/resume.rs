@@ -11,7 +11,7 @@ pub fn run(root: &CtxforgeRoot, memory_limit: usize) -> Result<()> {
 
     // Bundle summary — mirrors `status` but terser.
     if bundle.is_empty() {
-        println!("Bundle: (empty — use `ctxforge add` to start)");
+        crate::output::warn("Bundle: (empty — use `ctxforge add` to start)");
     } else {
         println!("Bundle: {} item(s)", bundle.len());
         for (i, item) in bundle.items.iter().enumerate() {
@@ -21,7 +21,7 @@ pub fn run(root: &CtxforgeRoot, memory_limit: usize) -> Result<()> {
 
     // Recent notes summary.
     if notes.is_empty() {
-        println!("\n(no notes yet — use `ctxforge note` to capture decisions)");
+        crate::output::warn("no notes yet — use `ctxforge note` to capture decisions");
     } else {
         println!("\nRecent notes ({} most recent):", notes.len());
         for note in &notes {

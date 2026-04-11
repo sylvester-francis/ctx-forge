@@ -9,6 +9,6 @@ pub fn run(root: &CtxforgeRoot) -> Result<()> {
     let n = bundle.len();
     bundle.clear();
     bundle.save(root)?;
-    println!("cleared {n} item(s)");
+    crate::output::success(&format!("cleared {n} item(s)"));
     Ok(())
 }

@@ -32,7 +32,7 @@ fn recall_with_no_notes_prints_empty_message() {
         .args(["recall"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("no notes yet"));
+        .stderr(predicates::str::contains("no notes yet"));
 }
 
 #[test]

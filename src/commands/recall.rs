@@ -13,7 +13,7 @@ pub fn run(
 ) -> Result<()> {
     let all = memory::index::read_all(root)?;
     if all.is_empty() {
-        println!("(no notes yet — use `ctxforge note` to add one)");
+        crate::output::warn("no notes yet — use `ctxforge note` to add one");
         return Ok(());
     }
 
@@ -38,7 +38,7 @@ pub fn run(
 
     let matches = memory::run_recall(&all, &filter);
     if matches.is_empty() {
-        println!("(no matching notes)");
+        crate::output::warn("no matching notes");
         return Ok(());
     }
 
