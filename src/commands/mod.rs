@@ -65,7 +65,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             let fmt = resolve_format(format.as_deref(), xml, json)?;
             copy::run(&root, fmt, no_memory, memory_tag, memory_limit)
         }
-        Some(Command::Save { name }) => save::run(&root, &name),
+        Some(Command::Save { name }) => save::run(&root, name.as_deref()),
         Some(Command::Load { name }) => load::run(&root, &name),
         Some(Command::Profiles { action }) => profiles::run(&root, action),
         Some(Command::Note { tag, body }) => note::run(&root, body, tag),

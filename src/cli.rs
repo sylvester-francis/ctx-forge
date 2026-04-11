@@ -111,7 +111,12 @@ pub enum Command {
     },
 
     /// Save the current bundle as a named profile.
-    Save { name: String },
+    ///
+    /// If no name is provided and stdin is a TTY, you'll be prompted.
+    Save {
+        /// Profile name. Omit to prompt interactively (requires a TTY).
+        name: Option<String>,
+    },
 
     /// Load a named profile as the current bundle.
     Load { name: String },
