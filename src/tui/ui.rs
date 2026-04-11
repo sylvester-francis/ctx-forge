@@ -56,7 +56,34 @@ fn draw_panels(f: &mut Frame, app: &App, area: Rect) {
         .split(area);
 
     draw_file_tree(f, app, chunks[0]);
-    draw_bundle_list(f, app, chunks[1]);
+
+    // Split right column to show the hotspot panel below the bundle list
+    // when one item dominates the token budget.
+    if let Some((idx, pct)) = app.hotspot() {
+        let right = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(3), Constraint::Length(4)])
+            .split(chunks[1]);
+        draw_bundle_list(f, app, right[0]);
+        draw_hotspot(f, idx, pct, right[1]);
+    } else {
+        draw_bundle_list(f, app, chunks[1]);
+    }
+}
+
+fn draw_hotspot(f: &mut Frame, idx: usize, pct: f64, area: Rect) {
+    let block = Block::default()
+        .title(" Hotspot ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme::hotspot_color()));
+    let text = vec![
+        Line::from(format!("  {} consumes {:.0}% of the budget.", idx, pct)),
+        Line::from("  Narrow to a range? [press n]"),
+    ];
+    let paragraph = Paragraph::new(text)
+        .block(block)
+        .style(Style::default().fg(theme::hotspot_color()));
+    f.render_widget(paragraph, area);
 }
 
 fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {

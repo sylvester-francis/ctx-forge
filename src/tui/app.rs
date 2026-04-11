@@ -217,6 +217,26 @@ impl App {
         (self.total_tokens as f64 / self.model_window as f64) * 100.0
     }
 
+    /// Returns (1-based index, percentage) of the bundle item with the highest
+    /// token share, but only if it exceeds 25% of the total budget. The TUI
+    /// uses this to surface a "hotspot" warning panel.
+    pub fn hotspot(&self) -> Option<(usize, f64)> {
+        if self.total_tokens == 0 || self.item_tokens.is_empty() {
+            return None;
+        }
+        let (max_idx, &max_tokens) = self
+            .item_tokens
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, t)| *t)?;
+        let pct = (max_tokens as f64 / self.total_tokens as f64) * 100.0;
+        if pct > 25.0 {
+            Some((max_idx + 1, pct)) // 1-based index for display
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn rebuild_bundled_paths(&mut self) {
         self.bundled_paths = self.bundle.items.iter().map(|i| i.path.clone()).collect();
     }
