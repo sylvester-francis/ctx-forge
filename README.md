@@ -44,10 +44,21 @@ Every developer using an AI coding agent does the same manual work dozens of tim
 ## Install
 
 ```bash
-cargo install ctxforge
+cargo install ctxforge                              # default: TUI + MCP server
+cargo install ctxforge --features=extract           # + tree-sitter fn/type extraction
+cargo install ctxforge --no-default-features        # minimal: CLI-only, no TUI, no MCP
 ```
 
 **Requirements:** Rust 1.85+ (edition 2024). Single static binary, no runtime dependencies, no API keys, no cloud.
+
+**Feature flags** (all additive, all opt-out):
+
+| Flag | Default | What it enables |
+|---|---|---|
+| `tui` | ✓ | Interactive ratatui composer (depends on `ratatui`, `crossterm`, `fuzzy-matcher`) |
+| `mcp` | ✓ | Model Context Protocol server (`ctxforge mcp` subcommand) |
+| `extract` | — | Tree-sitter function/type extraction for `ctxforge add --fn` / `--type` |
+| `minimal` | — | No-op marker — pass `--no-default-features` for a lean CLI-only build |
 
 ---
 
@@ -63,6 +74,10 @@ ctxforge add src/main.rs:10-50
 
 # Add only files changed vs. a branch
 ctxforge add --diff main
+
+# Extract a single function or type (requires --features=extract)
+ctxforge add --fn ProcessCheck src/hub/check.go
+ctxforge add --type Config src/config/config.rs
 
 # See token counts per item
 ctxforge status
@@ -83,31 +98,64 @@ Or just run `ctxforge` with no arguments to open the interactive TUI.
 
 ## Interactive TUI
 
-Run `ctxforge` with no subcommand to launch the fullscreen composer:
+Run `ctxforge` with no subcommand to launch the fullscreen composer. The TUI is always rooted at the current working directory — it creates or reuses `./.ctxforge/`, it never walks up to an ancestor.
 
 ```
-┌─ ctxforge │ claude-sonnet-4 │ ~1,204 / 200,000 (0.6%) ─────────────┐
-│ tokens ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░                    │
-├─ files (42) ──────────────────┬─ bundle (3 items) ──────────────────┤
-│ ▸ src/                        │  1  src/main.rs            423  35% │
-│   ▫ main.rs                   │  2  src/cli.rs             612  51% │
-│   ■ cli.rs                    │  3  README.md              169  14% │
-│   ▸ commands/                 │                                     │
-│     ▫ add.rs                  │                                     │
-│     ▫ rm.rs                   │                                     │
-│   ▸ memory/                   │                                     │
-│ ▫ Cargo.toml                  │                                     │
-│ ■ README.md                   │                                     │
-├───────────────────────────────┴─────────────────────────────────────┤
-│  ␣ toggle  j/k move  ↹ switch panel  c copy  q quit               │
-└─────────────────────────────────────────────────────────────────────┘
+┌─ ctxforge │ profile: feature-auth │ claude-sonnet-4 │ ~1,204 / 200,000 (0.6%) ─┐
+│ tokens ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░                                │
+├─ files (42) ────────────────────┬─ bundle (4 items) ──────────────────────────┤
+│ ▾ src/                          │  1 ■ src/main.rs                   423  27% │
+│     ▫ main.rs                   │  2 ■ src/cli.rs                    612  39% │
+│     ■ cli.rs                    │  3 λ fn:ProcessCheck (hub/check.go) 231  15% │
+│   ▸ commands/                   │  4 τ type:Config (config.rs)       302  19% │
+│   ▸ memory/                     ├─ Hotspot ───────────────────────────────────┤
+│   ▫ Cargo.toml                  │   2 consumes 39% of the budget.             │
+│ ■ README.md                     │   Narrow to a range? [press n]              │
+├─────────────────────────────────┴─────────────────────────────────────────────┤
+│  ␣ toggle  ↵ expand  / search  n narrow  s save  l load  c copy  q quit       │
+└───────────────────────────────────────────────────────────────────────────────┘
 ```
 
 - **Live token gauge** — color grades green → yellow → orange → red as you approach the model's context window
-- **Hotspot highlighting** — items consuming >25% of the budget are highlighted in orange so you know where to trim
-- **Vim keybindings** — `j`/`k` navigate, `space` toggles, `Tab` switches panels, `g`/`G` top/bottom, `c` copy, `q` quit
+- **Collapsible file tree** — `▾`/`▸` markers, `Enter` expands/collapses, top-level dirs start open
+- **Fuzzy search** — press `/` to filter the tree by path (powered by `fuzzy-matcher`)
+- **Hotspot panel** — when one bundle item exceeds 25% of the budget, a warning panel surfaces it by index and suggests `n` to narrow
+- **Narrow to range** — `n` on a file item lets you restrict it to specific line numbers, dropping the token cost
+- **Profiles** — `s` to save the current bundle, `l` to load one; the active profile name is shown in the header
+- **Pipe to agent** — `p` opens a menu to pipe the bundle to `claude` (XML), `agent` (Cursor CLI, markdown), or `gemini`
+- **Export XML** — `x` drops out of the alternate screen, prints XML to stdout, then returns
+- **Switch model** — `m` opens the model registry and recomputes the gauge live
+- **Memory recall** — `r` toggles the memory panel; `J` writes a note inline with tag + body inputs
+- **Function / type picker** — `f` and `t` (with `--features=extract`) scan the project via tree-sitter and show pickable lists. Bundle items get `λ`/`τ` icons.
+- **Diff picker** — `d` prompts for a branch name, then lets you multi-select changed files
 - **.gitignore-aware** — the file tree respects your `.gitignore` automatically
 - **TTY detection** — launches the TUI when interactive, falls back to help text when piped
+
+### Keybinding reference
+
+| Key | Mode | Action |
+|---|---|---|
+| `j`/`k` or ↓/↑ | any list | Move cursor |
+| `g` / `G` | any list | Jump to first / last |
+| `Tab` | normal | Switch focus between file tree and bundle list |
+| `space` | normal | Toggle file selection (file tree) |
+| `Enter` | normal | Expand/collapse directory (file tree) |
+| `c` | normal | Copy bundle to clipboard (markdown) |
+| `/` | normal | Open fuzzy search over file paths |
+| `n` | normal | Narrow current bundle item to a line range (Tab between start/end, Enter to apply) |
+| `s` | normal | Save current bundle as a named profile |
+| `l` | normal | Load a profile from the list |
+| `p` | normal | Pipe menu: `c`laude, `a`gent, `g`emini |
+| `x` | normal | Export XML to stdout (terminal restores, prints, returns on keypress) |
+| `m` | normal | Switch target model (gauge recomputes live) |
+| `r` | normal | Toggle memory recall panel |
+| `J` | normal | Add a note inline (tag + body, Tab to switch) |
+| `f` | normal | Function picker (requires `--features=extract`) |
+| `t` | normal | Type picker (requires `--features=extract`) |
+| `d` | normal | Diff picker: enter a branch, multi-select changed files |
+| `Esc` | any overlay | Cancel and return to normal mode |
+| `q` | normal | Quit |
+| `Ctrl-C` | any mode | Quit (global) |
 
 ---
 
@@ -159,7 +207,7 @@ That's it. Claude Code can now read and write memory notes, load saved profiles,
 | `ctxforge_load_bundle` | Load a saved profile's files into context |
 | `ctxforge_status` | Check the current bundle's token budget against the model window |
 
-The MCP server runs as a stdio JSON-RPC process — no network, no daemon, no configuration beyond the one-liner above. Protocol version: `2024-11-05`.
+The MCP server runs as a stdio JSON-RPC process — no network, no daemon, no configuration beyond the one-liner above. Protocol version: `2025-11-25`.
 
 ---
 
@@ -173,7 +221,11 @@ ctxforge add src/ docs/                       # directories (recursive)
 ctxforge add src/main.rs:10-50                # line range
 ctxforge add --exclude '*_test.rs' src/       # exclude patterns
 ctxforge add --diff main                      # files changed vs. branch
+ctxforge add --fn ProcessCheck src/hub.go     # extract one function (--features=extract)
+ctxforge add --type Config src/config.rs      # extract one type (--features=extract)
 ```
+
+Supported languages for `--fn` / `--type`: Rust, Go, Python, TypeScript, JavaScript.
 
 ### Inspecting
 
@@ -375,6 +427,8 @@ project/
 - ✅ **v0.5** — Interactive TUI (ratatui composer, live token gauge, hotspot highlighting)
 - ✅ **v0.6** — MCP server (ctxforge mcp — stdio JSON-RPC, 4 tools)
 - ✅ **v0.7** — Tree-sitter function/type extraction (`--fn`, `--type` behind `--features=extract`; Rust, Go, Python, TypeScript, JavaScript)
+- ✅ **v1.0** — Full TUI: collapsible tree, fuzzy search (`/`), narrow to range (`n`), save/load profiles (`s`/`l`), pipe menu (`p`), XML export (`x`), model switch (`m`), memory panel (`r`), inline note (`J`), function/type/diff pickers (`f`/`t`/`d`) with `λ`/`τ` icons, hotspot warning panel. Feature flags (`tui` / `mcp` / `extract` / `minimal`) for conditional compilation. Asciinema recording pipeline.
+- ✅ **v1.0.1** — Fix: project root resolution is strictly rooted at the current working directory; no longer walks up to find an ancestor `.ctxforge/`. Eliminates the "`$HOME/.ctxforge/` captures everything" footgun.
 
 ---
 
