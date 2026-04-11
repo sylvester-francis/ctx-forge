@@ -7,6 +7,8 @@ use crate::resolve;
 use crate::tokens;
 use crate::tui::mode;
 use crate::tui::tree::{self, TreeEntry};
+use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -36,6 +38,8 @@ pub struct App {
     pub exact_tokens: bool,
     /// Set of relative paths currently in the bundle, for fast lookup.
     pub bundled_paths: HashSet<PathBuf>,
+    /// Indices into `tree_entries` for fuzzy-search results, ranked by score.
+    pub search_results: Vec<usize>,
     /// Active input/overlay mode. Drives key dispatch and overlay rendering.
     pub mode: mode::Mode,
     pub should_quit: bool,
@@ -69,6 +73,7 @@ impl App {
             total_tokens: 0,
             exact_tokens: false,
             bundled_paths: HashSet::new(),
+            search_results: Vec::new(),
             mode: mode::Mode::Normal,
             should_quit: false,
             status_message: String::new(),
@@ -81,6 +86,30 @@ impl App {
     /// Number of currently visible (non-collapsed) tree rows.
     pub fn visible_tree_len(&self) -> usize {
         self.visible_tree.len()
+    }
+
+    /// Run fuzzy search across all tree entries (files only) and populate
+    /// `search_results` ranked by score (best first). An empty query falls
+    /// back to the current visible tree so the result list is never empty
+    /// when the user first opens search.
+    pub fn run_search(&mut self, query: &str) {
+        if query.is_empty() {
+            self.search_results = self.visible_tree.clone();
+            return;
+        }
+        let matcher = SkimMatcherV2::default();
+        let mut scored: Vec<(usize, i64)> = self
+            .tree_entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| !e.is_dir)
+            .filter_map(|(i, e)| {
+                let path_str = e.rel_path.to_string_lossy();
+                matcher.fuzzy_match(&path_str, query).map(|score| (i, score))
+            })
+            .collect();
+        scored.sort_by(|a, b| b.1.cmp(&a.1));
+        self.search_results = scored.into_iter().map(|(i, _)| i).collect();
     }
 
     /// Toggle expand/collapse for the directory at the current tree cursor.

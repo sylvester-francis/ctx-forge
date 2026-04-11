@@ -60,7 +60,48 @@ fn draw_panels(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
-    let title = format!(" files ({}) ", app.visible_tree.len());
+    let in_search = matches!(app.mode, crate::tui::mode::Mode::Search { .. });
+
+    // Split off a 3-row search input pane when in search mode.
+    let (search_area, tree_area) = if in_search {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(3), Constraint::Min(1)])
+            .split(area);
+        (Some(chunks[0]), chunks[1])
+    } else {
+        (None, area)
+    };
+
+    if let Some(sa) = search_area {
+        if let crate::tui::mode::Mode::Search { ref query } = app.mode {
+            let input = Paragraph::new(format!(" /{query}▏"))
+                .block(Block::default().borders(Borders::ALL).title(" search "));
+            f.render_widget(input, sa);
+        }
+    }
+
+    // Choose which entries to show — filtered search results or visible tree.
+    let entries_to_show: Vec<(usize, &crate::tui::tree::TreeEntry)> = if in_search {
+        app.search_results
+            .iter()
+            .enumerate()
+            .filter_map(|(vi, &actual)| app.tree_entries.get(actual).map(|e| (vi, e)))
+            .collect()
+    } else {
+        app.visible_tree
+            .iter()
+            .enumerate()
+            .filter_map(|(vi, &actual)| app.tree_entries.get(actual).map(|e| (vi, e)))
+            .collect()
+    };
+
+    let title = if in_search {
+        format!(" results ({}) ", entries_to_show.len())
+    } else {
+        format!(" files ({}) ", entries_to_show.len())
+    };
+
     let border_style = if app.focus == Focus::FileTree {
         Style::default().fg(ratatui::style::Color::Cyan)
     } else {
@@ -71,13 +112,19 @@ fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
         .borders(Borders::ALL)
         .border_style(border_style);
 
-    let items: Vec<ListItem> = app
-        .visible_tree
+    let items: Vec<ListItem> = entries_to_show
         .iter()
-        .enumerate()
-        .map(|(vi, &actual_idx)| {
-            let entry = &app.tree_entries[actual_idx];
-            let indent = "  ".repeat(entry.depth);
+        .map(|(vi, entry)| {
+            let indent = if in_search {
+                String::new()
+            } else {
+                "  ".repeat(entry.depth)
+            };
+            let display_name = if in_search {
+                entry.rel_path.to_string_lossy().to_string()
+            } else {
+                entry.name.clone()
+            };
             let marker = if entry.is_dir {
                 if entry.expanded { "▾ " } else { "▸ " }
             } else if app.bundled_paths.contains(&entry.rel_path) {
@@ -86,7 +133,7 @@ fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
                 "▫ "
             };
 
-            let style = if vi == app.tree_cursor && app.focus == Focus::FileTree {
+            let style = if *vi == app.tree_cursor && app.focus == Focus::FileTree {
                 Style::default()
                     .fg(ratatui::style::Color::Black)
                     .bg(ratatui::style::Color::White)
@@ -99,14 +146,14 @@ fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
             };
 
             ListItem::new(Line::from(vec![Span::styled(
-                format!("{indent}{marker}{}", entry.name),
+                format!("{indent}{marker}{display_name}"),
                 style,
             )]))
         })
         .collect();
 
     let list = List::new(items).block(block);
-    f.render_widget(list, area);
+    f.render_widget(list, tree_area);
 }
 
 fn draw_bundle_list(f: &mut Frame, app: &App, area: Rect) {

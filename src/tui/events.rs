@@ -31,6 +31,7 @@ pub fn handle(app: &mut App, key: KeyEvent) {
 
     match &app.mode {
         Mode::Normal => handle_normal(app, key),
+        Mode::Search { .. } => handle_search(app, key),
         // Other modes are added in later tasks.
         _ => {}
     }
@@ -85,6 +86,53 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
             Focus::FileTree => app.tree_cursor = 0,
             Focus::BundleList => app.bundle_cursor = 0,
         },
+        KeyCode::Char('/') => {
+            app.mode = Mode::Search {
+                query: String::new(),
+            };
+            app.run_search("");
+        }
+        _ => {}
+    }
+}
+
+fn handle_search(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            app.mode = Mode::Normal;
+        }
+        KeyCode::Enter => {
+            // Move cursor to top search result and exit search.
+            if let Some(&idx) = app.search_results.first() {
+                // Find this index in visible_tree to set tree_cursor.
+                if let Some(pos) = app.visible_tree.iter().position(|&v| v == idx) {
+                    app.tree_cursor = pos;
+                }
+            }
+            app.mode = Mode::Normal;
+        }
+        KeyCode::Backspace => {
+            let q = if let Mode::Search { ref mut query } = app.mode {
+                query.pop();
+                Some(query.clone())
+            } else {
+                None
+            };
+            if let Some(q) = q {
+                app.run_search(&q);
+            }
+        }
+        KeyCode::Char(ch) => {
+            let q = if let Mode::Search { ref mut query } = app.mode {
+                query.push(ch);
+                Some(query.clone())
+            } else {
+                None
+            };
+            if let Some(q) = q {
+                app.run_search(&q);
+            }
+        }
         _ => {}
     }
 }

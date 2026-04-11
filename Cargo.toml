@@ -25,6 +25,7 @@ globset = "0.4.18"
 git2 = { version = "0.20", default-features = false, features = ["vendored-libgit2"] }
 ratatui = "0.30"
 crossterm = "0.29"
+fuzzy-matcher = "0.3"
 
 # Optional: tree-sitter extraction (behind --features=extract)
 tree-sitter = { version = "0.26", optional = true }
