@@ -205,7 +205,7 @@ ctxforge copy --xml                           # clipboard (XML)
 
 ```bash
 ctxforge pipe claude                          # auto-selects XML for Claude
-ctxforge pipe cursor-agent                    # auto-selects markdown
+ctxforge pipe agent                           # auto-selects markdown (Cursor CLI)
 ctxforge pipe gemini                          # auto-selects markdown
 ctxforge pipe cat -- -n                       # escape hatch: any binary + args
 ctxforge pipe claude --format json            # override format
@@ -371,7 +371,7 @@ project/
 - ✅ **v0.1** — Core CLI (add, rm, clear, status, export, copy, save, load, profiles, --diff, tiktoken counting)
 - ✅ **v0.2** — Cross-session memory (note, recall, resume, auto-attach)
 - ✅ **v0.3** — XML and JSON export formats (--xml, --json, --format)
-- ✅ **v0.4** — Pipe to agent (ctxforge pipe claude / cursor-agent / gemini)
+- ✅ **v0.4** — Pipe to agent (ctxforge pipe claude / agent / gemini)
 - ✅ **v0.5** — Interactive TUI (ratatui composer, live token gauge, hotspot highlighting)
 - ✅ **v0.6** — MCP server (ctxforge mcp — stdio JSON-RPC, 4 tools)
 - ✅ **v0.7** — Tree-sitter function/type extraction (`--fn`, `--type` behind `--features=extract`; Rust, Go, Python, TypeScript, JavaScript)

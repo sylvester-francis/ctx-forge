@@ -163,14 +163,14 @@ pub enum Command {
     /// Pipe the current bundle to a local agent CLI via stdin.
     ///
     /// Known targets auto-select the best format:
-    ///   claude       → XML (Claude-optimized semantic tags)
-    ///   cursor-agent → markdown
-    ///   gemini       → markdown
+    ///   claude → XML (Claude-optimized semantic tags)
+    ///   agent  → markdown (Cursor CLI)
+    ///   gemini → markdown
     ///
     /// Any other name is treated as a binary in your PATH (markdown default).
     /// Pass extra args to the target CLI after `--`.
     Pipe {
-        /// Target agent CLI name (e.g. `claude`, `cursor-agent`, `gemini`).
+        /// Target agent CLI name (e.g. `claude`, `agent`, `gemini`).
         target: String,
 
         /// Override the auto-selected format.
