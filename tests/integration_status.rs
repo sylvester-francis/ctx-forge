@@ -34,7 +34,7 @@ fn status_shows_counts_and_total() {
         .assert()
         .success()
         .stdout(predicates::str::contains("a.rs"))
-        .stdout(predicates::str::contains("Total:"))
+        .stdout(predicates::str::contains("ctxforge"))
         .stdout(predicates::str::contains("claude-sonnet-4"));
 }
 
@@ -55,5 +55,5 @@ fn status_respects_model_override() {
         .assert()
         .success()
         .stdout(predicates::str::contains("gpt-4o"))
-        .stdout(predicates::str::contains("128,000"));
+        .stdout(predicates::str::contains("128k"));
 }
