@@ -123,7 +123,11 @@ fn draw_panels(f: &mut Frame, app: &App, area: Rect) {
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(area);
 
-    draw_file_tree(f, app, chunks[0]);
+    // Pickers replace the LEFT panel with their list. Otherwise the file tree.
+    let left_handled = draw_left_panel(f, app, chunks[0]);
+    if !left_handled {
+        draw_file_tree(f, app, chunks[0]);
+    }
 
     // LoadProfile mode replaces the right panel with the profile picker.
     if let crate::tui::mode::Mode::LoadProfile { cursor, profiles } = &app.mode {
@@ -149,6 +153,103 @@ fn draw_panels(f: &mut Frame, app: &App, area: Rect) {
     } else {
         draw_bundle_list(f, app, chunks[1]);
     }
+}
+
+/// Returns `true` if a picker overlay was rendered into the left panel,
+/// in which case the caller should NOT also render the file tree.
+fn draw_left_panel(f: &mut Frame, app: &App, area: Rect) -> bool {
+    use crate::tui::mode::Mode;
+    #[cfg(feature = "extract")]
+    {
+        if let Mode::FunctionPick { cursor, items } = &app.mode {
+            draw_symbol_pick(f, "Functions", "λ", *cursor, items, area);
+            return true;
+        }
+        if let Mode::TypePick { cursor, items } = &app.mode {
+            draw_symbol_pick(f, "Types", "τ", *cursor, items, area);
+            return true;
+        }
+    }
+    if let Mode::DiffPick {
+        files,
+        selected,
+        cursor,
+        entering_branch,
+        ..
+    } = &app.mode
+    {
+        if !*entering_branch {
+            draw_diff_pick(f, *cursor, files, selected, area);
+            return true;
+        }
+        // entering_branch=true: tree stays visible; the input goes in the footer.
+    }
+    false
+}
+
+#[cfg(feature = "extract")]
+fn draw_symbol_pick(
+    f: &mut Frame,
+    title: &str,
+    icon: &str,
+    cursor: usize,
+    items: &[(String, std::path::PathBuf)],
+    area: Rect,
+) {
+    let block = Block::default()
+        .title(format!(" {title} ({}) ", items.len()))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ratatui::style::Color::Cyan));
+    let list_items: Vec<ListItem> = items
+        .iter()
+        .enumerate()
+        .map(|(i, (name, path))| {
+            let style = if i == cursor {
+                Style::default()
+                    .fg(ratatui::style::Color::Black)
+                    .bg(ratatui::style::Color::White)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Span::styled(
+                format!("  {icon} {name}  {}", path.display()),
+                style,
+            ))
+        })
+        .collect();
+    f.render_widget(List::new(list_items).block(block), area);
+}
+
+fn draw_diff_pick(
+    f: &mut Frame,
+    cursor: usize,
+    files: &[std::path::PathBuf],
+    selected: &std::collections::HashSet<usize>,
+    area: Rect,
+) {
+    let block = Block::default()
+        .title(format!(" Changed Files ({}) ", files.len()))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ratatui::style::Color::Cyan));
+    let items: Vec<ListItem> = files
+        .iter()
+        .enumerate()
+        .map(|(i, path)| {
+            let marker = if selected.contains(&i) { "■" } else { "▫" };
+            let style = if i == cursor {
+                Style::default()
+                    .fg(ratatui::style::Color::Black)
+                    .bg(ratatui::style::Color::White)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Span::styled(
+                format!("  {marker} {}", path.display()),
+                style,
+            ))
+        })
+        .collect();
+    f.render_widget(List::new(items).block(block), area);
 }
 
 fn draw_memory_panel(f: &mut Frame, app: &App, area: Rect) {
@@ -371,15 +472,22 @@ fn draw_bundle_list(f: &mut Frame, app: &App, area: Rect) {
             };
 
             let display = item.display();
-            let truncated = if display.len() > 30 {
-                format!("{}…", &display[..29])
+            let truncated = if display.len() > 28 {
+                format!("{}…", &display[..27])
             } else {
                 display
             };
 
+            let icon = match &item.kind {
+                crate::bundle::ItemKind::Function { .. } => "λ",
+                crate::bundle::ItemKind::Type { .. } => "τ",
+                _ => "■",
+            };
+
             let text = format!(
-                "{:>2}  {:<30} {:>6} {:>5.1}%",
+                "{:>2} {} {:<28} {:>6} {:>5.1}%",
                 i + 1,
+                icon,
                 truncated,
                 tokens,
                 pct
@@ -455,6 +563,21 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
                     Style::default().fg(ratatui::style::Color::Cyan),
                 ),
                 Span::raw("  (Enter save, Esc cancel)"),
+            ]);
+            f.render_widget(Paragraph::new(line), chunks[0]);
+        }
+        Mode::DiffPick {
+            branch,
+            entering_branch: true,
+            ..
+        } => {
+            let line = Line::from(vec![
+                Span::raw(" Diff branch: "),
+                Span::styled(
+                    branch.as_str(),
+                    Style::default().fg(ratatui::style::Color::Cyan),
+                ),
+                Span::raw("  (Enter to load, Esc cancel)"),
             ]);
             f.render_widget(Paragraph::new(line), chunks[0]);
         }

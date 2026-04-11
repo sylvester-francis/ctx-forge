@@ -39,8 +39,11 @@ pub fn handle(app: &mut App, key: KeyEvent) {
         Mode::ModelSwitch { .. } => handle_model_switch(app, key),
         Mode::MemoryPanel { .. } => handle_memory_panel(app, key),
         Mode::AddNote { .. } => handle_add_note(app, key),
-        // Other modes are added in later tasks.
-        _ => {}
+        #[cfg(feature = "extract")]
+        Mode::FunctionPick { .. } => handle_function_pick(app, key),
+        #[cfg(feature = "extract")]
+        Mode::TypePick { .. } => handle_type_pick(app, key),
+        Mode::DiffPick { .. } => handle_diff_pick(app, key),
     }
 }
 
@@ -128,6 +131,143 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
                 body: String::new(),
                 field: crate::tui::mode::InputField::First,
             };
+        }
+        KeyCode::Char('d') => {
+            app.start_diff_pick();
+        }
+        #[cfg(feature = "extract")]
+        KeyCode::Char('f') => {
+            app.start_function_pick();
+        }
+        #[cfg(not(feature = "extract"))]
+        KeyCode::Char('f') => {
+            app.status_message = "Function extraction requires --features=extract".into();
+        }
+        #[cfg(feature = "extract")]
+        KeyCode::Char('t') => {
+            app.start_type_pick();
+        }
+        #[cfg(not(feature = "extract"))]
+        KeyCode::Char('t') => {
+            app.status_message = "Type extraction requires --features=extract".into();
+        }
+        _ => {}
+    }
+}
+
+#[cfg(feature = "extract")]
+fn handle_function_pick(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            app.mode = Mode::Normal;
+        }
+        KeyCode::Enter => {
+            app.add_picked_function();
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            if let Mode::FunctionPick { cursor, items } = &mut app.mode {
+                if *cursor + 1 < items.len() {
+                    *cursor += 1;
+                }
+            }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            if let Mode::FunctionPick { cursor, .. } = &mut app.mode {
+                *cursor = cursor.saturating_sub(1);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(feature = "extract")]
+fn handle_type_pick(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            app.mode = Mode::Normal;
+        }
+        KeyCode::Enter => {
+            app.add_picked_type();
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            if let Mode::TypePick { cursor, items } = &mut app.mode {
+                if *cursor + 1 < items.len() {
+                    *cursor += 1;
+                }
+            }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            if let Mode::TypePick { cursor, .. } = &mut app.mode {
+                *cursor = cursor.saturating_sub(1);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn handle_diff_pick(app: &mut App, key: KeyEvent) {
+    let entering = matches!(
+        app.mode,
+        Mode::DiffPick {
+            entering_branch: true,
+            ..
+        }
+    );
+
+    if entering {
+        match key.code {
+            KeyCode::Esc => {
+                app.mode = Mode::Normal;
+            }
+            KeyCode::Enter => {
+                app.load_diff_files();
+            }
+            KeyCode::Backspace => {
+                if let Mode::DiffPick { branch, .. } = &mut app.mode {
+                    branch.pop();
+                }
+            }
+            KeyCode::Char(ch) => {
+                if let Mode::DiffPick { branch, .. } = &mut app.mode {
+                    branch.push(ch);
+                }
+            }
+            _ => {}
+        }
+        return;
+    }
+
+    // File selection phase.
+    match key.code {
+        KeyCode::Esc => {
+            app.mode = Mode::Normal;
+        }
+        KeyCode::Char(' ') => {
+            if let Mode::DiffPick {
+                selected, cursor, ..
+            } = &mut app.mode
+            {
+                if selected.contains(cursor) {
+                    selected.remove(cursor);
+                } else {
+                    selected.insert(*cursor);
+                }
+            }
+        }
+        KeyCode::Enter => {
+            app.add_selected_diff_files();
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            if let Mode::DiffPick { cursor, files, .. } = &mut app.mode {
+                if *cursor + 1 < files.len() {
+                    *cursor += 1;
+                }
+            }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            if let Mode::DiffPick { cursor, .. } = &mut app.mode {
+                *cursor = cursor.saturating_sub(1);
+            }
         }
         _ => {}
     }

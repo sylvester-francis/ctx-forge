@@ -371,6 +371,151 @@ impl App {
         self.mode = mode::Mode::Normal;
     }
 
+    /// Start function pick mode (extract feature only). Performs a project-wide
+    /// tree-sitter scan synchronously — fast on small projects, slower on
+    /// large ones. Sets a status message instead of opening if no functions
+    /// are found in any supported language.
+    #[cfg(feature = "extract")]
+    pub fn start_function_pick(&mut self) {
+        let items = crate::extract::scan::scan_functions(&self.project_root);
+        if items.is_empty() {
+            self.status_message = "No functions found in project".into();
+        } else {
+            self.mode = mode::Mode::FunctionPick { cursor: 0, items };
+        }
+    }
+
+    /// Start type pick mode (extract feature only). Same semantics as
+    /// `start_function_pick` but scans for type/struct/class/interface defs.
+    #[cfg(feature = "extract")]
+    pub fn start_type_pick(&mut self) {
+        let items = crate::extract::scan::scan_types(&self.project_root);
+        if items.is_empty() {
+            self.status_message = "No types found in project".into();
+        } else {
+            self.mode = mode::Mode::TypePick { cursor: 0, items };
+        }
+    }
+
+    /// Add the function under the FunctionPick cursor to the bundle.
+    #[cfg(feature = "extract")]
+    pub fn add_picked_function(&mut self) {
+        let chosen = if let mode::Mode::FunctionPick { cursor, items } = &self.mode {
+            items.get(*cursor).cloned()
+        } else {
+            None
+        };
+        if let Some((name, path)) = chosen {
+            let item = Item {
+                path,
+                kind: ItemKind::Function { name: name.clone() },
+                label: None,
+            };
+            self.bundle.add(item);
+            self.rebuild_bundled_paths();
+            self.recalculate_tokens();
+            let _ = self.bundle.save(&self.root);
+            self.status_message = format!("Added fn:{name}");
+        }
+        self.mode = mode::Mode::Normal;
+    }
+
+    /// Add the type under the TypePick cursor to the bundle.
+    #[cfg(feature = "extract")]
+    pub fn add_picked_type(&mut self) {
+        let chosen = if let mode::Mode::TypePick { cursor, items } = &self.mode {
+            items.get(*cursor).cloned()
+        } else {
+            None
+        };
+        if let Some((name, path)) = chosen {
+            let item = Item {
+                path,
+                kind: ItemKind::Type { name: name.clone() },
+                label: None,
+            };
+            self.bundle.add(item);
+            self.rebuild_bundled_paths();
+            self.recalculate_tokens();
+            let _ = self.bundle.save(&self.root);
+            self.status_message = format!("Added type:{name}");
+        }
+        self.mode = mode::Mode::Normal;
+    }
+
+    /// Start diff pick mode — opens a branch-name input first, then a
+    /// multi-select list of changed files.
+    pub fn start_diff_pick(&mut self) {
+        self.mode = mode::Mode::DiffPick {
+            branch: "main".into(),
+            files: Vec::new(),
+            selected: std::collections::HashSet::new(),
+            cursor: 0,
+            entering_branch: true,
+        };
+    }
+
+    /// Load the changed files for the entered branch and switch to the
+    /// file-selection phase. On error or empty diff, drops back to Normal
+    /// with a status message.
+    pub fn load_diff_files(&mut self) {
+        let branch = if let mode::Mode::DiffPick { branch, .. } = &self.mode {
+            branch.clone()
+        } else {
+            return;
+        };
+        match crate::git::changed_files(&self.project_root, &branch) {
+            Ok(changed) => {
+                if changed.is_empty() {
+                    self.status_message = format!("No changes vs {branch}");
+                    self.mode = mode::Mode::Normal;
+                    return;
+                }
+                if let mode::Mode::DiffPick {
+                    files,
+                    entering_branch,
+                    ..
+                } = &mut self.mode
+                {
+                    *files = changed;
+                    *entering_branch = false;
+                }
+            }
+            Err(e) => {
+                self.status_message = format!("Diff error: {e}");
+                self.mode = mode::Mode::Normal;
+            }
+        }
+    }
+
+    /// Add all selected diff files to the bundle.
+    pub fn add_selected_diff_files(&mut self) {
+        let to_add: Vec<PathBuf> =
+            if let mode::Mode::DiffPick { files, selected, .. } = &self.mode {
+                selected
+                    .iter()
+                    .filter_map(|&idx| files.get(idx).cloned())
+                    .collect()
+            } else {
+                Vec::new()
+            };
+        let count = to_add.len();
+        for path in to_add {
+            self.bundle.add(Item {
+                path,
+                kind: ItemKind::File,
+                label: None,
+            });
+        }
+        if count > 0 {
+            self.rebuild_bundled_paths();
+            self.recalculate_tokens();
+            let _ = self.bundle.save(&self.root);
+            self.status_message = format!("Added {count} changed file(s)");
+        }
+        self.mode = mode::Mode::Normal;
+    }
+
     /// Open or close the memory recall panel. Reads notes from the JSONL
     /// index — sets a status message instead of opening if there are none.
     pub fn toggle_memory_panel(&mut self) {
