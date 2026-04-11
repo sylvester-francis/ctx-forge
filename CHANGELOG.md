@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.0.0 — 2026-04-10
+
+### Added
+- **TUI:** Collapsible file tree with expand/collapse on Enter (▾/▸ markers, top-level dirs start expanded)
+- **TUI:** Fuzzy search with `/` key across all file paths (powered by `fuzzy-matcher`)
+- **TUI:** Hotspot panel warns when a single bundle item exceeds 25% of the token budget
+- **TUI:** Narrow bundle items to a line range with `n` key (Tab between start/end, Enter to apply)
+- **TUI:** Save/load profiles with `s`/`l` keys; current profile name shown in the header
+- **TUI:** Pipe-to-agent submenu with `p` key (claude → XML, agent / gemini → markdown)
+- **TUI:** Export XML to stdout with `x` key (alternate-screen-aware: restores, prints, returns)
+- **TUI:** Switch target model with `m` key — gauge updates live as the bundle is recounted
+- **TUI:** Memory recall panel with `r` key, inline note creation with `J` (tag + body inputs)
+- **TUI:** Function pick (`f`), type pick (`t`), diff pick (`d`) — `λ`/`τ` icons in the bundle list
+- Feature flags: `tui`, `mcp`, `extract`, `minimal` for conditional compilation. Defaults are `tui` + `mcp`. The `minimal` build is a CLI-only ctxforge with no TUI, no MCP, and no tree-sitter.
+- Asciinema recording pipeline (`scripts/record-demo.sh`, `scripts/gif-convert.sh`) with consistent 120×35, JetBrains Mono, Monokai theme.
+
+### Fixed
+- Updated Cursor CLI target name from `cursor-agent` to `agent` to match the current Cursor CLI binary name.
+
 ## 0.7.0 — 2026-04-10
 
 ### Tree-sitter extraction (new!)

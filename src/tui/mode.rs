@@ -12,9 +12,10 @@ pub enum InputField {
 }
 
 /// Application mode — determines what keys do and what renders.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum Mode {
     /// Default two-panel browsing.
+    #[default]
     Normal,
     /// Fuzzy search in the file tree.
     Search { query: String },
@@ -63,12 +64,6 @@ pub enum Mode {
         cursor: usize,
         entering_branch: bool,
     },
-}
-
-impl Default for Mode {
-    fn default() -> Self {
-        Mode::Normal
-    }
 }
 
 impl Mode {
