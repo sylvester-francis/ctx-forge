@@ -1,6 +1,10 @@
 //! Key event handling for the TUI.
+//!
+//! Dispatches events based on `app.mode` — the Normal mode handles browsing,
+//! while overlay/input modes (search, narrow, etc.) are added by later tasks.
 
 use crate::tui::app::{App, Focus};
+use crate::tui::mode::Mode;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use std::time::Duration;
 
@@ -14,13 +18,27 @@ pub fn poll() -> Option<KeyEvent> {
     None
 }
 
-/// Handle a key event, mutating app state.
+/// Handle a key event, mutating app state. Routes to the appropriate
+/// per-mode handler. Ctrl-C is a global quit shortcut in every mode.
 pub fn handle(app: &mut App, key: KeyEvent) {
+    // Global quit keys work in any mode.
+    if let KeyCode::Char('c') = key.code {
+        if key.modifiers.contains(KeyModifiers::CONTROL) {
+            app.should_quit = true;
+            return;
+        }
+    }
+
+    match &app.mode {
+        Mode::Normal => handle_normal(app, key),
+        // Other modes are added in later tasks.
+        _ => {}
+    }
+}
+
+fn handle_normal(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => {
-            app.should_quit = true;
-        }
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             app.should_quit = true;
         }
         KeyCode::Char('c') => {

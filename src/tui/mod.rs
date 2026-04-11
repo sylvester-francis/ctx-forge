@@ -6,6 +6,7 @@
 
 pub mod app;
 pub mod events;
+pub mod mode;
 pub mod theme;
 pub mod tree;
 pub mod ui;

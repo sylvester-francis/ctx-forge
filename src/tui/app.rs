@@ -5,6 +5,7 @@ use crate::models;
 use crate::paths::CtxforgeRoot;
 use crate::resolve;
 use crate::tokens;
+use crate::tui::mode;
 use crate::tui::tree::{self, TreeEntry};
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -33,6 +34,8 @@ pub struct App {
     pub exact_tokens: bool,
     /// Set of relative paths currently in the bundle, for fast lookup.
     pub bundled_paths: HashSet<PathBuf>,
+    /// Active input/overlay mode. Drives key dispatch and overlay rendering.
+    pub mode: mode::Mode,
     pub should_quit: bool,
     pub status_message: String,
 }
@@ -62,6 +65,7 @@ impl App {
             total_tokens: 0,
             exact_tokens: false,
             bundled_paths: HashSet::new(),
+            mode: mode::Mode::Normal,
             should_quit: false,
             status_message: String::new(),
         };
@@ -152,11 +156,11 @@ impl App {
         (self.total_tokens as f64 / self.model_window as f64) * 100.0
     }
 
-    fn rebuild_bundled_paths(&mut self) {
+    pub(crate) fn rebuild_bundled_paths(&mut self) {
         self.bundled_paths = self.bundle.items.iter().map(|i| i.path.clone()).collect();
     }
 
-    fn recalculate_tokens(&mut self) {
+    pub(crate) fn recalculate_tokens(&mut self) {
         let model = models::lookup(&self.model_name);
         self.model_window = model.window;
 
