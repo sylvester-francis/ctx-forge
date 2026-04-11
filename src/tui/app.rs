@@ -117,7 +117,9 @@ impl App {
             .filter(|(_, e)| !e.is_dir)
             .filter_map(|(i, e)| {
                 let path_str = e.rel_path.to_string_lossy();
-                matcher.fuzzy_match(&path_str, query).map(|score| (i, score))
+                matcher
+                    .fuzzy_match(&path_str, query)
+                    .map(|score| (i, score))
             })
             .collect();
         scored.sort_by(|a, b| b.1.cmp(&a.1));
@@ -349,8 +351,7 @@ impl App {
             Ok(items) => {
                 let memory = crate::memory::collect_for_attach(&self.root, false, None, 10)
                     .unwrap_or_default();
-                let rendered =
-                    crate::format::render(crate::format::Format::Xml, &items, &memory);
+                let rendered = crate::format::render(crate::format::Format::Xml, &items, &memory);
                 self.pending_stdout = Some(rendered);
                 self.status_message = "Exported XML to stdout".into();
             }
@@ -490,15 +491,17 @@ impl App {
 
     /// Add all selected diff files to the bundle.
     pub fn add_selected_diff_files(&mut self) {
-        let to_add: Vec<PathBuf> =
-            if let mode::Mode::DiffPick { files, selected, .. } = &self.mode {
-                selected
-                    .iter()
-                    .filter_map(|&idx| files.get(idx).cloned())
-                    .collect()
-            } else {
-                Vec::new()
-            };
+        let to_add: Vec<PathBuf> = if let mode::Mode::DiffPick {
+            files, selected, ..
+        } = &self.mode
+        {
+            selected
+                .iter()
+                .filter_map(|&idx| files.get(idx).cloned())
+                .collect()
+        } else {
+            Vec::new()
+        };
         let count = to_add.len();
         for path in to_add {
             self.bundle.add(Item {

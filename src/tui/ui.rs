@@ -543,10 +543,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
                     start_style,
                 ),
                 Span::raw(" - "),
-                Span::styled(
-                    if end.is_empty() { "end" } else { end.as_str() },
-                    end_style,
-                ),
+                Span::styled(if end.is_empty() { "end" } else { end.as_str() }, end_style),
                 Span::raw("  (Tab switch, Enter confirm, Esc cancel)"),
             ]);
             f.render_widget(Paragraph::new(line), chunks[0]);
@@ -624,9 +621,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
 
     // Keybindings.
     let keys_text = match &app.mode {
-        Mode::Normal => {
-            " ␣ toggle  ↵ expand  / search  n narrow  s save  l load  c copy  q quit"
-        }
+        Mode::Normal => " ␣ toggle  ↵ expand  / search  n narrow  s save  l load  c copy  q quit",
         _ => " Esc cancel",
     };
     let keys = Paragraph::new(keys_text).style(Style::default().add_modifier(Modifier::DIM));

@@ -52,9 +52,7 @@ pub(crate) fn resolve_function_query(
     }
 }
 
-pub(crate) fn resolve_type_query(
-    language_name: &str,
-) -> Result<(Language, &'static str), String> {
+pub(crate) fn resolve_type_query(language_name: &str) -> Result<(Language, &'static str), String> {
     match language_name {
         "rust" => Ok((tree_sitter_rust::LANGUAGE.into(), queries::RUST_TYPES)),
         "go" => Ok((tree_sitter_go::LANGUAGE.into(), queries::GO_TYPES)),
