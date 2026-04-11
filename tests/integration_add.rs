@@ -168,3 +168,73 @@ fn add_nonexistent_file_suggests_close_match() {
         "should suggest main.rs (close to mian.rs); stderr: {stderr}"
     );
 }
+
+#[test]
+fn add_brace_glob_expands_to_matching_files() {
+    use assert_cmd::Command;
+    use tempfile::TempDir;
+
+    let td = TempDir::new().unwrap();
+    std::fs::write(td.path().join("main.rs"), "fn main() {}").unwrap();
+    std::fs::write(td.path().join("lib.rs"), "").unwrap();
+    std::fs::write(td.path().join("other.txt"), "").unwrap();
+
+    // `{main,lib}.rs` is a globset brace-alternation pattern that should
+    // match `main.rs` and `lib.rs` (but not `other.txt`).
+    let output = Command::cargo_bin("ctxforge")
+        .unwrap()
+        .current_dir(td.path())
+        .args(["add", "{main,lib}.rs"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "brace glob should succeed (not error as 'file not found'): stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Verify the bundle now has 2 items (main.rs + lib.rs).
+    let status = Command::cargo_bin("ctxforge")
+        .unwrap()
+        .current_dir(td.path())
+        .arg("status")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&status.stdout);
+    assert!(
+        stdout.contains("main.rs"),
+        "status should list main.rs: {stdout}"
+    );
+    assert!(
+        stdout.contains("lib.rs"),
+        "status should list lib.rs: {stdout}"
+    );
+}
+
+#[test]
+fn add_glob_matching_nothing_does_not_error() {
+    use assert_cmd::Command;
+    use tempfile::TempDir;
+
+    let td = TempDir::new().unwrap();
+    std::fs::write(td.path().join("main.rs"), "fn main() {}").unwrap();
+
+    // A glob that matches no files should NOT produce a NotFound error.
+    // It should warn (or silently succeed) and exit 0.
+    let output = Command::cargo_bin("ctxforge")
+        .unwrap()
+        .current_dir(td.path())
+        .args(["add", "*.nonexistent_extension"])
+        .output()
+        .unwrap();
+
+    // Should NOT be a fatal error — globs that match nothing are
+    // warnings, not errors. Exit code should be 0.
+    assert!(
+        output.status.success(),
+        "glob matching nothing should exit 0; got exit {}: stderr={}",
+        output.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

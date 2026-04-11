@@ -91,7 +91,8 @@ pub fn run(
         let paths = walk::expand(pat, &project_root, &exclude)?;
         if paths.is_empty() {
             // Literal path (no glob metacharacters) that doesn't exist → NotFound.
-            if !pat.contains('*') && !pat.contains('?') && !pat.contains('[') {
+            if !pat.contains('*') && !pat.contains('?') && !pat.contains('[') && !pat.contains('{')
+            {
                 let target = project_root.join(pat);
                 let parent = target.parent().unwrap_or(&project_root);
                 let siblings: Vec<String> = std::fs::read_dir(parent)

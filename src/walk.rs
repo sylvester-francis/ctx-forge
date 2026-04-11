@@ -28,7 +28,10 @@ pub fn expand(pattern: &str, cwd: &Path, excludes: &[String]) -> Result<Vec<Path
     //      against a gitignore-aware walk.
     //   2. Otherwise treat `pattern` as a literal path. If it's a directory,
     //      walk it recursively.
-    let is_glob = pattern.contains('*') || pattern.contains('?') || pattern.contains('[');
+    let is_glob = pattern.contains('*')
+        || pattern.contains('?')
+        || pattern.contains('[')
+        || pattern.contains('{');
 
     let mut results: Vec<PathBuf> = Vec::new();
 
