@@ -36,6 +36,12 @@ pub enum CtxforgeError {
 
     #[error("{0}")]
     Msg(String),
+
+    #[error("file not found: {}", path.display())]
+    NotFound {
+        path: std::path::PathBuf,
+        suggestions: Vec<String>,
+    },
 }
 
 impl From<String> for CtxforgeError {

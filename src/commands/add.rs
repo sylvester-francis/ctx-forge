@@ -3,6 +3,7 @@
 
 use crate::bundle::{Bundle, Item, ItemKind};
 use crate::error::{CtxforgeError, Result};
+use crate::output;
 use crate::paths::CtxforgeRoot;
 use crate::walk;
 use std::path::{Path, PathBuf};
@@ -51,10 +52,10 @@ pub fn run(
     // If --fn or --type were used, we're done with patterns (they served as the file path).
     if !functions.is_empty() || !types.is_empty() {
         bundle.save(root)?;
-        println!(
+        output::success(&format!(
             "added {added_count} item(s); bundle now has {}",
             bundle.len()
-        );
+        ));
         return Ok(());
     }
 
@@ -89,7 +90,25 @@ pub fn run(
         // Otherwise expand via the walker (handles literal files, dirs, globs).
         let paths = walk::expand(pat, &project_root, &exclude)?;
         if paths.is_empty() {
-            eprintln!("warning: `{pat}` matched no files");
+            // Literal path (no glob metacharacters) that doesn't exist → NotFound.
+            if !pat.contains('*') && !pat.contains('?') && !pat.contains('[') {
+                let target = project_root.join(pat);
+                let parent = target.parent().unwrap_or(&project_root);
+                let siblings: Vec<String> = std::fs::read_dir(parent)
+                    .ok()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|entry| entry.ok())
+                    .filter_map(|entry| entry.file_name().into_string().ok())
+                    .collect();
+                let query = target.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                let suggestions = output::close_matches(query, &siblings, 3);
+                return Err(CtxforgeError::NotFound {
+                    path: std::path::PathBuf::from(pat),
+                    suggestions,
+                });
+            }
+            output::warn(&format!("`{pat}` matched no files"));
         }
         for p in paths {
             let item = Item {
@@ -110,10 +129,10 @@ pub fn run(
     }
 
     bundle.save(root)?;
-    println!(
+    output::success(&format!(
         "added {added_count} item(s); bundle now has {}",
         bundle.len()
-    );
+    ));
     Ok(())
 }
 

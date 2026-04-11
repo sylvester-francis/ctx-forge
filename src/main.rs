@@ -30,7 +30,22 @@ use error::Result;
 
 fn main() {
     if let Err(err) = run() {
-        eprintln!("error: {err}");
+        match &err {
+            error::CtxforgeError::NotFound { path, suggestions } => {
+                let cwd = std::env::current_dir().unwrap_or_default();
+                let resolved = cwd.join(path);
+                output::error_with_suggestion(
+                    "file not found",
+                    path,
+                    &resolved,
+                    suggestions,
+                    Some("Use `ctxforge status` to list files already in the bundle."),
+                );
+            }
+            _ => {
+                output::error(&format!("{err}"));
+            }
+        }
         std::process::exit(1);
     }
 }

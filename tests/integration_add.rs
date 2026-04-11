@@ -140,3 +140,31 @@ fn clear_empties_bundle() {
         .success()
         .stdout(predicates::str::contains("cleared 0 item"));
 }
+
+#[test]
+fn add_nonexistent_file_suggests_close_match() {
+    use assert_cmd::Command;
+    use tempfile::TempDir;
+
+    let td = TempDir::new().unwrap();
+    std::fs::write(td.path().join("main.rs"), "fn main() {}").unwrap();
+    std::fs::write(td.path().join("lib.rs"), "").unwrap();
+
+    let mut cmd = Command::cargo_bin("ctxforge").unwrap();
+    cmd.current_dir(td.path()).arg("add").arg("mian.rs"); // typo
+
+    let output = cmd.output().expect("run ctxforge");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "should exit non-zero on missing file"
+    );
+    assert!(
+        stderr.contains("file not found"),
+        "stderr did not contain 'file not found': {stderr}"
+    );
+    assert!(
+        stderr.contains("main.rs"),
+        "should suggest main.rs (close to mian.rs); stderr: {stderr}"
+    );
+}
