@@ -275,6 +275,101 @@ fn tool_apply_template_renders_content() {
     );
 }
 
+// ── Resources ──────────────────────────────────────────────────────────
+
+#[test]
+fn resources_list_returns_resources() {
+    let td = TempDir::new().unwrap();
+    let responses = mcp_requests(
+        td.path(),
+        &[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+            r#"{"jsonrpc":"2.0","id":2,"method":"resources/list","params":{}}"#,
+        ],
+    );
+    let resources = responses[1]["result"]["resources"].as_array().unwrap();
+    let uris: Vec<&str> = resources.iter().filter_map(|r| r["uri"].as_str()).collect();
+    assert!(uris.contains(&"ctxforge://bundle"), "got: {uris:?}");
+    assert!(
+        uris.contains(&"ctxforge://bundle/items"),
+        "got: {uris:?}"
+    );
+    assert!(uris.contains(&"ctxforge://memory"), "got: {uris:?}");
+}
+
+#[test]
+fn resources_read_bundle_returns_content() {
+    let td = TempDir::new().unwrap();
+    std::fs::write(td.path().join("a.rs"), "fn a() {}\n").unwrap();
+
+    let responses = mcp_requests(
+        td.path(),
+        &[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ctxforge_add_files","arguments":{"patterns":["a.rs"]}}}"#,
+            r#"{"jsonrpc":"2.0","id":3,"method":"resources/read","params":{"uri":"ctxforge://bundle"}}"#,
+        ],
+    );
+    let text = responses[2]["result"]["contents"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(text.contains("fn a()"), "got: {text}");
+}
+
+// ── Prompts ────────────────────────────────────────────────────────────
+
+#[test]
+fn prompts_list_returns_builtin_prompts() {
+    let td = TempDir::new().unwrap();
+    let responses = mcp_requests(
+        td.path(),
+        &[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+            r#"{"jsonrpc":"2.0","id":2,"method":"prompts/list","params":{}}"#,
+        ],
+    );
+    let prompts = responses[1]["result"]["prompts"].as_array().unwrap();
+    let names: Vec<&str> = prompts.iter().filter_map(|p| p["name"].as_str()).collect();
+    assert!(names.contains(&"ctxforge_bugfix"), "got: {names:?}");
+    assert!(names.contains(&"ctxforge_code_review"), "got: {names:?}");
+    assert!(names.contains(&"ctxforge_explain"), "got: {names:?}");
+    assert!(names.contains(&"ctxforge_refactor"), "got: {names:?}");
+    assert!(names.contains(&"ctxforge_migrate"), "got: {names:?}");
+}
+
+#[test]
+fn prompts_get_renders_prompt() {
+    let td = TempDir::new().unwrap();
+    let tpl_dir = td.path().join(".ctxforge").join("templates");
+    std::fs::create_dir_all(&tpl_dir).unwrap();
+    std::fs::write(
+        tpl_dir.join("bugfix.md"),
+        "Fix this: {{task}}\nCode:\n{{bundle}}",
+    )
+    .unwrap();
+    std::fs::write(td.path().join("bug.rs"), "fn broken() {}\n").unwrap();
+
+    let responses = mcp_requests(
+        td.path(),
+        &[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ctxforge_add_files","arguments":{"patterns":["bug.rs"]}}}"#,
+            r#"{"jsonrpc":"2.0","id":3,"method":"prompts/get","params":{"name":"ctxforge_bugfix","arguments":{"task":"null pointer in broken()"}}}"#,
+        ],
+    );
+    let content = responses[2]["result"]["messages"][0]["content"]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        content.contains("null pointer"),
+        "got: {content}"
+    );
+    assert!(
+        content.contains("fn broken()"),
+        "got: {content}"
+    );
+}
+
 // ── Comprehensive tool count ───────────────────────────────────────────
 
 #[test]

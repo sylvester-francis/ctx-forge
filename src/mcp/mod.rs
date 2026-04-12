@@ -6,7 +6,9 @@
 //! Reads JSON-RPC requests from stdin (one per line), processes them,
 //! writes JSON-RPC responses to stdout. No network, no async.
 
+pub mod prompts;
 pub mod protocol;
+pub mod resources;
 pub mod tools;
 
 use crate::error::Result;
@@ -94,6 +96,41 @@ fn handle_request(root: &CtxforgeRoot, req: &Request) -> Option<Response> {
                     req.id.clone(),
                     json!({ "content": [content] }),
                 )),
+                Err(e) => Some(Response::error(req.id.clone(), -32000, e)),
+            }
+        }
+
+        "resources/list" => {
+            Some(Response::success(req.id.clone(), resources::resource_list()))
+        }
+
+        "resources/read" => {
+            let uri = req
+                .params
+                .get("uri")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            match resources::read_resource(root, uri) {
+                Ok(content) => Some(Response::success(req.id.clone(), content)),
+                Err(e) => Some(Response::error(req.id.clone(), -32000, e)),
+            }
+        }
+
+        "prompts/list" => Some(Response::success(req.id.clone(), prompts::prompt_list())),
+
+        "prompts/get" => {
+            let name = req
+                .params
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let arguments = req
+                .params
+                .get("arguments")
+                .cloned()
+                .unwrap_or(Value::Object(Default::default()));
+            match prompts::get_prompt(root, name, &arguments) {
+                Ok(content) => Some(Response::success(req.id.clone(), content)),
                 Err(e) => Some(Response::error(req.id.clone(), -32000, e)),
             }
         }
