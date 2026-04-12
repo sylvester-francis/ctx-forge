@@ -24,6 +24,7 @@ fn default_format_for(target: &str) -> Format {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     root: &CtxforgeRoot,
     target: &str,

@@ -9,6 +9,7 @@ use crate::resolve;
 use std::io::Write;
 use std::path::PathBuf;
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     root: &CtxforgeRoot,
     output: Option<PathBuf>,
