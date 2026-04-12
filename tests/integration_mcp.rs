@@ -31,6 +31,8 @@ fn mcp_requests(dir: &std::path::Path, requests: &[&str]) -> Vec<serde_json::Val
         .collect()
 }
 
+// ── Protocol ───────────────────────────────────────────────────────────
+
 #[test]
 fn initialize_returns_updated_protocol_and_capabilities() {
     let td = TempDir::new().unwrap();
@@ -44,4 +46,287 @@ fn initialize_returns_updated_protocol_and_capabilities() {
     assert!(result["capabilities"]["resources"].is_object());
     assert!(result["capabilities"]["prompts"].is_object());
     assert_eq!(result["serverInfo"]["name"], "ctxforge");
+}
+
+// ── Safety annotations ─────────────────────────────────────────────────
+
+#[test]
+fn tools_list_includes_annotations() {
+    let td = TempDir::new().unwrap();
+    let responses = mcp_requests(
+        td.path(),
+        &[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#,
+        ],
+    );
+    let tools = responses[1]["result"]["tools"].as_array().unwrap();
+
+    let recall = tools.iter().find(|t| t["name"] == "ctxforge_recall").unwrap();
+    assert_eq!(recall["annotations"]["readOnlyHint"], true);
+
+    let note = tools.iter().find(|t| t["name"] == "ctxforge_note").unwrap();
+    assert_eq!(note["annotations"]["destructiveHint"], false);
+
+    let load = tools
+        .iter()
+        .find(|t| t["name"] == "ctxforge_load_bundle")
+        .unwrap();
+    assert_eq!(load["annotations"]["destructiveHint"], true);
+
+    let status = tools.iter().find(|t| t["name"] == "ctxforge_status").unwrap();
+    assert_eq!(status["annotations"]["readOnlyHint"], true);
+}
+
+// ── Context assembly tools ─────────────────────────────────────────────
+
+#[test]
+fn tool_add_files_adds_to_bundle() {
+    let td = TempDir::new().unwrap();
+    std::fs::write(td.path().join("hello.rs"), "fn main() {}").unwrap();
+
+    let responses = mcp_requests(
+        td.path(),
+        &[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ctxforge_add_files","arguments":{"patterns":["hello.rs"]}}}"#,
+        ],
+    );
+    let text = responses[1]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        text.contains("1") && text.contains("Added"),
+        "got: {text}"
+    );
+}
+
+#[test]
+fn tool_remove_removes_from_bundle() {
+    let td = TempDir::new().unwrap();
+    std::fs::write(td.path().join("a.rs"), "fn a() {}").unwrap();
+    std::fs::write(td.path().join("b.rs"), "fn b() {}").unwrap();
+
+    let responses = mcp_requests(
+        td.path(),
+        &[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ctxforge_add_files","arguments":{"patterns":["a.rs","b.rs"]}}}"#,
+            r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ctxforge_remove","arguments":{"targets":["a.rs"]}}}"#,
+        ],
+    );
+    let text = responses[2]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        text.contains("Removed") && text.contains("1"),
+        "got: {text}"
+    );
+}
+
+#[test]
+fn tool_clear_empties_bundle() {
+    let td = TempDir::new().unwrap();
+    std::fs::write(td.path().join("a.rs"), "fn a() {}").unwrap();
+
+    let responses = mcp_requests(
+        td.path(),
+        &[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ctxforge_add_files","arguments":{"patterns":["a.rs"]}}}"#,
+            r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ctxforge_clear","arguments":{}}}"#,
+        ],
+    );
+    let text = responses[2]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(text.contains("Cleared"), "got: {text}");
+}
+
+// ── Export and list_items ──────────────────────────────────────────────
+
+#[test]
+fn tool_export_returns_bundle_content() {
+    let td = TempDir::new().unwrap();
+    std::fs::write(td.path().join("hello.rs"), "fn main() {}\n").unwrap();
+
+    let responses = mcp_requests(
+        td.path(),
+        &[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ctxforge_add_files","arguments":{"patterns":["hello.rs"]}}}"#,
+            r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ctxforge_export","arguments":{"format":"markdown"}}}"#,
+        ],
+    );
+    let text = responses[2]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        text.contains("fn main()"),
+        "export should contain file content, got: {text}"
+    );
+}
+
+#[test]
+fn tool_list_items_returns_item_info() {
+    let td = TempDir::new().unwrap();
+    std::fs::write(td.path().join("a.rs"), "fn a() {}\n").unwrap();
+
+    let responses = mcp_requests(
+        td.path(),
+        &[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ctxforge_add_files","arguments":{"patterns":["a.rs"]}}}"#,
+            r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ctxforge_list_items","arguments":{}}}"#,
+        ],
+    );
+    let text = responses[2]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        text.contains("a.rs"),
+        "list_items should show file path, got: {text}"
+    );
+}
+
+// ── Profile tools ──────────────────────────────────────────────────────
+
+#[test]
+fn tool_save_and_list_profiles() {
+    let td = TempDir::new().unwrap();
+    std::fs::write(td.path().join("a.rs"), "fn a() {}").unwrap();
+
+    let responses = mcp_requests(
+        td.path(),
+        &[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ctxforge_add_files","arguments":{"patterns":["a.rs"]}}}"#,
+            r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ctxforge_save_bundle","arguments":{"name":"my-profile"}}}"#,
+            r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"ctxforge_list_profiles","arguments":{}}}"#,
+        ],
+    );
+    let save_text = responses[2]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(save_text.contains("my-profile"), "got: {save_text}");
+
+    let list_text = responses[3]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(list_text.contains("my-profile"), "got: {list_text}");
+}
+
+// ── Template tools ─────────────────────────────────────────────────────
+
+#[test]
+fn tool_list_templates_shows_available() {
+    let td = TempDir::new().unwrap();
+    let tpl_dir = td.path().join(".ctxforge").join("templates");
+    std::fs::create_dir_all(&tpl_dir).unwrap();
+    std::fs::write(
+        tpl_dir.join("my-review.md"),
+        "Review: {{bundle}}\nTask: {{task}}",
+    )
+    .unwrap();
+
+    let responses = mcp_requests(
+        td.path(),
+        &[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ctxforge_list_templates","arguments":{}}}"#,
+        ],
+    );
+    let text = responses[1]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(text.contains("my-review"), "got: {text}");
+}
+
+#[test]
+fn tool_apply_template_renders_content() {
+    let td = TempDir::new().unwrap();
+    let tpl_dir = td.path().join(".ctxforge").join("templates");
+    std::fs::create_dir_all(&tpl_dir).unwrap();
+    std::fs::write(
+        tpl_dir.join("simple.md"),
+        "Task: {{task}}\n\nContext:\n{{bundle}}",
+    )
+    .unwrap();
+    std::fs::write(td.path().join("main.rs"), "fn main() {}\n").unwrap();
+
+    let responses = mcp_requests(
+        td.path(),
+        &[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ctxforge_add_files","arguments":{"patterns":["main.rs"]}}}"#,
+            r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ctxforge_apply_template","arguments":{"template":"simple","task":"fix the bug"}}}"#,
+        ],
+    );
+    let text = responses[2]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        text.contains("fix the bug"),
+        "should contain task, got: {text}"
+    );
+    assert!(
+        text.contains("fn main()"),
+        "should contain bundle content, got: {text}"
+    );
+}
+
+// ── Comprehensive tool count ───────────────────────────────────────────
+
+#[test]
+fn tools_list_contains_all_15_tools() {
+    let td = TempDir::new().unwrap();
+    let responses = mcp_requests(
+        td.path(),
+        &[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#,
+        ],
+    );
+    let tools = responses[1]["result"]["tools"].as_array().unwrap();
+
+    let expected = vec![
+        "ctxforge_recall",
+        "ctxforge_note",
+        "ctxforge_load_bundle",
+        "ctxforge_save_bundle",
+        "ctxforge_list_profiles",
+        "ctxforge_status",
+        "ctxforge_list_items",
+        "ctxforge_add_files",
+        "ctxforge_add_function",
+        "ctxforge_add_type",
+        "ctxforge_remove",
+        "ctxforge_clear",
+        "ctxforge_export",
+        "ctxforge_list_templates",
+        "ctxforge_apply_template",
+    ];
+
+    let actual: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
+
+    for name in &expected {
+        assert!(
+            actual.contains(name),
+            "missing tool: {name}, have: {actual:?}"
+        );
+    }
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "unexpected tool count: {actual:?}"
+    );
+
+    // Verify every tool has annotations
+    for tool in tools {
+        let name = tool["name"].as_str().unwrap();
+        assert!(
+            tool["annotations"].is_object(),
+            "tool '{name}' is missing annotations"
+        );
+    }
 }
