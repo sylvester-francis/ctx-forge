@@ -103,35 +103,42 @@ Run `ctxforge` with no subcommand to launch the fullscreen composer. The TUI is 
 ```
 ┌─ ctxforge │ profile: feature-auth │ claude-sonnet-4 │ ~1,204 / 200,000 (0.6%) ─┐
 │ tokens ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░                                │
-├─ files (42) ────────────────────┬─ bundle (4 items) ──────────────────────────┤
-│ ▾ src/                          │  1 ■ src/main.rs                   423  27% │
-│     ▫ main.rs                   │  2 ■ src/cli.rs                    612  39% │
-│     ■ cli.rs                    │  3 λ fn:ProcessCheck (hub/check.go) 231  15% │
-│   ▸ commands/                   │  4 τ type:Config (config.rs)       302  19% │
-│   ▸ memory/                     ├─ Hotspot ───────────────────────────────────┤
-│   ▫ Cargo.toml                  │   2 consumes 39% of the budget.             │
-│ ■ README.md                     │   Narrow to a range? [press n]              │
-├─────────────────────────────────┴─────────────────────────────────────────────┤
-│  ␣ toggle  ↵ expand  / search  n narrow  s save  l load  c copy  q quit       │
-└───────────────────────────────────────────────────────────────────────────────┘
+├─ files (42) ──────────────┬─ bundle · 4 items · ~1,568 tokens ───────────────────┤
+│ ▾ src/                    │  # kind  path                    tokens     %         │
+│     ▫ main.rs             │  1 file  src/main.rs               423  27.0%         │
+│     ■ cli.rs              │  2 file  src/cli.rs                612  39.0% (!)     │
+│   ▸ commands/             │  3 λ fn  fn:ProcessCheck           231  14.7%         │
+│   ▸ memory/               │  4 τ type type:Config              302  19.3%         │
+│   ▫ Cargo.toml            │                                                       │
+│ ■ README.md               │                                                       │
+├───────────────────────────┴───────────────────────────────────────────────────────┤
+│  Switched to claude-sonnet-4                                                      │
+│  > tree  |  j/k move  Enter expand  space add  |  / commands  Ctrl+F find  ? help │
+└───────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**New in v1.1: Slash command palette.** Press `/` to open the fuzzy-matched command palette. Every feature lives there — type the first few characters and press Enter. No more memorizing single-letter keybindings.
+
+**Responsive layout.** Wide terminals (≥120 cols) get a 40/60 horizontal split. Narrower terminals stack panels vertically with bundle on top.
 
 - **Live token gauge** — color grades green → yellow → orange → red as you approach the model's context window
 - **Collapsible file tree** — `▾`/`▸` markers, `Enter` expands/collapses, top-level dirs start open
-- **Fuzzy search** — press `/` to filter the tree by path (powered by `fuzzy-matcher`)
-- **Hotspot panel** — when one bundle item exceeds 25% of the budget, a warning panel surfaces it by index and suggests `n` to narrow
-- **Narrow to range** — `n` on a file item lets you restrict it to specific line numbers, dropping the token cost
-- **Profiles** — `s` to save the current bundle, `l` to load one; the active profile name is shown in the header
-- **Pipe to agent** — `p` opens a menu to pipe the bundle to `claude` (XML), `agent` (Cursor CLI, markdown), or `gemini`
-- **Export XML** — `x` drops out of the alternate screen, prints XML to stdout, then returns
-- **Switch model** — `m` opens the model registry and recomputes the gauge live
-- **Memory recall** — `r` toggles the memory panel; `J` writes a note inline with tag + body inputs
-- **Function / type picker** — `f` and `t` (with `--features=extract`) scan the project via tree-sitter and show pickable lists. Bundle items get `λ`/`τ` icons.
-- **Diff picker** — `d` prompts for a branch name, then lets you multi-select changed files
+- **Bundle table** — tabular view with kind, path, tokens, and percentage columns. Items consuming >25% of the budget get an inline `(!)` hotspot marker
+- **Fuzzy search** — `Ctrl+F` or `/find` to filter the tree by path (powered by `fuzzy-matcher`)
+- **Profiles** — `/save` to save the current bundle, `/load` to load one; the active profile name is shown in the header
+- **Pipe to agent** — `/pipe` opens a menu to pipe the bundle to `claude` (XML), `agent` (Cursor CLI, markdown), or `gemini`
+- **Prompt templates** — `/template` opens a picker to select a template, then prompts for a task description, and copies the wrapped bundle to clipboard
+- **Export XML** — `/export-xml` drops out of the alternate screen, prints XML to stdout, then returns
+- **Switch model** — `/model` opens the model registry and recomputes the gauge live
+- **Memory recall** — `/memory` toggles the recall panel; `/note` writes a note inline with tag + body inputs
+- **Function / type picker** — `/find-fn` and `/find-type` (with `--features=extract`) scan the project via tree-sitter and show pickable lists. Bundle items get `λ`/`τ` icons.
+- **Diff picker** — `/find-diff` prompts for a branch name, then lets you multi-select changed files
 - **.gitignore-aware** — the file tree respects your `.gitignore` automatically
 - **TTY detection** — launches the TUI when interactive, falls back to help text when piped
 
 ### Keybinding reference
+
+Only navigation keys and three shortcuts remain as direct keybindings. Everything else is accessed via the `/` command palette.
 
 | Key | Mode | Action |
 |---|---|---|
@@ -140,22 +147,40 @@ Run `ctxforge` with no subcommand to launch the fullscreen composer. The TUI is 
 | `Tab` | normal | Switch focus between file tree and bundle list |
 | `space` | normal | Toggle file selection (file tree) |
 | `Enter` | normal | Expand/collapse directory (file tree) |
-| `c` | normal | Copy bundle to clipboard (markdown) |
-| `/` | normal | Open fuzzy search over file paths |
-| `n` | normal | Narrow current bundle item to a line range (Tab between start/end, Enter to apply) |
-| `s` | normal | Save current bundle as a named profile |
-| `l` | normal | Load a profile from the list |
-| `p` | normal | Pipe menu: `c`laude, `a`gent, `g`emini |
-| `x` | normal | Export XML to stdout (terminal restores, prints, returns on keypress) |
-| `m` | normal | Switch target model (gauge recomputes live) |
-| `r` | normal | Toggle memory recall panel |
-| `J` | normal | Add a note inline (tag + body, Tab to switch) |
-| `f` | normal | Function picker (requires `--features=extract`) |
-| `t` | normal | Type picker (requires `--features=extract`) |
-| `d` | normal | Diff picker: enter a branch, multi-select changed files |
+| `/` | normal | Open the slash command palette (fuzzy-matched) |
+| `Ctrl+F` | normal | Open fuzzy file search (shortcut for `/find`) |
+| `?` | normal | Toggle help overlay showing all navigation keys |
 | `Esc` | any overlay | Cancel and return to normal mode |
 | `q` | normal | Quit |
 | `Ctrl-C` | any mode | Quit (global) |
+
+### Slash commands (v1.1)
+
+All features are available from the `/` palette. Type the first few chars to filter, ↓/↑ to navigate, Enter to run.
+
+| Command | Description |
+|---|---|
+| `/copy` | Copy bundle to clipboard (markdown) |
+| `/copy-xml` | Copy as XML |
+| `/copy-json` | Copy as JSON |
+| `/export` | Export to stdout (markdown) |
+| `/export-xml` | Export as XML to stdout |
+| `/export-json` | Export as JSON to stdout |
+| `/pipe` | Pipe to agent (claude / agent / gemini) |
+| `/save <name?>` | Save current bundle as a named profile |
+| `/load <name?>` | Load a profile |
+| `/narrow` | Narrow current item to a line range |
+| `/model <name?>` | Switch target model |
+| `/memory` | Toggle memory recall panel |
+| `/note` | Add inline memory note |
+| `/find <query?>` | Fuzzy file tree search |
+| `/find-fn` | Function picker (requires `--features=extract`) |
+| `/find-type` | Type picker (requires `--features=extract`) |
+| `/find-diff <branch?>` | Diff picker against branch |
+| `/template <name?>` | Pick template + task → copy to clipboard |
+| `/template-list` | Show available templates |
+| `/help` | Show navigation help overlay |
+| `/quit` | Quit |
 
 ---
 
@@ -185,6 +210,49 @@ ctxforge resume                      # shows bundle + 5 most recent notes
 - `<tag>.md` / `decisions.md` — human-readable markdown files (git-committable)
 
 **Auto-attach:** `ctxforge export` and `ctxforge copy` prepend a `## Memory` section with recent notes. Control with `--no-memory`, `--memory-tag`, `--memory-limit`.
+
+---
+
+## Prompt Templates
+
+Templates wrap your bundle in author-written prose with `{{bundle}}` and `{{task}}` placeholders. Single-pass substitution — content inside `{{bundle}}` is never re-scanned.
+
+```bash
+# List available templates
+ctxforge templates
+
+# Create a blank project-local template
+ctxforge templates new bugfix
+
+# Create from a built-in starter
+ctxforge templates new my-review --from code-review
+
+# See built-in starters
+ctxforge templates starters
+# => bugfix, code-review, explain, refactor, migrate
+
+# Use a template with copy/export/pipe
+ctxforge copy --template bugfix --task "null pointer in auth middleware"
+ctxforge export --template explain --task "how does the token counting work"
+ctxforge pipe claude --template code-review --task "review the new API endpoint"
+
+# Delete a project-local template
+ctxforge templates rm bugfix
+```
+
+**Resolution order:** Project-local (`.ctxforge/templates/`) takes precedence over user-global (`~/.config/ctxforge/templates/`). The `ctxforge templates` list command shows shadow indicators when a project template overrides a global one.
+
+**TUI integration:** Press `/template` in the TUI to open a picker → enter a task description → the wrapped bundle is copied to clipboard.
+
+**Built-in starters** (5 templates shipped with ctxforge):
+
+| Starter | Purpose |
+|---------|---------|
+| `bugfix` | Debug a specific issue and propose a minimal fix |
+| `code-review` | Review code for bugs, clarity, complexity |
+| `explain` | Explain how code works to a skilled engineer |
+| `refactor` | Propose concrete refactoring changes |
+| `migrate` | Step-by-step migration plan |
 
 ---
 
@@ -270,6 +338,19 @@ ctxforge save feature-auth                    # snapshot current bundle
 ctxforge load feature-auth                    # restore a profile
 ctxforge profiles                             # list saved profiles
 ctxforge profiles rm old-one                  # delete a profile
+```
+
+### Templates
+
+```bash
+ctxforge templates                            # list all templates
+ctxforge templates new bugfix                 # scaffold a blank template
+ctxforge templates new my-fix --from bugfix   # from built-in starter
+ctxforge templates starters                   # list built-in starters
+ctxforge templates rm bugfix                  # delete project-local template
+ctxforge copy --template bugfix --task "..."  # use with copy
+ctxforge export --template explain --task "-" # task from stdin
+ctxforge pipe claude --template review --task "..." # use with pipe
 ```
 
 ### Memory
@@ -378,6 +459,9 @@ project/
 │   ├── profiles/
 │   │   ├── feature-auth.json         # saved profiles (committable)
 │   │   └── onboarding.json
+│   ├── templates/
+│   │   ├── bugfix.md                 # project-local prompt templates
+│   │   └── explain.md
 │   └── memory/
 │       ├── _index.jsonl              # canonical note store (append-only)
 │       ├── decisions.md              # untagged notes (human-readable)
@@ -387,7 +471,9 @@ project/
 
 - `.ctxforge/bundle.json` — gitignored (session-specific working state)
 - `.ctxforge/profiles/*.json` — optionally committed for team sharing
+- `.ctxforge/templates/*.md` — committable prompt templates with `{{bundle}}` and `{{task}}` placeholders
 - `.ctxforge/memory/*.md` — committable for team-shared decisions
+- `~/.config/ctxforge/templates/*.md` — user-global templates (fallback when not found in project)
 
 ---
 
@@ -403,6 +489,11 @@ project/
 | File walking | ignore 0.4 (.gitignore-aware) |
 | Clipboard | arboard 3.6 |
 | Serialization | serde + serde_json |
+| Colored output | owo-colors 4 (TTY-aware, honors `NO_COLOR`) |
+| CLI tables | comfy-table 7 |
+| Progress / spinners | indicatif 0.17 (auto-hidden on non-TTY) |
+| Interactive input | dialoguer 0.11 (input prompts + `$EDITOR` fallback) |
+| Fuzzy matching | strsim 0.11 (Jaro-Winkler for "did you mean?") |
 | MCP protocol | Hand-written stdio JSON-RPC (no external MCP dependency) |
 | Binary size | Single static binary, ~5 MB release |
 
@@ -427,8 +518,10 @@ project/
 - ✅ **v0.5** — Interactive TUI (ratatui composer, live token gauge, hotspot highlighting)
 - ✅ **v0.6** — MCP server (ctxforge mcp — stdio JSON-RPC, 4 tools)
 - ✅ **v0.7** — Tree-sitter function/type extraction (`--fn`, `--type` behind `--features=extract`; Rust, Go, Python, TypeScript, JavaScript)
-- ✅ **v1.0** — Full TUI: collapsible tree, fuzzy search (`/`), narrow to range (`n`), save/load profiles (`s`/`l`), pipe menu (`p`), XML export (`x`), model switch (`m`), memory panel (`r`), inline note (`J`), function/type/diff pickers (`f`/`t`/`d`) with `λ`/`τ` icons, hotspot warning panel. Feature flags (`tui` / `mcp` / `extract` / `minimal`) for conditional compilation. Asciinema recording pipeline.
-- ✅ **v1.0.1** — Fix: project root resolution is strictly rooted at the current working directory; no longer walks up to find an ancestor `.ctxforge/`. Eliminates the "`$HOME/.ctxforge/` captures everything" footgun.
+- ✅ **v1.0** — Full TUI: collapsible tree, fuzzy search, narrow to range, save/load profiles, pipe menu, XML export, model switch, memory panel, inline note, function/type/diff pickers with `λ`/`τ` icons, hotspot warning panel. Feature flags (`tui` / `mcp` / `extract` / `minimal`) for conditional compilation.
+- ✅ **v1.0.1** — Fix: project root resolution is strictly rooted at the current working directory; no longer walks up to find an ancestor `.ctxforge/`.
+- ✅ **v1.0.3** — Fix: skip dotfiles in glob walks, non-UTF-8 files get a placeholder instead of crashing resolve.
+- ✅ **v1.1** — Slash command palette (`/`), responsive TUI layout (40/60 wide, stacked narrow), help overlay (`?`), `Ctrl+F` search shortcut. Prompt templates (`{{bundle}}`/`{{task}}`) with 5 built-in starters. `--template`/`--task` on copy/export/pipe. CLI polish: colored output (`owo-colors`), `comfy-table` status, progress spinners (`indicatif`), interactive save prompt (`dialoguer`), "did you mean?" suggestions (`strsim`).
 
 ---
 
