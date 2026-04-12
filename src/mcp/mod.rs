@@ -100,16 +100,13 @@ fn handle_request(root: &CtxforgeRoot, req: &Request) -> Option<Response> {
             }
         }
 
-        "resources/list" => {
-            Some(Response::success(req.id.clone(), resources::resource_list()))
-        }
+        "resources/list" => Some(Response::success(
+            req.id.clone(),
+            resources::resource_list(),
+        )),
 
         "resources/read" => {
-            let uri = req
-                .params
-                .get("uri")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let uri = req.params.get("uri").and_then(|v| v.as_str()).unwrap_or("");
             match resources::read_resource(root, uri) {
                 Ok(content) => Some(Response::success(req.id.clone(), content)),
                 Err(e) => Some(Response::error(req.id.clone(), -32000, e)),

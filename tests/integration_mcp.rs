@@ -62,7 +62,10 @@ fn tools_list_includes_annotations() {
     );
     let tools = responses[1]["result"]["tools"].as_array().unwrap();
 
-    let recall = tools.iter().find(|t| t["name"] == "ctxforge_recall").unwrap();
+    let recall = tools
+        .iter()
+        .find(|t| t["name"] == "ctxforge_recall")
+        .unwrap();
     assert_eq!(recall["annotations"]["readOnlyHint"], true);
 
     let note = tools.iter().find(|t| t["name"] == "ctxforge_note").unwrap();
@@ -74,7 +77,10 @@ fn tools_list_includes_annotations() {
         .unwrap();
     assert_eq!(load["annotations"]["destructiveHint"], true);
 
-    let status = tools.iter().find(|t| t["name"] == "ctxforge_status").unwrap();
+    let status = tools
+        .iter()
+        .find(|t| t["name"] == "ctxforge_status")
+        .unwrap();
     assert_eq!(status["annotations"]["readOnlyHint"], true);
 }
 
@@ -95,10 +101,7 @@ fn tool_add_files_adds_to_bundle() {
     let text = responses[1]["result"]["content"][0]["text"]
         .as_str()
         .unwrap();
-    assert!(
-        text.contains("1") && text.contains("Added"),
-        "got: {text}"
-    );
+    assert!(text.contains("1") && text.contains("Added"), "got: {text}");
 }
 
 #[test]
@@ -290,10 +293,7 @@ fn resources_list_returns_resources() {
     let resources = responses[1]["result"]["resources"].as_array().unwrap();
     let uris: Vec<&str> = resources.iter().filter_map(|r| r["uri"].as_str()).collect();
     assert!(uris.contains(&"ctxforge://bundle"), "got: {uris:?}");
-    assert!(
-        uris.contains(&"ctxforge://bundle/items"),
-        "got: {uris:?}"
-    );
+    assert!(uris.contains(&"ctxforge://bundle/items"), "got: {uris:?}");
     assert!(uris.contains(&"ctxforge://memory"), "got: {uris:?}");
 }
 
@@ -360,14 +360,8 @@ fn prompts_get_renders_prompt() {
     let content = responses[2]["result"]["messages"][0]["content"]["text"]
         .as_str()
         .unwrap();
-    assert!(
-        content.contains("null pointer"),
-        "got: {content}"
-    );
-    assert!(
-        content.contains("fn broken()"),
-        "got: {content}"
-    );
+    assert!(content.contains("null pointer"), "got: {content}");
+    assert!(content.contains("fn broken()"), "got: {content}");
 }
 
 // ── Comprehensive tool count ───────────────────────────────────────────
