@@ -55,8 +55,8 @@ cargo install ctxforge --no-default-features        # minimal: CLI-only, no TUI,
 
 | Flag | Default | What it enables |
 |---|---|---|
-| `tui` | ✓ | Interactive ratatui composer (depends on `ratatui`, `crossterm`, `fuzzy-matcher`) |
-| `mcp` | ✓ | Model Context Protocol server (`ctxforge mcp` subcommand) |
+| `tui` | yes | Interactive ratatui composer (depends on `ratatui`, `crossterm`, `fuzzy-matcher`) |
+| `mcp` | yes | Model Context Protocol server (`ctxforge mcp` subcommand) |
 | `extract` | — | Tree-sitter function/type extraction for `ctxforge add --fn` / `--type` |
 | `minimal` | — | No-op marker — pass `--no-default-features` for a lean CLI-only build |
 
@@ -511,17 +511,17 @@ project/
 
 ## Project Status
 
-- ✅ **v0.1** — Core CLI (add, rm, clear, status, export, copy, save, load, profiles, --diff, tiktoken counting)
-- ✅ **v0.2** — Cross-session memory (note, recall, resume, auto-attach)
-- ✅ **v0.3** — XML and JSON export formats (--xml, --json, --format)
-- ✅ **v0.4** — Pipe to agent (ctxforge pipe claude / agent / gemini)
-- ✅ **v0.5** — Interactive TUI (ratatui composer, live token gauge, hotspot highlighting)
-- ✅ **v0.6** — MCP server (ctxforge mcp — stdio JSON-RPC, 4 tools)
-- ✅ **v0.7** — Tree-sitter function/type extraction (`--fn`, `--type` behind `--features=extract`; Rust, Go, Python, TypeScript, JavaScript)
-- ✅ **v1.0** — Full TUI: collapsible tree, fuzzy search, narrow to range, save/load profiles, pipe menu, XML export, model switch, memory panel, inline note, function/type/diff pickers with `λ`/`τ` icons, hotspot warning panel. Feature flags (`tui` / `mcp` / `extract` / `minimal`) for conditional compilation.
-- ✅ **v1.0.1** — Fix: project root resolution is strictly rooted at the current working directory; no longer walks up to find an ancestor `.ctxforge/`.
-- ✅ **v1.0.3** — Fix: skip dotfiles in glob walks, non-UTF-8 files get a placeholder instead of crashing resolve.
-- ✅ **v1.1** — Slash command palette (`/`), responsive TUI layout (40/60 wide, stacked narrow), help overlay (`?`), `Ctrl+F` search shortcut. Prompt templates (`{{bundle}}`/`{{task}}`) with 5 built-in starters. `--template`/`--task` on copy/export/pipe. CLI polish: colored output (`owo-colors`), `comfy-table` status, progress spinners (`indicatif`), interactive save prompt (`dialoguer`), "did you mean?" suggestions (`strsim`).
+- **v0.1** — Core CLI (add, rm, clear, status, export, copy, save, load, profiles, --diff, tiktoken counting)
+- **v0.2** — Cross-session memory (note, recall, resume, auto-attach)
+- **v0.3** — XML and JSON export formats (--xml, --json, --format)
+- **v0.4** — Pipe to agent (ctxforge pipe claude / agent / gemini)
+- **v0.5** — Interactive TUI (ratatui composer, live token gauge, hotspot highlighting)
+- **v0.6** — MCP server (ctxforge mcp — stdio JSON-RPC, 4 tools)
+- **v0.7** — Tree-sitter function/type extraction (`--fn`, `--type` behind `--features=extract`; Rust, Go, Python, TypeScript, JavaScript)
+- **v1.0** — Full TUI: collapsible tree, fuzzy search, narrow to range, save/load profiles, pipe menu, XML export, model switch, memory panel, inline note, function/type/diff pickers with `λ`/`τ` icons, hotspot warning panel. Feature flags (`tui` / `mcp` / `extract` / `minimal`) for conditional compilation.
+- **v1.0.1** — Fix: project root resolution is strictly rooted at the current working directory; no longer walks up to find an ancestor `.ctxforge/`.
+- **v1.0.3** — Fix: skip dotfiles in glob walks, non-UTF-8 files get a placeholder instead of crashing resolve.
+- **v1.1** — Slash command palette (`/`), responsive TUI layout (40/60 wide, stacked narrow), help overlay (`?`), `Ctrl+F` search shortcut. Prompt templates (`{{bundle}}`/`{{task}}`) with 5 built-in starters. `--template`/`--task` on copy/export/pipe. CLI polish: colored output (`owo-colors`), `comfy-table` status, progress spinners (`indicatif`), interactive save prompt (`dialoguer`), "did you mean?" suggestions (`strsim`).
 
 ---
 
