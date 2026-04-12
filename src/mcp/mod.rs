@@ -1,4 +1,4 @@
-//! MCP (Model Context Protocol) server — protocol version 2025-11-25.
+//! MCP (Model Context Protocol) server — protocol version 2025-03-26.
 //!
 //! Runs as a stdio JSON-RPC server started by:
 //!   `claude mcp add --transport stdio ctxforge -- ctxforge mcp`
@@ -17,7 +17,7 @@ use std::io::{self, BufRead, Write};
 
 const SERVER_NAME: &str = "ctxforge";
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
-const PROTOCOL_VERSION: &str = "2025-11-25";
+const PROTOCOL_VERSION: &str = "2025-03-26";
 
 pub fn run(root: CtxforgeRoot) -> Result<()> {
     let stdin = io::stdin();
@@ -61,7 +61,9 @@ fn handle_request(root: &CtxforgeRoot, req: &Request) -> Option<Response> {
             json!({
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {
-                    "tools": {}
+                    "tools": {},
+                    "resources": {},
+                    "prompts": {}
                 },
                 "serverInfo": {
                     "name": SERVER_NAME,
