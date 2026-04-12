@@ -557,6 +557,7 @@ project/
 - **v1.0.1** — Fix: project root resolution is strictly rooted at the current working directory; no longer walks up to find an ancestor `.ctxforge/`.
 - **v1.0.3** — Fix: skip dotfiles in glob walks, non-UTF-8 files get a placeholder instead of crashing resolve.
 - **v1.1** — Slash command palette (`/`), responsive TUI layout (40/60 wide, stacked narrow), help overlay (`?`), `Ctrl+F` search shortcut. Prompt templates (`{{bundle}}`/`{{task}}`) with 5 built-in starters. `--template`/`--task` on copy/export/pipe. CLI polish: colored output (`owo-colors`), `comfy-table` status, progress spinners (`indicatif`), interactive save prompt (`dialoguer`), "did you mean?" suggestions (`strsim`).
+- **v1.1.3** — MCP server expanded from 4 to 15 tools (add_files, add_function, add_type, remove, clear, export, list_items, save_bundle, list_profiles, list_templates, apply_template). MCP resources (`ctxforge://bundle`, `ctxforge://memory`) and prompts (bugfix, code-review, explain, refactor, migrate). Safety annotations on all tools. Protocol updated to `2025-03-26`. Claude Code plugin with `/ctxforge` slash command and context engineering skill.
 
 ---
 

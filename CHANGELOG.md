@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.3 — 2026-04-12
+
+### Added
+- **MCP server: 15 tools** (up from 4). New tools: `ctxforge_add_files`, `ctxforge_add_function`, `ctxforge_add_type`, `ctxforge_remove`, `ctxforge_clear`, `ctxforge_export`, `ctxforge_list_items`, `ctxforge_save_bundle`, `ctxforge_list_profiles`, `ctxforge_list_templates`, `ctxforge_apply_template`. Claude Code can now build context bundles, manage profiles, apply templates, and inspect token budgets autonomously via MCP.
+- **MCP resources**: `ctxforge://bundle` (full bundle content), `ctxforge://bundle/items` (item list with token counts), `ctxforge://memory` (all notes), `ctxforge://memory/{tag}` (notes by tag).
+- **MCP prompts**: 5 built-in prompts (bugfix, code-review, explain, refactor, migrate) rendered with the current bundle baked in.
+- **Safety annotations** on all 15 MCP tools (`readOnlyHint` or `destructiveHint`) per marketplace requirements.
+- **MCP protocol updated** from `2025-11-25` to `2025-03-26`.
+- **Claude Code plugin** (`ctxforge-plugin/`): plugin manifest, `.mcp.json` config, `/ctxforge` slash command, context engineering skill, README with 3 usage examples.
+- **Privacy section** added to README.
+
 ## 1.1.1 — 2026-04-12
 
 ### Added
