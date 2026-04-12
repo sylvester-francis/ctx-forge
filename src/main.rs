@@ -16,6 +16,7 @@ mod output;
 mod paths;
 mod profile;
 mod resolve;
+mod template;
 mod tokens;
 #[cfg(feature = "tui")]
 mod tui;
