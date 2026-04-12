@@ -4,6 +4,14 @@
 //! are rendered. `Mode::Normal` is the default two-panel browsing mode.
 //! Other variants represent overlay/input modes added in later tasks.
 
+/// Where a template was loaded from. Used by the TUI template picker
+/// to show project-vs-global indicators.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TemplateSource {
+    Project,
+    Global,
+}
+
 /// Which input field is active in two-field overlays.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputField {
@@ -63,6 +71,23 @@ pub enum Mode {
         selected: std::collections::HashSet<usize>,
         cursor: usize,
         entering_branch: bool,
+    },
+    /// Slash command palette open. Filtered live as the user types.
+    CommandPalette {
+        query: String,
+        cursor: usize,
+    },
+    /// Help overlay open. Toggled with `?` from Normal mode only.
+    Help,
+    /// Template picker overlay open. Loaded by `/template` command without args.
+    TemplatePick {
+        cursor: usize,
+        templates: Vec<(String, TemplateSource)>,
+    },
+    /// Template task input open after a template is picked.
+    TemplateTask {
+        template_name: String,
+        task: String,
     },
 }
 

@@ -44,6 +44,10 @@ pub fn handle(app: &mut App, key: KeyEvent) {
         #[cfg(feature = "extract")]
         Mode::TypePick { .. } => handle_type_pick(app, key),
         Mode::DiffPick { .. } => handle_diff_pick(app, key),
+        Mode::CommandPalette { .. } => {} // filled in Task 17
+        Mode::Help => {}                  // filled in Task 17
+        Mode::TemplatePick { .. } => {}   // filled in Task 18
+        Mode::TemplateTask { .. } => {}   // filled in Task 18
     }
 }
 
