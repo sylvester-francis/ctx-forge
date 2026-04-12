@@ -578,3 +578,9 @@ ctxforge is licensed under the [GNU Affero General Public License v3.0 or later]
 - If you distribute a modified version or run it as a network service, your modifications must also be AGPL-3.0-or-later
 
 **Copyright:** © 2026 Sylvester Francis. All rights reserved. See [NOTICE](NOTICE).
+
+---
+
+## Privacy
+
+ctxforge runs entirely on your local machine. It makes **zero network calls**, collects **no telemetry**, requires **no API keys**, and sends **no data** to any external service. All state (bundles, profiles, memory notes, templates) is stored locally in the `.ctxforge/` directory within your project. The MCP server communicates exclusively via stdio with the local Claude Code process — no data leaves your machine.
