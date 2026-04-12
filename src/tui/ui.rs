@@ -9,6 +9,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, Paragraph};
 
 pub fn draw(f: &mut Frame, app: &App) {
+    let area = f.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -16,18 +17,56 @@ pub fn draw(f: &mut Frame, app: &App) {
             Constraint::Min(5),    // main panels
             Constraint::Length(2), // status + keybindings
         ])
-        .split(f.area());
+        .split(area);
 
     draw_header(f, app, chunks[0]);
-    draw_panels(f, app, chunks[1]);
+
+    // Responsive layout: wide (≥120 cols) → 40/60 horizontal split;
+    // narrow → vertical stack (bundle on top, tree below).
+    if area.width >= 120 && area.height >= 30 {
+        let panel_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
+            .split(chunks[1]);
+
+        let left_handled = draw_left_panel(f, app, panel_chunks[0]);
+        if !left_handled {
+            draw_file_tree(f, app, panel_chunks[0]);
+        }
+        draw_right_panel(f, app, panel_chunks[1]);
+    } else {
+        let panel_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(chunks[1]);
+
+        draw_right_panel(f, app, panel_chunks[0]);
+        let left_handled = draw_left_panel(f, app, panel_chunks[1]);
+        if !left_handled {
+            draw_file_tree(f, app, panel_chunks[1]);
+        }
+    }
+
     draw_footer(f, app, chunks[2]);
 
     // Render overlays on top of the main layout.
-    draw_overlay(f, app);
+    draw_overlays(f, app);
 }
 
-fn draw_overlay(f: &mut Frame, app: &App) {
+fn draw_overlays(f: &mut Frame, app: &App) {
     use crate::tui::mode::Mode;
+
+    // Command palette overlay
+    if matches!(app.mode, Mode::CommandPalette { .. }) {
+        draw_command_palette(f, app);
+    }
+
+    // Help overlay
+    if app.show_help || matches!(app.mode, Mode::Help) {
+        draw_help_overlay(f);
+    }
+
+    // Legacy mode overlays
     match &app.mode {
         Mode::PipeMenu => {
             let area = centered_rect(30, 7, f.area());
@@ -73,8 +112,184 @@ fn draw_overlay(f: &mut Frame, app: &App) {
                 .collect();
             f.render_widget(List::new(items).block(block), area);
         }
+        Mode::TemplatePick { cursor, templates } => {
+            draw_template_pick_overlay(f, *cursor, templates);
+        }
+        Mode::TemplateTask {
+            template_name,
+            task,
+        } => {
+            draw_template_task_overlay(f, template_name, task);
+        }
         _ => {}
     }
+}
+
+fn draw_command_palette(f: &mut Frame, app: &App) {
+    use crate::tui::mode::Mode;
+    let (query, cursor) = match &app.mode {
+        Mode::CommandPalette { query, cursor } => (query, *cursor),
+        _ => return,
+    };
+    let results = crate::tui::commands::fuzzy_filter(query);
+    let area = centered_rect(70, 16, f.area());
+    f.render_widget(ratatui::widgets::Clear, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // input
+            Constraint::Min(5),    // results list
+            Constraint::Length(3), // footer
+        ])
+        .split(area);
+
+    // Input row
+    let input_block = Block::default()
+        .title(" / command palette ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ratatui::style::Color::Cyan));
+    let input = Paragraph::new(format!(" /{query}")).block(input_block);
+    f.render_widget(input, chunks[0]);
+
+    // Results list
+    let items: Vec<ListItem> = results
+        .iter()
+        .enumerate()
+        .map(|(i, cmd)| {
+            let marker = if i == cursor { " > " } else { "   " };
+            let style = if i == cursor {
+                Style::default()
+                    .fg(ratatui::style::Color::Black)
+                    .bg(ratatui::style::Color::White)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Span::styled(
+                format!("{marker}/{:<14} {}", cmd.name, cmd.description),
+                style,
+            ))
+        })
+        .collect();
+    let list_block = Block::default().borders(Borders::ALL);
+    let list = List::new(items).block(list_block);
+    f.render_widget(list, chunks[1]);
+
+    // Footer row
+    let footer_text = format!(
+        " {} of {} matches  |  Enter run  |  Esc cancel ",
+        results.len(),
+        crate::tui::commands::COMMANDS.len()
+    );
+    let footer = Paragraph::new(footer_text)
+        .block(Block::default().borders(Borders::ALL))
+        .style(Style::default().add_modifier(Modifier::DIM));
+    f.render_widget(footer, chunks[2]);
+}
+
+fn draw_help_overlay(f: &mut Frame) {
+    let area = centered_rect(80, 22, f.area());
+    f.render_widget(ratatui::widgets::Clear, area);
+    let block = Block::default()
+        .title(" ctxforge -- navigation keys ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ratatui::style::Color::Cyan));
+    let lines = vec![
+        Line::from(""),
+        Line::from("  Movement                          Selection"),
+        Line::from("    j / k     down / up               space  toggle file (in tree)"),
+        Line::from("    g / G     top / bottom            Enter  expand directory"),
+        Line::from("    Tab       switch panel"),
+        Line::from(""),
+        Line::from("  Discoverable input"),
+        Line::from("    /         open command palette  (every feature lives here)"),
+        Line::from("    Ctrl+F    file fuzzy search     (alias for /find)"),
+        Line::from("    ?         this help overlay"),
+        Line::from("    q         quit"),
+        Line::from(""),
+        Line::from("  Most-used commands (preview -- full list in / palette)"),
+        Line::from("    /copy        copy bundle to clipboard"),
+        Line::from("    /save        save current as profile"),
+        Line::from("    /load        load a profile"),
+        Line::from("    /pipe        pipe to agent (claude / agent / gemini)"),
+        Line::from("    /narrow      narrow item to line range"),
+        Line::from("    /template    pick template + task -> copy"),
+        Line::from(""),
+        Line::from("                          Esc or ? to close"),
+    ];
+    let p = Paragraph::new(lines).block(block);
+    f.render_widget(p, area);
+}
+
+fn draw_template_pick_overlay(
+    f: &mut Frame,
+    cursor: usize,
+    templates: &[(String, crate::tui::mode::TemplateSource)],
+) {
+    use crate::tui::mode::TemplateSource;
+    let area = centered_rect(60, (templates.len() + 4).min(20) as u16, f.area());
+    f.render_widget(ratatui::widgets::Clear, area);
+    let block = Block::default()
+        .title(" / template -- pick a template ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ratatui::style::Color::Cyan));
+    let items: Vec<ListItem> = templates
+        .iter()
+        .enumerate()
+        .map(|(i, (name, source))| {
+            let source_label = match source {
+                TemplateSource::Project => "project",
+                TemplateSource::Global => "global",
+            };
+            let marker = if i == cursor { " > " } else { "   " };
+            let style = if i == cursor {
+                Style::default()
+                    .fg(ratatui::style::Color::Black)
+                    .bg(ratatui::style::Color::White)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Span::styled(
+                format!("{marker}{:<20} ({source_label})", name),
+                style,
+            ))
+        })
+        .collect();
+    f.render_widget(List::new(items).block(block), area);
+}
+
+fn draw_template_task_overlay(f: &mut Frame, template_name: &str, task: &str) {
+    let area = centered_rect(70, 7, f.area());
+    f.render_widget(ratatui::widgets::Clear, area);
+    let block = Block::default()
+        .title(format!(" task for template '{template_name}' "))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ratatui::style::Color::Cyan));
+    let text = vec![
+        Line::from(""),
+        Line::from(format!("  > {task}")),
+        Line::from(""),
+        Line::from("  Enter to copy with template  |  Esc to cancel"),
+    ];
+    let p = Paragraph::new(text).block(block);
+    f.render_widget(p, area);
+}
+
+/// Render the right panel (bundle list, profile list, or memory panel).
+fn draw_right_panel(f: &mut Frame, app: &App, area: Rect) {
+    // LoadProfile mode replaces the right panel with the profile picker.
+    if let crate::tui::mode::Mode::LoadProfile { cursor, profiles } = &app.mode {
+        draw_profile_list(f, *cursor, profiles, area);
+        return;
+    }
+
+    // MemoryPanel mode replaces the right panel with the recall view.
+    if matches!(app.mode, crate::tui::mode::Mode::MemoryPanel { .. }) {
+        draw_memory_panel(f, app, area);
+        return;
+    }
+
+    draw_bundle_list(f, app, area);
 }
 
 /// Helper to create a centered rect of given width/height inside `area`,
@@ -117,43 +332,6 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(gauge, area);
 }
 
-fn draw_panels(f: &mut Frame, app: &App, area: Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(area);
-
-    // Pickers replace the LEFT panel with their list. Otherwise the file tree.
-    let left_handled = draw_left_panel(f, app, chunks[0]);
-    if !left_handled {
-        draw_file_tree(f, app, chunks[0]);
-    }
-
-    // LoadProfile mode replaces the right panel with the profile picker.
-    if let crate::tui::mode::Mode::LoadProfile { cursor, profiles } = &app.mode {
-        draw_profile_list(f, *cursor, profiles, chunks[1]);
-        return;
-    }
-
-    // MemoryPanel mode replaces the right panel with the recall view.
-    if matches!(app.mode, crate::tui::mode::Mode::MemoryPanel { .. }) {
-        draw_memory_panel(f, app, chunks[1]);
-        return;
-    }
-
-    // Split right column to show the hotspot panel below the bundle list
-    // when one item dominates the token budget.
-    if let Some((idx, pct)) = app.hotspot() {
-        let right = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Min(3), Constraint::Length(4)])
-            .split(chunks[1]);
-        draw_bundle_list(f, app, right[0]);
-        draw_hotspot(f, idx, pct, right[1]);
-    } else {
-        draw_bundle_list(f, app, chunks[1]);
-    }
-}
 
 /// Returns `true` if a picker overlay was rendered into the left panel,
 /// in which case the caller should NOT also render the file tree.
@@ -324,21 +502,6 @@ fn draw_profile_list(f: &mut Frame, cursor: usize, profiles: &[String], area: Re
         .collect();
 
     f.render_widget(List::new(items).block(block), area);
-}
-
-fn draw_hotspot(f: &mut Frame, idx: usize, pct: f64, area: Rect) {
-    let block = Block::default()
-        .title(" Hotspot ")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::hotspot_color()));
-    let text = vec![
-        Line::from(format!("  {} consumes {:.0}% of the budget.", idx, pct)),
-        Line::from("  Narrow to a range? [press n]"),
-    ];
-    let paragraph = Paragraph::new(text)
-        .block(block)
-        .style(Style::default().fg(theme::hotspot_color()));
-    f.render_widget(paragraph, area);
 }
 
 fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
@@ -619,10 +782,20 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         }
     }
 
-    // Keybindings.
+    // Hint row.
+    let focus_label = match app.focus {
+        Focus::FileTree => "tree",
+        Focus::BundleList => "bundle",
+    };
+    let nav_keys = match app.focus {
+        Focus::FileTree => "j/k move  Enter expand  space add",
+        Focus::BundleList => "j/k move  Enter select",
+    };
     let keys_text = match &app.mode {
-        Mode::Normal => " ␣ toggle  ↵ expand  / search  n narrow  s save  l load  c copy  q quit",
-        _ => " Esc cancel",
+        Mode::Normal => format!(
+            "  > {focus_label}  |  {nav_keys}  |  / commands  Ctrl+F find  ? help  q quit"
+        ),
+        _ => " Esc cancel".into(),
     };
     let keys = Paragraph::new(keys_text).style(Style::default().add_modifier(Modifier::DIM));
     f.render_widget(keys, chunks[1]);

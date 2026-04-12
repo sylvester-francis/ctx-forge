@@ -44,21 +44,19 @@ pub fn handle(app: &mut App, key: KeyEvent) {
         #[cfg(feature = "extract")]
         Mode::TypePick { .. } => handle_type_pick(app, key),
         Mode::DiffPick { .. } => handle_diff_pick(app, key),
-        Mode::CommandPalette { .. } => {} // filled in Task 17
-        Mode::Help => {}                  // filled in Task 17
-        Mode::TemplatePick { .. } => {}   // filled in Task 18
-        Mode::TemplateTask { .. } => {}   // filled in Task 18
+        Mode::CommandPalette { .. } => handle_command_palette(app, key),
+        Mode::Help => handle_help(app, key),
+        Mode::TemplatePick { .. } => handle_template_pick(app, key),
+        Mode::TemplateTask { .. } => handle_template_task(app, key),
     }
 }
 
 fn handle_normal(app: &mut App, key: KeyEvent) {
     match key.code {
-        KeyCode::Char('q') | KeyCode::Esc => {
-            app.should_quit = true;
-        }
-        KeyCode::Char('c') => {
-            app.copy_to_clipboard();
-        }
+        // Quit
+        KeyCode::Char('q') => app.should_quit = true,
+
+        // Navigation (vim-style)
         KeyCode::Char('j') | KeyCode::Down => match app.focus {
             Focus::FileTree => app.move_tree_cursor(1),
             Focus::BundleList => app.move_bundle_cursor(1),
@@ -100,60 +98,180 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
             Focus::FileTree => app.tree_cursor = 0,
             Focus::BundleList => app.bundle_cursor = 0,
         },
+
+        // Slash command palette
         KeyCode::Char('/') => {
+            app.mode = Mode::CommandPalette {
+                query: String::new(),
+                cursor: 0,
+            };
+        }
+
+        // Help overlay
+        KeyCode::Char('?') => {
+            app.mode = Mode::Help;
+            app.show_help = true;
+        }
+
+        // Ctrl+F = direct search shortcut
+        KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             app.mode = Mode::Search {
                 query: String::new(),
             };
             app.run_search("");
         }
-        KeyCode::Char('n') => {
-            app.start_narrow();
+
+        // Esc closes help if open
+        KeyCode::Esc => {
+            if app.show_help {
+                app.show_help = false;
+            }
         }
-        KeyCode::Char('s') => {
-            app.mode = Mode::SaveProfile {
-                name: String::new(),
+
+        _ => {}
+    }
+}
+
+fn handle_command_palette(app: &mut App, key: KeyEvent) {
+    use crate::tui::commands::{fuzzy_filter, parse_palette_query};
+
+    let (query, cursor) = match &app.mode {
+        Mode::CommandPalette { query, cursor } => (query.clone(), *cursor),
+        _ => return,
+    };
+
+    match key.code {
+        KeyCode::Esc => {
+            app.mode = Mode::Normal;
+        }
+        KeyCode::Enter => {
+            let results = fuzzy_filter(&query);
+            if let Some(cmd) = results.get(cursor) {
+                let (_name_typed, arg) = parse_palette_query(&query);
+                let action = cmd.action;
+                app.mode = Mode::Normal;
+                action(app, arg);
+            } else {
+                app.mode = Mode::Normal;
+            }
+        }
+        KeyCode::Char(ch) => {
+            let new_query = format!("{query}{ch}");
+            app.mode = Mode::CommandPalette {
+                query: new_query,
+                cursor: 0,
             };
         }
-        KeyCode::Char('l') => {
-            app.start_load_profile();
+        KeyCode::Backspace => {
+            if query.is_empty() {
+                app.mode = Mode::Normal;
+            } else {
+                let mut new_query = query;
+                new_query.pop();
+                app.mode = Mode::CommandPalette {
+                    query: new_query,
+                    cursor: 0,
+                };
+            }
         }
-        KeyCode::Char('x') => {
-            app.export_xml_to_stdout();
+        KeyCode::Down => {
+            let results = fuzzy_filter(&query);
+            if cursor + 1 < results.len() {
+                app.mode = Mode::CommandPalette {
+                    query,
+                    cursor: cursor + 1,
+                };
+            }
         }
-        KeyCode::Char('p') => {
-            app.mode = Mode::PipeMenu;
+        KeyCode::Up => {
+            if cursor > 0 {
+                app.mode = Mode::CommandPalette {
+                    query,
+                    cursor: cursor - 1,
+                };
+            }
         }
-        KeyCode::Char('m') => {
-            app.mode = Mode::ModelSwitch { cursor: 0 };
+        _ => {}
+    }
+}
+
+fn handle_help(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
+            app.show_help = false;
+            app.mode = Mode::Normal;
         }
-        KeyCode::Char('r') => {
-            app.toggle_memory_panel();
+        _ => {}
+    }
+}
+
+fn handle_template_pick(app: &mut App, key: KeyEvent) {
+    let (cursor, templates) = match &app.mode {
+        Mode::TemplatePick { cursor, templates } => (*cursor, templates.clone()),
+        _ => return,
+    };
+    match key.code {
+        KeyCode::Esc => app.mode = Mode::Normal,
+        KeyCode::Char('j') | KeyCode::Down => {
+            if cursor + 1 < templates.len() {
+                app.mode = Mode::TemplatePick {
+                    cursor: cursor + 1,
+                    templates,
+                };
+            }
         }
-        KeyCode::Char('J') => {
-            app.mode = Mode::AddNote {
-                tag: String::new(),
-                body: String::new(),
-                field: crate::tui::mode::InputField::First,
+        KeyCode::Char('k') | KeyCode::Up => {
+            if cursor > 0 {
+                app.mode = Mode::TemplatePick {
+                    cursor: cursor - 1,
+                    templates,
+                };
+            }
+        }
+        KeyCode::Enter => {
+            if let Some((name, _)) = templates.get(cursor) {
+                let template_name = name.clone();
+                app.mode = Mode::TemplateTask {
+                    template_name,
+                    task: String::new(),
+                };
+            }
+        }
+        _ => {}
+    }
+}
+
+fn handle_template_task(app: &mut App, key: KeyEvent) {
+    let (template_name, task) = match &app.mode {
+        Mode::TemplateTask {
+            template_name,
+            task,
+        } => (template_name.clone(), task.clone()),
+        _ => return,
+    };
+    match key.code {
+        KeyCode::Esc => app.mode = Mode::Normal,
+        KeyCode::Enter => {
+            if task.trim().is_empty() {
+                app.status_message = "task cannot be empty".into();
+            } else {
+                app.confirm_template_task();
+            }
+        }
+        KeyCode::Backspace => {
+            let mut new_task = task;
+            new_task.pop();
+            app.mode = Mode::TemplateTask {
+                template_name,
+                task: new_task,
             };
         }
-        KeyCode::Char('d') => {
-            app.start_diff_pick();
-        }
-        #[cfg(feature = "extract")]
-        KeyCode::Char('f') => {
-            app.start_function_pick();
-        }
-        #[cfg(not(feature = "extract"))]
-        KeyCode::Char('f') => {
-            app.status_message = "Function extraction requires --features=extract".into();
-        }
-        #[cfg(feature = "extract")]
-        KeyCode::Char('t') => {
-            app.start_type_pick();
-        }
-        #[cfg(not(feature = "extract"))]
-        KeyCode::Char('t') => {
-            app.status_message = "Type extraction requires --features=extract".into();
+        KeyCode::Char(ch) => {
+            let new_task = format!("{task}{ch}");
+            app.mode = Mode::TemplateTask {
+                template_name,
+                task: new_task,
+            };
         }
         _ => {}
     }
