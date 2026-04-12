@@ -104,23 +104,6 @@ Or just run `ctxforge` with no arguments to open the interactive TUI.
 
 Run `ctxforge` with no subcommand to launch the fullscreen composer. The TUI is always rooted at the current working directory — it creates or reuses `./.ctxforge/`, it never walks up to an ancestor.
 
-```
-┌─ ctxforge │ profile: feature-auth │ claude-sonnet-4 │ ~1,204 / 200,000 (0.6%) ─┐
-│ tokens ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░                                │
-├─ files (42) ──────────────┬─ bundle · 4 items · ~1,568 tokens ───────────────────┤
-│ ▾ src/                    │  # kind  path                    tokens     %         │
-│     ▫ main.rs             │  1 file  src/main.rs               423  27.0%         │
-│     ■ cli.rs              │  2 file  src/cli.rs                612  39.0% (!)     │
-│   ▸ commands/             │  3 λ fn  fn:ProcessCheck           231  14.7%         │
-│   ▸ memory/               │  4 τ type type:Config              302  19.3%         │
-│   ▫ Cargo.toml            │                                                       │
-│ ■ README.md               │                                                       │
-├───────────────────────────┴───────────────────────────────────────────────────────┤
-│  Switched to claude-sonnet-4                                                      │
-│  > tree  |  j/k move  Enter expand  space add  |  / commands  Ctrl+F find  ? help │
-└───────────────────────────────────────────────────────────────────────────────────┘
-```
-
 **New in v1.1: Slash command palette.** Press `/` to open the fuzzy-matched command palette. Every feature lives there — type the first few characters and press Enter. No more memorizing single-letter keybindings.
 
 **Responsive layout.** Wide terminals (≥120 cols) get a 40/60 horizontal split. Narrower terminals stack panels vertically with bundle on top.
