@@ -14,6 +14,7 @@ pub mod resume;
 pub mod rm;
 pub mod save;
 pub mod status;
+pub mod template;
 
 use crate::cli::{Cli, Command};
 use crate::error::{CtxforgeError, Result};
@@ -68,6 +69,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Some(Command::Save { name }) => save::run(&root, name.as_deref()),
         Some(Command::Load { name }) => load::run(&root, &name),
         Some(Command::Profiles { action }) => profiles::run(&root, action),
+        Some(Command::Templates { action }) => template::run(&root, action),
         Some(Command::Note { tag, body }) => note::run(&root, body, tag),
         Some(Command::Recall {
             tag,

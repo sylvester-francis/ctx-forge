@@ -127,6 +127,16 @@ pub enum Command {
         action: Option<ProfilesAction>,
     },
 
+    /// Manage prompt templates (`.ctxforge/templates/*.md`).
+    ///
+    /// Templates wrap a rendered bundle with author-written prose containing
+    /// `{{bundle}}` and `{{task}}` placeholders. Use them with
+    /// `ctxforge copy --template <name> --task "..."`.
+    Templates {
+        #[command(subcommand)]
+        action: Option<TemplatesAction>,
+    },
+
     /// Write a memory note. Accumulates across sessions.
     Note {
         /// Tag for the note (e.g. "auth", "tls"). Untagged notes go to
@@ -212,4 +222,21 @@ pub enum Command {
 pub enum ProfilesAction {
     /// Remove a profile by name.
     Rm { name: String },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum TemplatesAction {
+    /// Scaffold a new project-local template. With `--from <starter>`,
+    /// copy from a built-in starter; otherwise create a blank scaffold.
+    New {
+        name: String,
+        /// Copy from a built-in starter library template.
+        /// Available: bugfix, code-review, explain, refactor, migrate.
+        #[arg(long)]
+        from: Option<String>,
+    },
+    /// Delete a project-local template by name.
+    Rm { name: String },
+    /// List the built-in starter templates shipped with ctxforge.
+    Starters,
 }
