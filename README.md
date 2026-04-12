@@ -271,22 +271,37 @@ Give Claude Code persistent memory in one command:
 claude mcp add --transport stdio ctxforge -- ctxforge mcp
 ```
 
-That's it. Claude Code can now read and write memory notes, load saved profiles, and check token budgets — all without leaving the conversation.
+That's it. Claude Code can now build context bundles, read and write memory notes, load saved profiles, apply templates, and check token budgets — all without leaving the conversation.
 
 <p align="center">
   <img src="https://github.com/sylvester-francis/ctx-forge/releases/download/v1.1.1/mcp-demo.gif" alt="ctxforge MCP demo — agent writes and recalls memory" width="600" />
 </p>
 
-### Exposed Tools
+### Exposed Tools (15)
 
 | Tool | Description |
 |------|-------------|
+| `ctxforge_add_files` | Add files, globs, or line ranges to the context bundle |
+| `ctxforge_add_function` | Add a function by name (tree-sitter extraction) |
+| `ctxforge_add_type` | Add a type/struct by name (tree-sitter extraction) |
+| `ctxforge_remove` | Remove items by path or index |
+| `ctxforge_clear` | Clear the entire bundle |
+| `ctxforge_export` | Export bundle content (markdown/xml/json) |
+| `ctxforge_list_items` | List items with paths, types, and token counts |
+| `ctxforge_status` | Check the current bundle's token budget against the model window |
+| `ctxforge_save_bundle` | Save the current bundle as a named profile |
+| `ctxforge_load_bundle` | Load a saved profile's files into context |
+| `ctxforge_list_profiles` | List all saved profiles |
 | `ctxforge_recall` | Search memory notes by tag, keyword, or recency |
 | `ctxforge_note` | Write a decision or learning that persists across sessions |
-| `ctxforge_load_bundle` | Load a saved profile's files into context |
-| `ctxforge_status` | Check the current bundle's token budget against the model window |
+| `ctxforge_list_templates` | List available prompt templates |
+| `ctxforge_apply_template` | Render a template with bundle content and task |
 
-The MCP server runs as a stdio JSON-RPC process — no network, no daemon, no configuration beyond the one-liner above. Protocol version: `2025-11-25`.
+### Resources & Prompts
+
+The MCP server also exposes **resources** (`ctxforge://bundle`, `ctxforge://bundle/items`, `ctxforge://memory`, `ctxforge://memory/{tag}`) and **prompts** (bugfix, code-review, explain, refactor, migrate) for richer client integration.
+
+The MCP server runs as a stdio JSON-RPC process — no network, no daemon, no configuration beyond the one-liner above. Protocol version: `2025-03-26`.
 
 ---
 
