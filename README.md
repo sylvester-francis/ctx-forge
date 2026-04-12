@@ -18,6 +18,10 @@ Assemble, count, remember, and export perfect context bundles for Claude Code, C
 
 [Install](#install) · [Quick Start](#quick-start) · [TUI](#interactive-tui) · [Memory](#cross-session-memory) · [MCP Server](#mcp-server) · [CLI Reference](#cli-reference) · [Export Formats](#export-formats)
 
+<p align="center">
+  <img src="https://github.com/sylvester-francis/ctx-forge/releases/download/v1.1.1/hero-tui.gif" alt="ctxforge TUI demo — file tree, token gauge, slash command palette" width="720" />
+</p>
+
 ---
 
 ## Why ctxforge?
@@ -268,6 +272,10 @@ claude mcp add --transport stdio ctxforge -- ctxforge mcp
 ```
 
 That's it. Claude Code can now read and write memory notes, load saved profiles, and check token budgets — all without leaving the conversation.
+
+<p align="center">
+  <img src="https://github.com/sylvester-francis/ctx-forge/releases/download/v1.1.1/mcp-demo.gif" alt="ctxforge MCP demo — agent writes and recalls memory" width="600" />
+</p>
 
 ### Exposed Tools
 
