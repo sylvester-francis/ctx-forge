@@ -451,10 +451,10 @@ fn tool_add_function(root: &CtxforgeRoot, args: &Value) -> Result<Value, String>
     #[cfg(not(feature = "extract"))]
     {
         let _ = (root, args);
-        return Err(
+        Err(
             "tree-sitter extraction not available — rebuild ctxforge with `--features extract`"
                 .into(),
-        );
+        )
     }
 
     #[cfg(feature = "extract")]
@@ -490,10 +490,10 @@ fn tool_add_type(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
     #[cfg(not(feature = "extract"))]
     {
         let _ = (root, args);
-        return Err(
+        Err(
             "tree-sitter extraction not available — rebuild ctxforge with `--features extract`"
                 .into(),
-        );
+        )
     }
 
     #[cfg(feature = "extract")]
