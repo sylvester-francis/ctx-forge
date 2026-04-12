@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "ctxforge": {
+      "command": "ctxforge",
+      "args": ["mcp"],
+      "transportType": "stdio"
+    }
+  }
+}
