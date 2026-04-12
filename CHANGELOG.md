@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.1 — 2026-04-12
+
+### Added
+- **TUI: `/template-new`, `/template-rm`, `/template-starters`** slash commands for managing templates without leaving the TUI.
+- **Model registry refresh** for 2026: Claude Opus 4.6 (1M), Claude Sonnet 4.6, Claude Haiku 4.5, GPT-4.1/mini/nano (1M, exact tiktoken), o3, o3-mini, o4-mini, Gemini 2.5 Pro/Flash (1M). Removed legacy GPT-4 and GPT-3.5-turbo.
+
 ## 1.1.0 — 2026-04-12
 
 ### Added
