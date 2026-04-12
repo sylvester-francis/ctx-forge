@@ -26,7 +26,22 @@ pub const DEFAULT_MODEL: &str = "claude-sonnet-4";
 /// All models ctxforge knows about. Unknown names fall back to `estimate` with
 /// a generic 200k window.
 const MODELS: &[ModelInfo] = &[
-    // Anthropic
+    // ── Anthropic (Claude 4.6 / 4.5 / 4) ───────────────────────────
+    ModelInfo {
+        name: "claude-opus-4-6",
+        window: 1_000_000,
+        tokenizer: Tokenizer::Estimate,
+    },
+    ModelInfo {
+        name: "claude-sonnet-4-6",
+        window: 200_000,
+        tokenizer: Tokenizer::Estimate,
+    },
+    ModelInfo {
+        name: "claude-haiku-4-5",
+        window: 200_000,
+        tokenizer: Tokenizer::Estimate,
+    },
     ModelInfo {
         name: "claude-sonnet-4",
         window: 200_000,
@@ -38,16 +53,46 @@ const MODELS: &[ModelInfo] = &[
         tokenizer: Tokenizer::Estimate,
     },
     ModelInfo {
-        name: "claude-haiku-4",
-        window: 200_000,
-        tokenizer: Tokenizer::Estimate,
-    },
-    ModelInfo {
         name: "claude-3-5-sonnet",
         window: 200_000,
         tokenizer: Tokenizer::Estimate,
     },
-    // OpenAI (exact tiktoken)
+    // ── OpenAI (exact tiktoken) ─────────────────────────────────────
+    ModelInfo {
+        name: "gpt-4.1",
+        window: 1_047_576,
+        tokenizer: Tokenizer::Tiktoken("o200k_base"),
+    },
+    ModelInfo {
+        name: "gpt-4.1-mini",
+        window: 1_047_576,
+        tokenizer: Tokenizer::Tiktoken("o200k_base"),
+    },
+    ModelInfo {
+        name: "gpt-4.1-nano",
+        window: 1_047_576,
+        tokenizer: Tokenizer::Tiktoken("o200k_base"),
+    },
+    ModelInfo {
+        name: "o4-mini",
+        window: 200_000,
+        tokenizer: Tokenizer::Tiktoken("o200k_base"),
+    },
+    ModelInfo {
+        name: "o3",
+        window: 200_000,
+        tokenizer: Tokenizer::Tiktoken("o200k_base"),
+    },
+    ModelInfo {
+        name: "o3-mini",
+        window: 200_000,
+        tokenizer: Tokenizer::Tiktoken("o200k_base"),
+    },
+    ModelInfo {
+        name: "o1",
+        window: 200_000,
+        tokenizer: Tokenizer::Tiktoken("o200k_base"),
+    },
     ModelInfo {
         name: "gpt-4o",
         window: 128_000,
@@ -63,22 +108,22 @@ const MODELS: &[ModelInfo] = &[
         window: 128_000,
         tokenizer: Tokenizer::Tiktoken("cl100k_base"),
     },
+    // ── Google ──────────────────────────────────────────────────────
     ModelInfo {
-        name: "gpt-4",
-        window: 8_192,
-        tokenizer: Tokenizer::Tiktoken("cl100k_base"),
+        name: "gemini-2.5-pro",
+        window: 1_048_576,
+        tokenizer: Tokenizer::Estimate,
     },
     ModelInfo {
-        name: "gpt-3.5-turbo",
-        window: 16_384,
-        tokenizer: Tokenizer::Tiktoken("cl100k_base"),
+        name: "gemini-2.5-flash",
+        window: 1_048_576,
+        tokenizer: Tokenizer::Estimate,
     },
     ModelInfo {
-        name: "o1",
-        window: 200_000,
-        tokenizer: Tokenizer::Tiktoken("o200k_base"),
+        name: "gemini-2-flash",
+        window: 1_000_000,
+        tokenizer: Tokenizer::Estimate,
     },
-    // Google
     ModelInfo {
         name: "gemini-1.5-pro",
         window: 2_000_000,
@@ -86,11 +131,6 @@ const MODELS: &[ModelInfo] = &[
     },
     ModelInfo {
         name: "gemini-1.5-flash",
-        window: 1_000_000,
-        tokenizer: Tokenizer::Estimate,
-    },
-    ModelInfo {
-        name: "gemini-2-flash",
         window: 1_000_000,
         tokenizer: Tokenizer::Estimate,
     },

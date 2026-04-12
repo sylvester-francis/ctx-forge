@@ -439,15 +439,24 @@ Exact token counts for OpenAI models via `tiktoken`. Character-based estimates (
 
 | Model | Window | Counting |
 |-------|--------|----------|
+| `claude-opus-4-6` | 1,000,000 | ~estimate |
+| `claude-sonnet-4-6` | 200,000 | ~estimate |
+| `claude-haiku-4-5` | 200,000 | ~estimate |
 | `claude-sonnet-4` | 200,000 | ~estimate |
 | `claude-opus-4` | 200,000 | ~estimate |
-| `claude-haiku-4` | 200,000 | ~estimate |
+| `gpt-4.1` | 1,047,576 | exact (o200k) |
+| `gpt-4.1-mini` | 1,047,576 | exact (o200k) |
+| `gpt-4.1-nano` | 1,047,576 | exact (o200k) |
+| `o4-mini` | 200,000 | exact (o200k) |
+| `o3` | 200,000 | exact (o200k) |
+| `o3-mini` | 200,000 | exact (o200k) |
+| `o1` | 200,000 | exact (o200k) |
 | `gpt-4o` | 128,000 | exact (o200k) |
 | `gpt-4o-mini` | 128,000 | exact (o200k) |
-| `gpt-4-turbo` | 128,000 | exact (cl100k) |
-| `o1` | 200,000 | exact (o200k) |
-| `gemini-1.5-pro` | 2,000,000 | ~estimate |
+| `gemini-2.5-pro` | 1,048,576 | ~estimate |
+| `gemini-2.5-flash` | 1,048,576 | ~estimate |
 | `gemini-2-flash` | 1,000,000 | ~estimate |
+| `gemini-1.5-pro` | 2,000,000 | ~estimate |
 
 Unknown model names fall back to a 200k-window estimate. Override the default model with `--model <name>` on any command.
 
