@@ -13,6 +13,8 @@ pub fn run(
     no_memory: bool,
     memory_tag: Option<String>,
     memory_limit: usize,
+    template_name: Option<&str>,
+    task: Option<String>,
 ) -> Result<()> {
     let bundle = Bundle::load_or_default(root)?;
     let resolved = resolve::resolve_all(&bundle.items, root.project_root())?;
@@ -21,13 +23,21 @@ pub fn run(
 
     let rendered = format::render(format, &resolved, &memory_notes);
 
-    crate::clipboard::set(&rendered)?;
+    let final_content = match template_name {
+        Some(name) => crate::template::apply_template(root, name, &rendered, task.as_deref())?,
+        None => rendered,
+    };
 
-    let chars = rendered.chars().count();
+    crate::clipboard::set(&final_content)?;
+
+    let chars = final_content.chars().count();
     let note_count = memory_notes.len();
+    let tmpl_info = template_name
+        .map(|n| format!(" (template: {n})"))
+        .unwrap_or_default();
     if note_count > 0 {
         println!(
-            "copied {} items + {} memory note(s) ({}, {} chars) to clipboard",
+            "copied {} items + {} memory note(s) ({}, {} chars){tmpl_info} to clipboard",
             bundle.len(),
             note_count,
             format.name(),
@@ -35,7 +45,7 @@ pub fn run(
         );
     } else {
         println!(
-            "copied {} items ({}, {} chars) to clipboard",
+            "copied {} items ({}, {} chars){tmpl_info} to clipboard",
             bundle.len(),
             format.name(),
             chars

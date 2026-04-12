@@ -51,9 +51,20 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             no_memory,
             memory_tag,
             memory_limit,
+            template,
+            task,
         }) => {
             let fmt = resolve_format(format.as_deref(), xml, json)?;
-            export::run(&root, output, fmt, no_memory, memory_tag, memory_limit)
+            export::run(
+                &root,
+                output,
+                fmt,
+                no_memory,
+                memory_tag,
+                memory_limit,
+                template.as_deref(),
+                task,
+            )
         }
         Some(Command::Copy {
             format,
@@ -62,9 +73,19 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             no_memory,
             memory_tag,
             memory_limit,
+            template,
+            task,
         }) => {
             let fmt = resolve_format(format.as_deref(), xml, json)?;
-            copy::run(&root, fmt, no_memory, memory_tag, memory_limit)
+            copy::run(
+                &root,
+                fmt,
+                no_memory,
+                memory_tag,
+                memory_limit,
+                template.as_deref(),
+                task,
+            )
         }
         Some(Command::Save { name }) => save::run(&root, name.as_deref()),
         Some(Command::Load { name }) => load::run(&root, &name),
@@ -84,6 +105,8 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             no_memory,
             memory_tag,
             memory_limit,
+            template,
+            task,
             extra_args,
         }) => pipe::run(
             &root,
@@ -92,6 +115,8 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             no_memory,
             memory_tag,
             memory_limit,
+            template.as_deref(),
+            task,
             &extra_args,
         ),
         #[cfg(feature = "mcp")]

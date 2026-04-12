@@ -81,6 +81,14 @@ pub enum Command {
         /// Maximum number of notes to attach.
         #[arg(long, default_value_t = 10)]
         memory_limit: usize,
+
+        /// Wrap the rendered bundle inside a named template.
+        #[arg(long)]
+        template: Option<String>,
+
+        /// Task description for `{{task}}` substitution.
+        #[arg(long)]
+        task: Option<String>,
     },
 
     /// Copy the current bundle to the system clipboard.
@@ -108,6 +116,14 @@ pub enum Command {
         /// Maximum number of notes to attach.
         #[arg(long, default_value_t = 10)]
         memory_limit: usize,
+
+        /// Wrap the rendered bundle inside a named template.
+        #[arg(long)]
+        template: Option<String>,
+
+        /// Task description for `{{task}}` substitution.
+        #[arg(long)]
+        task: Option<String>,
     },
 
     /// Save the current bundle as a named profile.
@@ -203,6 +219,14 @@ pub enum Command {
         /// Maximum number of notes to attach.
         #[arg(long, default_value_t = 10)]
         memory_limit: usize,
+
+        /// Wrap the rendered bundle inside a named template.
+        #[arg(long)]
+        template: Option<String>,
+
+        /// Task description for `{{task}}` substitution.
+        #[arg(long)]
+        task: Option<String>,
 
         /// Extra arguments passed to the target CLI after `--`.
         #[arg(last = true)]

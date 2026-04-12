@@ -16,6 +16,8 @@ pub fn run(
     no_memory: bool,
     memory_tag: Option<String>,
     memory_limit: usize,
+    template_name: Option<&str>,
+    task: Option<String>,
 ) -> Result<()> {
     let bundle = Bundle::load_or_default(root)?;
     let resolved = resolve::resolve_all(&bundle.items, root.project_root())?;
@@ -24,12 +26,17 @@ pub fn run(
 
     let rendered = format::render(format, &resolved, &memory_notes);
 
+    let final_content = match template_name {
+        Some(name) => crate::template::apply_template(root, name, &rendered, task.as_deref())?,
+        None => rendered,
+    };
+
     match output {
         Some(path) => {
-            std::fs::write(&path, &rendered)?;
+            std::fs::write(&path, &final_content)?;
             eprintln!(
                 "wrote {} bytes ({}) to {}",
-                rendered.len(),
+                final_content.len(),
                 format.name(),
                 path.display()
             );
@@ -37,7 +44,7 @@ pub fn run(
         None => {
             let stdout = std::io::stdout();
             let mut lock = stdout.lock();
-            lock.write_all(rendered.as_bytes())?;
+            lock.write_all(final_content.as_bytes())?;
         }
     }
     Ok(())

@@ -118,6 +118,94 @@ fn templates_new_rejects_path_separators() {
     assert!(!output.status.success());
 }
 
+// --- Task 12: --template/--task flags on copy/export/pipe ---
+
+fn create_test_template(td: &TempDir, name: &str, body: &str) {
+    let dir = td.path().join(".ctxforge").join("templates");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(format!("{name}.md")), body).unwrap();
+}
+
+#[test]
+fn export_with_template_wraps_bundle_in_stdout() {
+    let td = TempDir::new().unwrap();
+    std::fs::write(td.path().join("main.rs"), "fn main() {}\n").unwrap();
+    create_test_template(&td, "wrap", "PREFIX\n{{bundle}}\nSUFFIX");
+    ctxforge()
+        .current_dir(td.path())
+        .args(["add", "main.rs"])
+        .assert()
+        .success();
+    let output = ctxforge()
+        .current_dir(td.path())
+        .args(["export", "--template", "wrap"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.starts_with("PREFIX"), "stdout was: {stdout}");
+    assert!(stdout.contains("fn main()"));
+    assert!(stdout.trim_end().ends_with("SUFFIX"));
+}
+
+#[test]
+fn export_with_template_and_task_substitutes_both() {
+    let td = TempDir::new().unwrap();
+    std::fs::write(td.path().join("main.rs"), "fn main() {}\n").unwrap();
+    create_test_template(&td, "wrap", "TASK={{task}}\nBUNDLE:\n{{bundle}}");
+    ctxforge()
+        .current_dir(td.path())
+        .args(["add", "main.rs"])
+        .assert()
+        .success();
+    let output = ctxforge()
+        .current_dir(td.path())
+        .args(["export", "--template", "wrap", "--task", "fix the bug"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("TASK=fix the bug"));
+    assert!(stdout.contains("fn main()"));
+}
+
+#[test]
+fn export_with_template_missing_required_task_errors() {
+    let td = TempDir::new().unwrap();
+    std::fs::write(td.path().join("main.rs"), "fn main() {}\n").unwrap();
+    create_test_template(&td, "wrap", "TASK={{task}}\nBUNDLE:\n{{bundle}}");
+    ctxforge()
+        .current_dir(td.path())
+        .args(["add", "main.rs"])
+        .assert()
+        .success();
+    let output = ctxforge()
+        .current_dir(td.path())
+        .args(["export", "--template", "wrap"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("requires --task"));
+}
+
+#[test]
+fn export_with_unknown_template_errors() {
+    let td = TempDir::new().unwrap();
+    std::fs::write(td.path().join("main.rs"), "fn main() {}\n").unwrap();
+    ctxforge()
+        .current_dir(td.path())
+        .args(["add", "main.rs"])
+        .assert()
+        .success();
+    let output = ctxforge()
+        .current_dir(td.path())
+        .args(["export", "--template", "nonexistent"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("not found"));
+}
+
 // --- Task 11: Starter library tests ---
 
 #[test]

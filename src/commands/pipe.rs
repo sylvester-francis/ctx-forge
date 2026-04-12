@@ -31,6 +31,8 @@ pub fn run(
     no_memory: bool,
     memory_tag: Option<String>,
     memory_limit: usize,
+    template_name: Option<&str>,
+    task: Option<String>,
     extra_args: &[String],
 ) -> Result<()> {
     // Resolve format.
@@ -49,6 +51,13 @@ pub fn run(
     let memory_notes =
         memory::collect_for_attach(root, no_memory, memory_tag.as_deref(), memory_limit)?;
     let rendered = format::render(fmt, &resolved, &memory_notes);
+
+    let rendered = match template_name {
+        Some(name) => {
+            crate::template::apply_template(root, name, &rendered, task.as_deref())?
+        }
+        None => rendered,
+    };
 
     // Spawn the target CLI.
     let mut child = Command::new(target)

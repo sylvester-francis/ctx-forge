@@ -131,6 +131,39 @@ pub fn resolve_template_path_with_global(
     Err(CtxforgeError::Msg(msg))
 }
 
+/// Returns true if the template text contains a `{{task}}` placeholder.
+pub fn template_has_task_placeholder(template: &str) -> bool {
+    parse_placeholders(template)
+        .iter()
+        .any(|(_, _, n)| *n == "task")
+}
+
+/// Loads, validates, and renders a template wrapping the given bundle
+/// content. Used by copy/export/pipe handlers.
+pub fn apply_template(
+    root: &CtxforgeRoot,
+    template_name: &str,
+    bundle_rendered: &str,
+    task_flag: Option<&str>,
+) -> Result<String> {
+    let path = resolve_template_path(root, template_name)?;
+    let template_text = std::fs::read_to_string(&path).map_err(|e| {
+        CtxforgeError::Msg(format!(
+            "cannot read template '{template_name}' at {}: {e}",
+            path.display()
+        ))
+    })?;
+    let requires_task = template_has_task_placeholder(&template_text);
+    if requires_task && task_flag.is_none() {
+        return Err(CtxforgeError::Msg(
+            "template requires --task; provide --task \"<text>\" or --task - to read from stdin"
+                .into(),
+        ));
+    }
+    let task = task_flag.unwrap_or("");
+    substitute(template_name, &template_text, bundle_rendered, task)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
