@@ -22,3 +22,4 @@ Cargo.lock.bak
 .env
 *.swp
 *.swo
+launch-assets/
