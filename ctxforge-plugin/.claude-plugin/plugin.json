@@ -1,0 +1,11 @@
+{
+  "name": "ctxforge",
+  "description": "Context engineering for AI coding agents — assemble, compress, and export perfect context bundles with live token counting",
+  "version": "1.0.0",
+  "author": "Sylvester Francis",
+  "homepage": "https://github.com/sylvester-francis/ctx-forge",
+  "license": "AGPL-3.0-or-later",
+  "prerequisites": {
+    "binaries": ["ctxforge"]
+  }
+}
