@@ -163,6 +163,24 @@ pub static COMMANDS: &[CommandSpec] = &[
         action: |app, arg| app.start_template_flow(arg),
     },
     CommandSpec {
+        name: "template-new",
+        description: "scaffold a new project template <name>",
+        takes_arg: true,
+        action: |app, arg| app.run_template_new(arg),
+    },
+    CommandSpec {
+        name: "template-rm",
+        description: "delete a project template <name>",
+        takes_arg: true,
+        action: |app, arg| app.run_template_rm(arg),
+    },
+    CommandSpec {
+        name: "template-starters",
+        description: "list built-in starter templates",
+        takes_arg: false,
+        action: |app, _| app.run_template_starters(),
+    },
+    CommandSpec {
         name: "template-list",
         description: "show available templates",
         takes_arg: false,

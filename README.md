@@ -177,8 +177,11 @@ All features are available from the `/` palette. Type the first few chars to fil
 | `/find-fn` | Function picker (requires `--features=extract`) |
 | `/find-type` | Type picker (requires `--features=extract`) |
 | `/find-diff <branch?>` | Diff picker against branch |
-| `/template <name?>` | Pick template + task → copy to clipboard |
+| `/template <name?>` | Pick template + task -> copy to clipboard |
 | `/template-list` | Show available templates |
+| `/template-new <name>` | Scaffold a new project template |
+| `/template-rm <name>` | Delete a project template |
+| `/template-starters` | List built-in starter templates |
 | `/help` | Show navigation help overlay |
 | `/quit` | Quit |
 

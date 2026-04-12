@@ -669,6 +669,69 @@ impl App {
         }
     }
 
+    /// Scaffold a new project-local template via the command palette.
+    pub fn run_template_new(&mut self, name: Option<String>) {
+        let name = match name {
+            Some(n) if !n.is_empty() => n,
+            _ => {
+                self.status_message = "usage: /template-new <name>".into();
+                return;
+            }
+        };
+        let dir = self.root.templates_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join(format!("{name}.md"));
+        if path.exists() {
+            self.status_message = format!("template '{name}' already exists");
+            return;
+        }
+        let content = format!(
+            "# Template: {name}\n\n\
+             You are an expert software engineer. Below is the relevant code and notes.\n\n\
+             ## Task\n\n{{{{task}}}}\n\n\
+             ## Code and notes\n\n{{{{bundle}}}}\n"
+        );
+        match std::fs::write(&path, content) {
+            Ok(()) => {
+                self.status_message = format!("created template '{name}' at {}", path.display());
+            }
+            Err(e) => {
+                self.status_message = format!("error creating template: {e}");
+            }
+        }
+    }
+
+    /// Delete a project-local template via the command palette.
+    pub fn run_template_rm(&mut self, name: Option<String>) {
+        let name = match name {
+            Some(n) if !n.is_empty() => n,
+            _ => {
+                self.status_message = "usage: /template-rm <name>".into();
+                return;
+            }
+        };
+        let stem = name.strip_suffix(".md").unwrap_or(&name);
+        let path = self.root.template_path(stem);
+        if !path.exists() {
+            self.status_message = format!("template '{stem}' not found");
+            return;
+        }
+        match std::fs::remove_file(&path) {
+            Ok(()) => {
+                self.status_message = format!("deleted template '{stem}'");
+            }
+            Err(e) => {
+                self.status_message = format!("error deleting template: {e}");
+            }
+        }
+    }
+
+    /// List built-in starter templates in a status message.
+    pub fn run_template_starters(&mut self) {
+        self.status_message =
+            "starters: bugfix, code-review, explain, refactor, migrate (use CLI: ctxforge templates new <name> --from <starter>)".into();
+    }
+
     /// Confirm template task: render bundle, apply template, copy to clipboard.
     pub fn confirm_template_task(&mut self) {
         let (template_name, task) = match &self.mode {
