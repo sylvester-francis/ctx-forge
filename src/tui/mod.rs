@@ -5,6 +5,7 @@
 //! token gauge and keybinding footer.
 
 pub mod app;
+pub mod commands;
 pub mod events;
 pub mod mode;
 pub mod theme;

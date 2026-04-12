@@ -53,6 +53,7 @@ pub struct App {
     pub mode: mode::Mode,
     pub should_quit: bool,
     pub status_message: String,
+    pub show_help: bool,
 }
 
 impl App {
@@ -89,6 +90,7 @@ impl App {
             mode: mode::Mode::Normal,
             should_quit: false,
             status_message: String::new(),
+            show_help: false,
         };
         app.rebuild_bundled_paths();
         app.recalculate_tokens();
@@ -619,6 +621,103 @@ impl App {
         self.bundled_paths = self.bundle.items.iter().map(|i| i.path.clone()).collect();
     }
 
+    /// Short status message setter (used by command table actions).
+    pub fn set_status(&mut self, msg: &str) {
+        self.status_message = msg.to_string();
+    }
+
+    /// Open the template flow: if a name is given inline, jump to task input;
+    /// otherwise open the template picker.
+    pub fn start_template_flow(&mut self, name: Option<String>) {
+        if let Some(n) = name {
+            if !n.is_empty() {
+                match crate::template::resolve_template_path(&self.root, &n) {
+                    Ok(_) => {
+                        self.mode = mode::Mode::TemplateTask {
+                            template_name: n,
+                            task: String::new(),
+                        };
+                        return;
+                    }
+                    Err(e) => {
+                        self.status_message = format!("template error: {e}");
+                        return;
+                    }
+                }
+            }
+        }
+        let templates = scan_all_templates(&self.root);
+        if templates.is_empty() {
+            self.status_message =
+                "no templates found; create one with `ctxforge templates new <name>`".into();
+            return;
+        }
+        self.mode = mode::Mode::TemplatePick {
+            cursor: 0,
+            templates,
+        };
+    }
+
+    /// Show available templates in a status message.
+    pub fn show_template_list(&mut self) {
+        let templates = scan_all_templates(&self.root);
+        if templates.is_empty() {
+            self.status_message = "no templates found".into();
+        } else {
+            let names: Vec<String> = templates.iter().map(|(n, _)| n.clone()).collect();
+            self.status_message = format!("templates: {}", names.join(", "));
+        }
+    }
+
+    /// Confirm template task: render bundle, apply template, copy to clipboard.
+    pub fn confirm_template_task(&mut self) {
+        let (template_name, task) = match &self.mode {
+            mode::Mode::TemplateTask {
+                template_name,
+                task,
+            } => (template_name.clone(), task.clone()),
+            _ => return,
+        };
+        let resolved =
+            match crate::resolve::resolve_all(&self.bundle.items, &self.project_root) {
+                Ok(r) => r,
+                Err(e) => {
+                    self.status_message = format!("resolve error: {e}");
+                    self.mode = mode::Mode::Normal;
+                    return;
+                }
+            };
+        let memory =
+            crate::memory::collect_for_attach(&self.root, false, None, 10).unwrap_or_default();
+        let rendered =
+            crate::format::render(crate::format::Format::Markdown, &resolved, &memory);
+
+        let final_content = match crate::template::apply_template(
+            &self.root,
+            &template_name,
+            &rendered,
+            Some(&task),
+        ) {
+            Ok(c) => c,
+            Err(e) => {
+                self.status_message = format!("template error: {e}");
+                self.mode = mode::Mode::Normal;
+                return;
+            }
+        };
+
+        match crate::clipboard::set(&final_content) {
+            Ok(()) => {
+                self.status_message =
+                    format!("copied template '{template_name}' with bundle + task");
+            }
+            Err(e) => {
+                self.status_message = format!("clipboard error: {e}");
+            }
+        }
+        self.mode = mode::Mode::Normal;
+    }
+
     pub(crate) fn recalculate_tokens(&mut self) {
         let model = models::lookup(&self.model_name);
         self.model_window = model.window;
@@ -636,4 +735,48 @@ impl App {
             .then_some(false)
             .unwrap_or(true);
     }
+}
+
+/// Scan project-local and global template directories for available templates.
+fn scan_all_templates(root: &CtxforgeRoot) -> Vec<(String, mode::TemplateSource)> {
+    let mut result = Vec::new();
+    let project_dir = root.templates_dir();
+    if project_dir.is_dir() {
+        for entry in std::fs::read_dir(&project_dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            if let Some(name) = entry
+                .path()
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(String::from)
+            {
+                result.push((name, mode::TemplateSource::Project));
+            }
+        }
+    }
+    if let Some(global_dir) = crate::paths::global_templates_dir() {
+        if global_dir.is_dir() {
+            for entry in std::fs::read_dir(&global_dir)
+                .into_iter()
+                .flatten()
+                .flatten()
+            {
+                if let Some(name) = entry
+                    .path()
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(String::from)
+                {
+                    if !result.iter().any(|(n, _)| n == &name) {
+                        result.push((name, mode::TemplateSource::Global));
+                    }
+                }
+            }
+        }
+    }
+    result.sort_by(|a, b| a.0.cmp(&b.0));
+    result
 }
