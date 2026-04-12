@@ -73,10 +73,7 @@ pub enum Mode {
         entering_branch: bool,
     },
     /// Slash command palette open. Filtered live as the user types.
-    CommandPalette {
-        query: String,
-        cursor: usize,
-    },
+    CommandPalette { query: String, cursor: usize },
     /// Help overlay open. Toggled with `?` from Normal mode only.
     Help,
     /// Template picker overlay open. Loaded by `/template` command without args.
@@ -85,10 +82,7 @@ pub enum Mode {
         templates: Vec<(String, TemplateSource)>,
     },
     /// Template task input open after a template is picked.
-    TemplateTask {
-        template_name: String,
-        task: String,
-    },
+    TemplateTask { template_name: String, task: String },
 }
 
 impl Mode {

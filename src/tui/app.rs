@@ -678,19 +678,17 @@ impl App {
             } => (template_name.clone(), task.clone()),
             _ => return,
         };
-        let resolved =
-            match crate::resolve::resolve_all(&self.bundle.items, &self.project_root) {
-                Ok(r) => r,
-                Err(e) => {
-                    self.status_message = format!("resolve error: {e}");
-                    self.mode = mode::Mode::Normal;
-                    return;
-                }
-            };
+        let resolved = match crate::resolve::resolve_all(&self.bundle.items, &self.project_root) {
+            Ok(r) => r,
+            Err(e) => {
+                self.status_message = format!("resolve error: {e}");
+                self.mode = mode::Mode::Normal;
+                return;
+            }
+        };
         let memory =
             crate::memory::collect_for_attach(&self.root, false, None, 10).unwrap_or_default();
-        let rendered =
-            crate::format::render(crate::format::Format::Markdown, &resolved, &memory);
+        let rendered = crate::format::render(crate::format::Format::Markdown, &resolved, &memory);
 
         let final_content = match crate::template::apply_template(
             &self.root,

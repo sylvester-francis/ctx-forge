@@ -44,12 +44,7 @@ pub fn parse_placeholders(template: &str) -> Vec<(usize, usize, &str)> {
 /// parsed from the *original* template — content inside a substituted
 /// `{{bundle}}` is never re-scanned for placeholders. Returns an error
 /// if any placeholder is not in the v1.1 allow-list `{bundle, task}`.
-pub fn substitute(
-    template_name: &str,
-    template: &str,
-    bundle: &str,
-    task: &str,
-) -> Result<String> {
+pub fn substitute(template_name: &str, template: &str, bundle: &str, task: &str) -> Result<String> {
     let placeholders = parse_placeholders(template);
 
     // Phase 1: validate all placeholders are known.

@@ -53,9 +53,7 @@ pub fn run(
     let rendered = format::render(fmt, &resolved, &memory_notes);
 
     let rendered = match template_name {
-        Some(name) => {
-            crate::template::apply_template(root, name, &rendered, task.as_deref())?
-        }
+        Some(name) => crate::template::apply_template(root, name, &rendered, task.as_deref())?,
         None => rendered,
     };
 

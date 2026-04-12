@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.1.0 — 2026-04-12
+
+### Added
+- **TUI: Slash command palette** — every feature is now invoked via `/command` (fuzzy-matched). Press `/`, type the first few chars of what you want, Enter to run. Replaces all 13+ single-letter v1.0 keybindings. Vim navigation (`j`/`k`/`Tab`/`Space`/`Enter`/`g`/`G`/`q`) and `Ctrl+F` (file search shortcut) are the only single-key bindings. `?` opens a help overlay showing navigation keys.
+- **TUI: Responsive layout** — 40/60 horizontal split on terminals >= 120 cols, vertical stack on narrower terminals.
+- **TUI: Status row + hint row** — context-relevant navigation hints plus the three global shortcuts (`/`, `Ctrl+F`, `?`, `q`).
+- **CLI: Semantic colored output** via `owo-colors`. Status, recall, resume, error messages all colored. TTY-aware, honors `NO_COLOR=1`.
+- **CLI: `ctxforge status` rewritten with `comfy-table`** — proper column layout, color-bucketed `%` column, hotspot warning + tip below the table.
+- **CLI: "Did you mean?" suggestions** for `ctxforge add <missing-file>` via `strsim` Jaro-Winkler matching.
+- **CLI: Progress spinners** for `ctxforge add --fn` / `--type` tree-sitter scans (auto-hidden when stdout isn't a TTY).
+- **CLI: Interactive prompt** for `ctxforge save` when name is omitted on a TTY (`dialoguer::Input`).
+- **Prompt templates** — author-written `.md` templates with `{{bundle}}` and `{{task}}` placeholders. Single-pass substitution, no re-scanning. Project-local templates (`.ctxforge/templates/`) shadow user-global templates (`~/.config/ctxforge/templates/`).
+  - `ctxforge templates` — list templates from both sources with shadow indicators
+  - `ctxforge templates new <name>` — scaffold a project-local template with a starter
+  - `ctxforge templates new <name> --from <starter>` — copy from a built-in starter
+  - `ctxforge templates starters` — list the 5 built-in starter templates
+  - `ctxforge templates rm <name>` — delete a project-local template (refuses global)
+  - `--template <name>` and `--task <text>` flags on `copy`, `export`, `pipe`
+  - TUI `/template` slash command opens picker -> task input -> auto-copy
+
+### Dependencies added
+- `owo-colors 4` (color)
+- `comfy-table 7` (status table)
+- `indicatif 0.17` (progress bars and spinners)
+- `dialoguer 0.11` (interactive input + editor fallback)
+- `strsim 0.11` (Jaro-Winkler for "did you mean")
+
+### Removed
+- v1.0 single-letter feature keybindings (`c`, `n`, `s`, `l`, `p`, `x`, `m`, `r`, `J`, `f`, `t`, `d`). Use `/copy`, `/narrow`, `/save`, `/load`, `/pipe`, `/export`, `/model`, `/memory`, `/note`, `/find-fn`, `/find-type`, `/find-diff` respectively.
+
 ## 1.0.3 — 2026-04-11
 
 ### Fixed

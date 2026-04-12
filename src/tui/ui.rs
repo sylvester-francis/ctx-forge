@@ -332,7 +332,6 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(gauge, area);
 }
 
-
 /// Returns `true` if a picker overlay was rendered into the left panel,
 /// in which case the caller should NOT also render the file tree.
 fn draw_left_panel(f: &mut Frame, app: &App, area: Rect) -> bool {
@@ -792,9 +791,9 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         Focus::BundleList => "j/k move  Enter select",
     };
     let keys_text = match &app.mode {
-        Mode::Normal => format!(
-            "  > {focus_label}  |  {nav_keys}  |  / commands  Ctrl+F find  ? help  q quit"
-        ),
+        Mode::Normal => {
+            format!("  > {focus_label}  |  {nav_keys}  |  / commands  Ctrl+F find  ? help  q quit")
+        }
         _ => " Esc cancel".into(),
     };
     let keys = Paragraph::new(keys_text).style(Style::default().add_modifier(Modifier::DIM));
