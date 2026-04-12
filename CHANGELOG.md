@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.4 — 2026-04-12
+
+### Fixed
+- Rustfmt formatting fixes for CI compliance.
+- README and CHANGELOG updates now included in crates.io package.
+
 ## 1.1.3 — 2026-04-12
 
 ### Added
