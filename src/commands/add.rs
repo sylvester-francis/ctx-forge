@@ -24,6 +24,15 @@ pub fn run(
     // --fn <name>: requires exactly one file path in patterns.
     if !functions.is_empty() {
         let file_path = require_single_file(&patterns, "--fn")?;
+        let pb = output::spinner(&format!("scanning {file_path} for functions..."));
+        #[cfg(feature = "extract")]
+        validate_symbols(
+            &project_root,
+            &file_path,
+            &functions,
+            crate::extract::extract_function,
+            "function",
+        );
         for name in &functions {
             let item = Item {
                 path: PathBuf::from(&file_path),
@@ -33,11 +42,21 @@ pub fn run(
             bundle.add(item);
             added_count += 1;
         }
+        pb.finish_and_clear();
     }
 
     // --type <name>: requires exactly one file path in patterns.
     if !types.is_empty() {
         let file_path = require_single_file(&patterns, "--type")?;
+        let pb = output::spinner(&format!("scanning {file_path} for types..."));
+        #[cfg(feature = "extract")]
+        validate_symbols(
+            &project_root,
+            &file_path,
+            &types,
+            crate::extract::extract_type,
+            "type",
+        );
         for name in &types {
             let item = Item {
                 path: PathBuf::from(&file_path),
@@ -47,6 +66,7 @@ pub fn run(
             bundle.add(item);
             added_count += 1;
         }
+        pb.finish_and_clear();
     }
 
     // If --fn or --type were used, we're done with patterns (they served as the file path).
@@ -135,6 +155,38 @@ pub fn run(
         bundle.len()
     ));
     Ok(())
+}
+
+/// Best-effort validation that each `name` actually exists in `file_path` as
+/// `kind_label` (e.g. "function" or "type"). Warns via `output::warn` for any
+/// name that can't be found — does not fail the add so existing scripts keep
+/// working, but catches typos with a visible message. Silently tolerates
+/// unsupported languages or unreadable files; resolve-time extraction will
+/// surface those errors later.
+#[cfg(feature = "extract")]
+fn validate_symbols(
+    project_root: &Path,
+    file_path: &str,
+    names: &[String],
+    extractor: fn(&str, &str, &str) -> std::result::Result<Option<String>, String>,
+    kind_label: &str,
+) {
+    let abs = project_root.join(file_path);
+    let Ok(source) = std::fs::read_to_string(&abs) else {
+        return;
+    };
+    let language = crate::lang::detect(Path::new(file_path));
+    for name in names {
+        match extractor(&source, language, name) {
+            Ok(Some(_)) => {}
+            Ok(None) => output::warn(&format!(
+                "{kind_label} `{name}` not found in {file_path} (added anyway)"
+            )),
+            Err(_) => {
+                // Unsupported language or query error — defer to resolve time.
+            }
+        }
+    }
 }
 
 /// When using `--fn` or `--type`, exactly one file path must be provided.
