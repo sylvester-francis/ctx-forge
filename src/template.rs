@@ -8,6 +8,8 @@
 #![allow(dead_code)]
 
 use crate::error::{CtxforgeError, Result};
+use crate::paths::CtxforgeRoot;
+use std::path::PathBuf;
 
 /// Returns spans of every `{{name}}` placeholder in the template.
 /// Each entry is `(start_byte, end_byte, name_str)`. The end_byte is
@@ -73,6 +75,60 @@ pub fn substitute(
     }
     out.push_str(&template[last_end..]);
     Ok(out)
+}
+
+/// Resolves a template name to a file path. Tries the project-local
+/// templates dir first, then the user-global config dir. Returns the
+/// path to the file if found, or a descriptive error.
+pub fn resolve_template_path(root: &CtxforgeRoot, name: &str) -> Result<PathBuf> {
+    let global = crate::paths::global_templates_dir();
+    resolve_template_path_with_global(root, name, global.as_deref())
+}
+
+/// Resolution helper with explicit global directory (used by tests so
+/// they can isolate from `$HOME`).
+pub fn resolve_template_path_with_global(
+    root: &CtxforgeRoot,
+    name: &str,
+    global_dir: Option<&std::path::Path>,
+) -> Result<PathBuf> {
+    if name.is_empty() {
+        return Err(CtxforgeError::Msg("template name required".into()));
+    }
+    if name.contains('/') || name.contains('\\') {
+        return Err(CtxforgeError::Msg(format!(
+            "template name must not contain path separators (got '{name}')"
+        )));
+    }
+
+    // Strip optional `.md` extension to normalize.
+    let stem = name.strip_suffix(".md").unwrap_or(name);
+
+    // 1. Project-local
+    let project = root.template_path(stem);
+    if project.is_file() {
+        return Ok(project);
+    }
+
+    // 2. Global
+    if let Some(g) = global_dir {
+        let global_path = g.join(format!("{stem}.md"));
+        if global_path.is_file() {
+            return Ok(global_path);
+        }
+    }
+
+    let mut msg = format!(
+        "template '{stem}' not found\n  looked in:\n    {}",
+        project.display()
+    );
+    if let Some(g) = global_dir {
+        msg.push_str(&format!("\n    {}", g.join(format!("{stem}.md")).display()));
+    }
+    msg.push_str(&format!(
+        "\n  Tip: create one with 'ctxforge templates new {stem}'"
+    ));
+    Err(CtxforgeError::Msg(msg))
 }
 
 #[cfg(test)]
@@ -152,5 +208,90 @@ mod tests {
         let msg = format!("{}", r.unwrap_err());
         assert!(msg.contains("unknown placeholder"));
         assert!(msg.contains("unknown"));
+    }
+
+    #[test]
+    fn resolve_project_template_wins_over_global() {
+        use tempfile::TempDir;
+        let td = TempDir::new().unwrap();
+        let root_dir = td.path().join("project");
+        std::fs::create_dir_all(&root_dir).unwrap();
+        let project_templates = root_dir.join(".ctxforge").join("templates");
+        std::fs::create_dir_all(&project_templates).unwrap();
+        std::fs::write(project_templates.join("bugfix.md"), "PROJECT VERSION").unwrap();
+
+        let global_dir = td.path().join("global-config");
+        std::fs::create_dir_all(&global_dir).unwrap();
+        std::fs::write(global_dir.join("bugfix.md"), "GLOBAL VERSION").unwrap();
+
+        let root = crate::paths::CtxforgeRoot::find_or_create(&root_dir).unwrap();
+        let resolved = resolve_template_path_with_global(&root, "bugfix", Some(&global_dir));
+        let path = resolved.unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "PROJECT VERSION");
+    }
+
+    #[test]
+    fn resolve_falls_back_to_global() {
+        use tempfile::TempDir;
+        let td = TempDir::new().unwrap();
+        let root_dir = td.path().join("project");
+        std::fs::create_dir_all(&root_dir).unwrap();
+
+        let global_dir = td.path().join("global-config");
+        std::fs::create_dir_all(&global_dir).unwrap();
+        std::fs::write(global_dir.join("bugfix.md"), "GLOBAL VERSION").unwrap();
+
+        let root = crate::paths::CtxforgeRoot::find_or_create(&root_dir).unwrap();
+        let resolved = resolve_template_path_with_global(&root, "bugfix", Some(&global_dir));
+        let path = resolved.unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "GLOBAL VERSION");
+    }
+
+    #[test]
+    fn resolve_errors_if_missing_in_both() {
+        use tempfile::TempDir;
+        let td = TempDir::new().unwrap();
+        let root_dir = td.path().join("project");
+        std::fs::create_dir_all(&root_dir).unwrap();
+
+        let global_dir = td.path().join("global-config");
+        std::fs::create_dir_all(&global_dir).unwrap();
+
+        let root = crate::paths::CtxforgeRoot::find_or_create(&root_dir).unwrap();
+        let resolved = resolve_template_path_with_global(&root, "missing", Some(&global_dir));
+        assert!(resolved.is_err());
+        let msg = format!("{}", resolved.unwrap_err());
+        assert!(msg.contains("not found"));
+    }
+
+    #[test]
+    fn resolve_appends_md_extension_automatically() {
+        use tempfile::TempDir;
+        let td = TempDir::new().unwrap();
+        let root_dir = td.path().join("project");
+        let project_templates = root_dir.join(".ctxforge").join("templates");
+        std::fs::create_dir_all(&project_templates).unwrap();
+        std::fs::write(project_templates.join("bugfix.md"), "X").unwrap();
+
+        let root = crate::paths::CtxforgeRoot::find_or_create(&root_dir).unwrap();
+        // Pass "bugfix" without .md extension.
+        let resolved = resolve_template_path_with_global(&root, "bugfix", None);
+        assert!(resolved.is_ok());
+    }
+
+    #[test]
+    fn resolve_rejects_path_separators() {
+        use tempfile::TempDir;
+        let td = TempDir::new().unwrap();
+        let root_dir = td.path().join("project");
+        std::fs::create_dir_all(&root_dir).unwrap();
+        let root = crate::paths::CtxforgeRoot::find_or_create(&root_dir).unwrap();
+
+        let r1 = resolve_template_path_with_global(&root, "foo/bar", None);
+        assert!(r1.is_err());
+        let r2 = resolve_template_path_with_global(&root, "foo\\bar", None);
+        assert!(r2.is_err());
     }
 }

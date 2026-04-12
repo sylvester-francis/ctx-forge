@@ -73,6 +73,21 @@ impl CtxforgeRoot {
     pub fn project_root(&self) -> &Path {
         self.root.parent().unwrap_or(&self.root)
     }
+
+    pub fn templates_dir(&self) -> PathBuf {
+        self.root.join("templates")
+    }
+
+    pub fn template_path(&self, name: &str) -> PathBuf {
+        self.templates_dir().join(format!("{name}.md"))
+    }
+}
+
+/// Returns the user-global templates directory: `~/.config/ctxforge/templates`.
+/// On systems where the home directory cannot be determined, returns `None`.
+pub fn global_templates_dir() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME").map(PathBuf::from)?;
+    Some(home.join(".config").join("ctxforge").join("templates"))
 }
 
 #[cfg(test)]
