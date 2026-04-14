@@ -49,6 +49,9 @@ pub struct App {
     /// Animated token gauge — smoothly tweens toward `total_tokens` on
     /// bundle mutations. UI reads via `token_gauge.current(now)`.
     pub token_gauge: crate::tui::motion::Gauge,
+    /// Darkens the Normal content underneath any visible overlay.
+    /// Fades in when an overlay opens, fades out when all overlays close.
+    pub backdrop_dim: crate::tui::motion::Fade,
     /// Set of relative paths currently in the bundle, for fast lookup.
     pub bundled_paths: HashSet<PathBuf>,
     /// Indices into `tree_entries` for fuzzy-search results, ranked by score.
@@ -92,10 +95,15 @@ impl App {
     /// boundary, records a `ModeTransition` with the appropriate duration
     /// (MODAL_IN for Normal→Overlay, MODAL_OUT for Overlay→Normal,
     /// MODAL_CROSSFADE for Overlay→Overlay). Normal→Normal is a no-op.
+    ///
+    /// Also drives the backdrop-dim fade whenever overlay visibility
+    /// changes (Overlay→Overlay keeps the dim at full — no flicker).
     pub fn set_mode(&mut self, next: mode::Mode) {
         let now = self.clock.now();
         let prev = std::mem::replace(&mut self.mode, next);
-        let duration = match (prev.is_overlay(), self.mode.is_overlay()) {
+        let prev_overlay = prev.is_overlay();
+        let next_overlay = self.mode.is_overlay();
+        let duration = match (prev_overlay, next_overlay) {
             (false, false) => None,
             (false, true) => Some(constants::MODAL_IN),
             (true, false) => Some(constants::MODAL_OUT),
@@ -107,6 +115,31 @@ impl App {
                 started: now,
                 duration,
             });
+        }
+
+        // Backdrop dim tracks "any overlay visible?" — during overlay→overlay
+        // the dim stays at full (no animation), during Normal↔Overlay it
+        // fades in/out to match the modal's open/close timing.
+        let ctx = self.anim_ctx();
+        let target_dim = if next_overlay {
+            constants::BACKDROP_DIM
+        } else {
+            0.0
+        };
+        match (prev_overlay, next_overlay) {
+            (false, true) => self.backdrop_dim.set_over(
+                target_dim,
+                constants::MODAL_IN,
+                crate::tui::motion::ease_out_cubic,
+                &ctx,
+            ),
+            (true, false) => self.backdrop_dim.set_over(
+                target_dim,
+                constants::MODAL_OUT,
+                crate::tui::motion::ease_in_cubic,
+                &ctx,
+            ),
+            _ => {}
         }
     }
 
@@ -129,6 +162,9 @@ impl App {
             }
         }
         if self.token_gauge.is_active(now) {
+            return true;
+        }
+        if self.backdrop_dim.is_active(now) {
             return true;
         }
         false
@@ -181,6 +217,7 @@ impl App {
             total_tokens: 0,
             exact_tokens: false,
             token_gauge: crate::tui::motion::Gauge::new(0.0),
+            backdrop_dim: crate::tui::motion::Fade::new_hidden(),
             bundled_paths: HashSet::new(),
             search_results: Vec::new(),
             profile_name: None,

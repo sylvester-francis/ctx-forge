@@ -19,6 +19,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         ])
         .split(area);
 
+    // Pass 1 — Normal content into the frame buffer.
     draw_header(f, app, chunks[0]);
 
     // Responsive layout: wide (≥120 cols) → 40/60 horizontal split;
@@ -49,8 +50,30 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     draw_footer(f, app, chunks[2]);
 
-    // Render overlays on top of the main layout.
+    // Pass 2 — dim the Normal content when an overlay is visible.
+    let dim = app.backdrop_dim.opacity(app.clock.now());
+    if dim > 0.001 {
+        apply_dim_to_buffer(f.buffer_mut(), dim);
+    }
+
+    // Pass 3 — overlays on top of the dimmed background.
     draw_overlays(f, app);
+}
+
+/// Blend every cell's fg and bg toward `BG` by `dim`, leaving symbols intact.
+/// Used to darken Normal content behind an overlay.
+fn apply_dim_to_buffer(buf: &mut ratatui::buffer::Buffer, dim: f32) {
+    use crate::tui::motion::blend;
+    use ratatui::style::Color;
+    const BG: Color = Color::Rgb(10, 14, 22);
+    let area = buf.area;
+    for y in area.top()..area.bottom() {
+        for x in area.left()..area.right() {
+            let cell = &mut buf[(x, y)];
+            cell.fg = blend(1.0 - dim, cell.fg, BG);
+            cell.bg = blend(1.0 - dim, cell.bg, BG);
+        }
+    }
 }
 
 fn draw_overlays(f: &mut Frame, app: &App) {
