@@ -1,8 +1,9 @@
 #![cfg(feature = "tui")]
 
 use ctxforge::tui::motion::{
-    AnimCtx, Animated, Clock, Lerp, MockClock, MotionLevel, SystemClock, blend, detect_motion,
-    ease_in_cubic, ease_in_out_cubic, ease_out_cubic, ease_out_quad, linear,
+    AnimCtx, Animated, Clock, Fade, Gauge, Highlight, Lerp, MockClock, MotionLevel, SystemClock,
+    blend, constants, detect_motion, ease_in_cubic, ease_in_out_cubic, ease_out_cubic,
+    ease_out_quad, linear,
 };
 use std::time::Instant;
 use ratatui::style::Color;
@@ -253,4 +254,78 @@ fn animated_set_with_zero_duration_snaps() {
     );
     assert_eq!(a.value(t0), 100.0);
     assert!(!a.is_active(t0));
+}
+
+#[test]
+fn motion_constants_are_defined() {
+    assert_eq!(constants::MODAL_IN, Duration::from_millis(200));
+    assert_eq!(constants::MODAL_OUT, Duration::from_millis(180));
+    assert_eq!(constants::MODAL_CROSSFADE, Duration::from_millis(240));
+    assert_eq!(constants::GAUGE_FILL, Duration::from_millis(320));
+    assert_eq!(constants::STATUS_IN, Duration::from_millis(180));
+    assert_eq!(constants::STATUS_OUT, Duration::from_millis(280));
+    assert_eq!(constants::STATUS_HOLD, Duration::from_millis(2400));
+    assert_eq!(constants::HIGHLIGHT_MOVE, Duration::from_millis(120));
+    assert_eq!(constants::ROW_IN, Duration::from_millis(200));
+    assert_eq!(constants::ROW_OUT, Duration::from_millis(160));
+    assert_eq!(constants::FOCUS_BORDER, Duration::from_millis(160));
+    assert_eq!(constants::TREE_EXPAND, Duration::from_millis(180));
+    assert_eq!(constants::LIST_FILTER, Duration::from_millis(140));
+    assert_eq!(constants::STARTUP, Duration::from_millis(260));
+    assert_eq!(constants::LIST_STAGGER_STEP, Duration::from_millis(20));
+    assert_eq!(constants::LIST_STAGGER_CAP_ROWS, 6);
+    assert!((constants::BACKDROP_DIM - 0.55).abs() < 1e-6);
+}
+
+#[test]
+fn fade_wrapper_shows_and_hides() {
+    let clock = MockClock::new();
+    let t0 = clock.now();
+    let mut f = Fade::new_hidden();
+    assert_eq!(f.opacity(t0), 0.0);
+
+    let ctx = AnimCtx {
+        now: t0,
+        motion: MotionLevel::Full,
+    };
+    f.show(&ctx);
+    let t_end = t0 + constants::MODAL_IN;
+    assert_eq!(f.opacity(t_end), 1.0);
+
+    let ctx_end = AnimCtx {
+        now: t_end,
+        motion: MotionLevel::Full,
+    };
+    f.hide(&ctx_end);
+    let t_fin = t_end + constants::MODAL_OUT;
+    assert_eq!(f.opacity(t_fin), 0.0);
+}
+
+#[test]
+fn gauge_wrapper_tweens_with_gauge_fill_duration() {
+    let clock = MockClock::new();
+    let t0 = clock.now();
+    let mut g = Gauge::new(0.0);
+    let ctx = AnimCtx {
+        now: t0,
+        motion: MotionLevel::Full,
+    };
+    g.set(1000.0, &ctx);
+    assert_eq!(g.current(t0), 0.0);
+    assert_eq!(g.current(t0 + constants::GAUGE_FILL), 1000.0);
+}
+
+#[test]
+fn highlight_wrapper_tweens_color() {
+    let clock = MockClock::new();
+    let t0 = clock.now();
+    let from = Color::Rgb(0, 0, 0);
+    let to = Color::Rgb(100, 100, 100);
+    let mut h = Highlight::new(from);
+    let ctx = AnimCtx {
+        now: t0,
+        motion: MotionLevel::Full,
+    };
+    h.transition_to(to, &ctx);
+    assert_eq!(h.current(t0 + constants::HIGHLIGHT_MOVE), to);
 }

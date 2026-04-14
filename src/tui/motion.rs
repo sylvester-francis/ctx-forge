@@ -139,6 +139,134 @@ impl<T: Lerp> Animated<T> {
 /// Signature for easing functions. Maps `t` in `[0, 1]` to eased output.
 pub type EasingFn = fn(f32) -> f32;
 
+pub mod constants {
+    use super::Duration;
+
+    pub const MODAL_IN: Duration = Duration::from_millis(200);
+    pub const MODAL_OUT: Duration = Duration::from_millis(180);
+    pub const MODAL_CROSSFADE: Duration = Duration::from_millis(240);
+    pub const GAUGE_FILL: Duration = Duration::from_millis(320);
+    pub const STATUS_IN: Duration = Duration::from_millis(180);
+    pub const STATUS_OUT: Duration = Duration::from_millis(280);
+    pub const STATUS_HOLD: Duration = Duration::from_millis(2400);
+    pub const HIGHLIGHT_MOVE: Duration = Duration::from_millis(120);
+    pub const ROW_IN: Duration = Duration::from_millis(200);
+    pub const ROW_OUT: Duration = Duration::from_millis(160);
+    pub const FOCUS_BORDER: Duration = Duration::from_millis(160);
+    pub const TREE_EXPAND: Duration = Duration::from_millis(180);
+    pub const LIST_FILTER: Duration = Duration::from_millis(140);
+    pub const STARTUP: Duration = Duration::from_millis(260);
+    pub const LIST_STAGGER_STEP: Duration = Duration::from_millis(20);
+    pub const LIST_STAGGER_CAP_ROWS: usize = 6;
+    pub const BACKDROP_DIM: f32 = 0.55;
+}
+
+/// Opacity animation, 0.0..1.0.
+pub struct Fade(Animated<f32>);
+
+impl Fade {
+    pub fn new_hidden() -> Self {
+        Self(Animated::new(0.0))
+    }
+    pub fn new_shown() -> Self {
+        Self(Animated::new(1.0))
+    }
+    pub fn opacity(&self, now: Instant) -> f32 {
+        self.0.value(now)
+    }
+    pub fn show(&mut self, ctx: &AnimCtx) {
+        self.0.set(1.0, ctx, constants::MODAL_IN, ease_out_cubic);
+    }
+    pub fn hide(&mut self, ctx: &AnimCtx) {
+        self.0.set(0.0, ctx, constants::MODAL_OUT, ease_in_cubic);
+    }
+    pub fn set_over(&mut self, target: f32, duration: Duration, easing: EasingFn, ctx: &AnimCtx) {
+        self.0.set(target, ctx, duration, easing);
+    }
+    pub fn snap(&mut self, target: f32) {
+        self.0.snap(target);
+    }
+    pub fn is_active(&self, now: Instant) -> bool {
+        self.0.is_active(now)
+    }
+}
+
+/// Numeric fill animation (e.g. token gauge).
+pub struct Gauge(Animated<f32>);
+
+impl Gauge {
+    pub fn new(initial: f32) -> Self {
+        Self(Animated::new(initial))
+    }
+    pub fn current(&self, now: Instant) -> f32 {
+        self.0.value(now)
+    }
+    pub fn set(&mut self, target: f32, ctx: &AnimCtx) {
+        self.0.set(target, ctx, constants::GAUGE_FILL, ease_out_quad);
+    }
+    pub fn snap(&mut self, target: f32) {
+        self.0.snap(target);
+    }
+    pub fn is_active(&self, now: Instant) -> bool {
+        self.0.is_active(now)
+    }
+}
+
+/// Color highlight animation (cursor bg, focus border).
+pub struct Highlight(Animated<Color>);
+
+impl Highlight {
+    pub fn new(initial: Color) -> Self {
+        Self(Animated::new(initial))
+    }
+    pub fn current(&self, now: Instant) -> Color {
+        self.0.value(now)
+    }
+    pub fn transition_to(&mut self, target: Color, ctx: &AnimCtx) {
+        self.0
+            .set(target, ctx, constants::HIGHLIGHT_MOVE, ease_out_cubic);
+    }
+    pub fn transition_to_over(
+        &mut self,
+        target: Color,
+        duration: Duration,
+        easing: EasingFn,
+        ctx: &AnimCtx,
+    ) {
+        self.0.set(target, ctx, duration, easing);
+    }
+    pub fn snap(&mut self, target: Color) {
+        self.0.snap(target);
+    }
+    pub fn is_active(&self, now: Instant) -> bool {
+        self.0.is_active(now)
+    }
+}
+
+/// Cell-offset slide animation. Truncated to whole cells at read time.
+pub struct Slide(Animated<f32>);
+
+impl Slide {
+    pub fn new(initial: f32) -> Self {
+        Self(Animated::new(initial))
+    }
+    pub fn current_cells(&self, now: Instant) -> i16 {
+        self.0.value(now) as i16
+    }
+    pub fn current(&self, now: Instant) -> f32 {
+        self.0.value(now)
+    }
+    pub fn set(&mut self, target: f32, duration: Duration, easing: EasingFn, ctx: &AnimCtx) {
+        self.0.set(target, ctx, duration, easing);
+    }
+    pub fn snap(&mut self, target: f32) {
+        self.0.snap(target);
+    }
+    pub fn is_active(&self, now: Instant) -> bool {
+        self.0.is_active(now)
+    }
+}
+
 pub fn linear(t: f32) -> f32 {
     t
 }
