@@ -63,6 +63,9 @@ pub struct App {
     /// `StatefulWidget::render` needs `&mut ListState`.
     pub tree_list_state: std::cell::RefCell<ratatui::widgets::ListState>,
     pub bundle_list_state: std::cell::RefCell<ratatui::widgets::ListState>,
+    /// Animated border highlight — tweens between FileTree and BundleList
+    /// focus colors on Tab switch.
+    pub focus_highlight: crate::tui::motion::Highlight,
     /// Set of relative paths currently in the bundle, for fast lookup.
     pub bundled_paths: HashSet<PathBuf>,
     /// Indices into `tree_entries` for fuzzy-search results, ranked by score.
@@ -154,6 +157,22 @@ impl App {
         }
     }
 
+    /// Swap the active panel (FileTree ↔ BundleList) and tween the focus
+    /// border color to the new panel's accent.
+    pub fn toggle_focus(&mut self) {
+        let next = match self.focus {
+            Focus::FileTree => Focus::BundleList,
+            Focus::BundleList => Focus::FileTree,
+        };
+        self.focus = next;
+        let target = match next {
+            Focus::FileTree => ratatui::style::Color::Rgb(88, 166, 255), // soft blue
+            Focus::BundleList => ratatui::style::Color::Rgb(255, 165, 0), // orange
+        };
+        let ctx = self.anim_ctx();
+        self.focus_highlight.transition_to(target, &ctx);
+    }
+
     /// Current animation context (clock time + motion level).
     pub fn anim_ctx(&self) -> AnimCtx {
         AnimCtx {
@@ -229,6 +248,9 @@ impl App {
             return true;
         }
         if self.status_fade.is_active(now) {
+            return true;
+        }
+        if self.focus_highlight.is_active(now) {
             return true;
         }
         false
@@ -310,6 +332,7 @@ impl App {
             status_set_at: None,
             tree_list_state: std::cell::RefCell::new(ratatui::widgets::ListState::default()),
             bundle_list_state: std::cell::RefCell::new(ratatui::widgets::ListState::default()),
+            focus_highlight: crate::tui::motion::Highlight::new(ratatui::style::Color::Cyan),
             bundled_paths: HashSet::new(),
             search_results: Vec::new(),
             profile_name: None,

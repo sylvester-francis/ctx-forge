@@ -83,10 +83,7 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
             }
         }
         KeyCode::Tab => {
-            app.focus = match app.focus {
-                Focus::FileTree => Focus::BundleList,
-                Focus::BundleList => Focus::FileTree,
-            };
+            app.toggle_focus();
         }
         KeyCode::Char('G') => match app.focus {
             Focus::FileTree => {

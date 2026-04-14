@@ -659,7 +659,7 @@ fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
     };
 
     let border_style = if app.focus == Focus::FileTree {
-        Style::default().fg(ratatui::style::Color::Cyan)
+        Style::default().fg(app.focus_highlight.current(app.clock.now()))
     } else {
         Style::default()
     };
@@ -728,7 +728,7 @@ fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
 fn draw_bundle_list(f: &mut Frame, app: &App, area: Rect) {
     let title = format!(" bundle ({} items) ", app.bundle.len());
     let border_style = if app.focus == Focus::BundleList {
-        Style::default().fg(ratatui::style::Color::Cyan)
+        Style::default().fg(app.focus_highlight.current(app.clock.now()))
     } else {
         Style::default()
     };
