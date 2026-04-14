@@ -710,13 +710,16 @@ fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
 
     let list = List::new(items)
         .block(block)
+        .highlight_symbol("▶ ")
         .highlight_style(
             Style::default()
                 .fg(ratatui::style::Color::Black)
                 .bg(ratatui::style::Color::White),
         );
-    let mut state = ListState::default();
-    if !entries_to_show.is_empty() {
+    let mut state = app.tree_list_state.borrow_mut();
+    if entries_to_show.is_empty() {
+        state.select(None);
+    } else {
         state.select(Some(app.tree_cursor.min(entries_to_show.len() - 1)));
     }
     f.render_stateful_widget(list, tree_area, &mut state);
@@ -791,9 +794,18 @@ fn draw_bundle_list(f: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
-    let list = List::new(items).block(block);
-    let mut state = ListState::default();
-    if !app.bundle.is_empty() {
+    let list = List::new(items)
+        .block(block)
+        .highlight_symbol("▶ ")
+        .highlight_style(
+            Style::default()
+                .fg(ratatui::style::Color::Black)
+                .bg(ratatui::style::Color::White),
+        );
+    let mut state = app.bundle_list_state.borrow_mut();
+    if app.bundle.is_empty() {
+        state.select(None);
+    } else {
         state.select(Some(app.bundle_cursor.min(app.bundle.len() - 1)));
     }
     f.render_stateful_widget(list, area, &mut state);

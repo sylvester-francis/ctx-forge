@@ -58,6 +58,11 @@ pub struct App {
     /// Timestamp of the most recent `set_status` call. Used by
     /// `tick_status_fade` to schedule the fade-out.
     pub status_set_at: Option<Instant>,
+    /// Persisted ratatui `ListState` so scroll offset survives across frames.
+    /// Kept as `RefCell` because the render code only has `&App` and
+    /// `StatefulWidget::render` needs `&mut ListState`.
+    pub tree_list_state: std::cell::RefCell<ratatui::widgets::ListState>,
+    pub bundle_list_state: std::cell::RefCell<ratatui::widgets::ListState>,
     /// Set of relative paths currently in the bundle, for fast lookup.
     pub bundled_paths: HashSet<PathBuf>,
     /// Indices into `tree_entries` for fuzzy-search results, ranked by score.
@@ -303,6 +308,8 @@ impl App {
             backdrop_dim: crate::tui::motion::Fade::new_hidden(),
             status_fade: crate::tui::motion::Fade::new_hidden(),
             status_set_at: None,
+            tree_list_state: std::cell::RefCell::new(ratatui::widgets::ListState::default()),
+            bundle_list_state: std::cell::RefCell::new(ratatui::widgets::ListState::default()),
             bundled_paths: HashSet::new(),
             search_results: Vec::new(),
             profile_name: None,
