@@ -57,6 +57,85 @@ impl Lerp for f32 {
     }
 }
 
+/// A tween in progress.
+struct Tween<T> {
+    from: T,
+    to: T,
+    start: Instant,
+    duration: Duration,
+    easing: EasingFn,
+}
+
+/// A value that can animate between targets over time.
+///
+/// Invariant: calling `set()` while a tween is in flight restarts the tween
+/// from the current interpolated value, not from the previous target. This
+/// makes interruption feel continuous rather than jumpy.
+pub struct Animated<T: Lerp> {
+    current: T,
+    tween: Option<Tween<T>>,
+}
+
+impl<T: Lerp> Animated<T> {
+    pub fn new(initial: T) -> Self {
+        Self {
+            current: initial,
+            tween: None,
+        }
+    }
+
+    /// Return the interpolated value at `now`. If no tween is active, returns
+    /// the stored `current` value. If the tween has finished, returns the
+    /// target.
+    pub fn value(&self, now: Instant) -> T {
+        match &self.tween {
+            None => self.current,
+            Some(tw) => {
+                let elapsed = now.saturating_duration_since(tw.start);
+                if elapsed >= tw.duration {
+                    tw.to
+                } else {
+                    let t = elapsed.as_secs_f32() / tw.duration.as_secs_f32();
+                    T::lerp(tw.from, tw.to, (tw.easing)(t))
+                }
+            }
+        }
+    }
+
+    /// Start a new tween toward `target`. Snaps instantly if motion is None
+    /// or duration is zero. If a tween is in flight, the new tween starts
+    /// from the current interpolated value (the interrupt invariant).
+    pub fn set(&mut self, target: T, ctx: &AnimCtx, duration: Duration, easing: EasingFn) {
+        if ctx.motion == MotionLevel::None || duration.is_zero() {
+            self.snap(target);
+            return;
+        }
+        let from = self.value(ctx.now);
+        self.current = from;
+        self.tween = Some(Tween {
+            from,
+            to: target,
+            start: ctx.now,
+            duration,
+            easing,
+        });
+    }
+
+    /// Snap to target with no animation. Clears any in-flight tween.
+    pub fn snap(&mut self, target: T) {
+        self.current = target;
+        self.tween = None;
+    }
+
+    /// True iff a tween is in flight at `now`.
+    pub fn is_active(&self, now: Instant) -> bool {
+        match &self.tween {
+            None => false,
+            Some(tw) => now.saturating_duration_since(tw.start) < tw.duration,
+        }
+    }
+}
+
 /// Signature for easing functions. Maps `t` in `[0, 1]` to eased output.
 pub type EasingFn = fn(f32) -> f32;
 

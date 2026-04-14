@@ -1,9 +1,10 @@
 #![cfg(feature = "tui")]
 
 use ctxforge::tui::motion::{
-    AnimCtx, Clock, Lerp, MockClock, MotionLevel, SystemClock, blend, detect_motion, ease_in_cubic,
-    ease_in_out_cubic, ease_out_cubic, ease_out_quad, linear,
+    AnimCtx, Animated, Clock, Lerp, MockClock, MotionLevel, SystemClock, blend, detect_motion,
+    ease_in_cubic, ease_in_out_cubic, ease_out_cubic, ease_out_quad, linear,
 };
+use std::time::Instant;
 use ratatui::style::Color;
 use std::time::Duration;
 
@@ -141,4 +142,115 @@ fn anim_ctx_carries_clock_and_motion() {
     };
     assert_eq!(ctx.now, now);
     assert_eq!(ctx.motion, MotionLevel::Full);
+}
+
+fn ctx_at(now: Instant, motion: MotionLevel) -> AnimCtx {
+    AnimCtx { now, motion }
+}
+
+#[test]
+fn animated_starts_at_initial_value() {
+    let clock = MockClock::new();
+    let a: Animated<f32> = Animated::new(0.0);
+    assert_eq!(a.value(clock.now()), 0.0);
+    assert!(!a.is_active(clock.now()));
+}
+
+#[test]
+fn animated_tweens_linearly() {
+    let clock = MockClock::new();
+    let t0 = clock.now();
+    let mut a = Animated::new(0.0_f32);
+    a.set(
+        100.0,
+        &ctx_at(t0, MotionLevel::Full),
+        Duration::from_millis(200),
+        linear,
+    );
+    assert_eq!(a.value(t0), 0.0);
+    assert!((a.value(t0 + Duration::from_millis(100)) - 50.0).abs() < 1e-3);
+    assert_eq!(a.value(t0 + Duration::from_millis(200)), 100.0);
+    assert_eq!(a.value(t0 + Duration::from_millis(300)), 100.0);
+}
+
+#[test]
+fn animated_interrupt_tweens_from_current_value() {
+    let clock = MockClock::new();
+    let t0 = clock.now();
+    let mut a = Animated::new(0.0_f32);
+
+    a.set(
+        100.0,
+        &ctx_at(t0, MotionLevel::Full),
+        Duration::from_millis(200),
+        linear,
+    );
+
+    let t1 = t0 + Duration::from_millis(100);
+    a.set(
+        0.0,
+        &ctx_at(t1, MotionLevel::Full),
+        Duration::from_millis(100),
+        linear,
+    );
+
+    let t_mid = t0 + Duration::from_millis(150);
+    assert!((a.value(t_mid) - 25.0).abs() < 0.5);
+}
+
+#[test]
+fn animated_is_active_while_tweening() {
+    let clock = MockClock::new();
+    let t0 = clock.now();
+    let mut a = Animated::new(0.0_f32);
+    a.set(
+        100.0,
+        &ctx_at(t0, MotionLevel::Full),
+        Duration::from_millis(200),
+        linear,
+    );
+    assert!(a.is_active(t0));
+    assert!(a.is_active(t0 + Duration::from_millis(100)));
+    assert!(!a.is_active(t0 + Duration::from_millis(200)));
+    assert!(!a.is_active(t0 + Duration::from_millis(250)));
+}
+
+#[test]
+fn animated_snap_skips_tween() {
+    let clock = MockClock::new();
+    let t0 = clock.now();
+    let mut a = Animated::new(0.0_f32);
+    a.snap(42.0);
+    assert_eq!(a.value(t0), 42.0);
+    assert!(!a.is_active(t0));
+}
+
+#[test]
+fn animated_set_with_motion_none_snaps() {
+    let clock = MockClock::new();
+    let t0 = clock.now();
+    let mut a = Animated::new(0.0_f32);
+    a.set(
+        100.0,
+        &ctx_at(t0, MotionLevel::None),
+        Duration::from_millis(200),
+        linear,
+    );
+    assert_eq!(a.value(t0), 100.0);
+    assert!(!a.is_active(t0));
+}
+
+#[test]
+fn animated_set_with_zero_duration_snaps() {
+    let clock = MockClock::new();
+    let t0 = clock.now();
+    let mut a = Animated::new(0.0_f32);
+    a.set(
+        100.0,
+        &ctx_at(t0, MotionLevel::Full),
+        Duration::ZERO,
+        linear,
+    );
+    assert_eq!(a.value(t0), 100.0);
+    assert!(!a.is_active(t0));
 }
