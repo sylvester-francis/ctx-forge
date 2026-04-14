@@ -12,6 +12,7 @@ pub mod motion;
 pub mod theme;
 pub mod tree;
 pub mod ui;
+pub mod viewer;
 
 use crate::error::Result;
 use crate::paths::CtxforgeRoot;
