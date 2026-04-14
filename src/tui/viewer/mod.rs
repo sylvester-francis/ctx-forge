@@ -8,3 +8,5 @@
 
 pub mod highlight;
 pub mod load;
+
+pub use load::{ViewerError, ViewerLoad};
