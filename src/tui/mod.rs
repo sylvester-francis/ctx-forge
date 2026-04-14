@@ -26,12 +26,12 @@ pub fn run(root: CtxforgeRoot) -> Result<()> {
 }
 
 fn run_loop(terminal: &mut ratatui::DefaultTerminal, root: CtxforgeRoot) -> Result<()> {
-    use std::time::Duration;
     let mut app = App::new(root);
 
     loop {
         terminal.draw(|f| ui::draw(f, &app))?;
         app.cleanup_finished_animations();
+        app.tick_status_fade();
 
         // Drain any pending stdout export (e.g. `x` key). We restore the
         // terminal, print, wait for a keypress, then re-init a fresh terminal
@@ -59,7 +59,7 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, root: CtxforgeRoot) -> Resu
                         let _ = stdin.write_all(content.as_bytes());
                     }
                     let _ = child.wait();
-                    app.status_message = format!("Piped to {target}");
+                    app.set_status(format!("Piped to {target}"));
                 }
                 Err(e) => {
                     eprintln!("Failed to start `{target}`: {e}");
@@ -71,14 +71,10 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, root: CtxforgeRoot) -> Resu
             continue;
         }
 
-        // Animation-aware timeout: ~60fps while animating, effectively block
-        // on input otherwise. `has_active_animations` walks every animated
-        // field on App and returns true iff anything is still tweening.
-        let timeout = if app.has_active_animations() {
-            Duration::from_millis(16)
-        } else {
-            Duration::from_secs(3600)
-        };
+        // Animation-aware timeout: ~60fps while animating, block on input
+        // when idle, or the time until the next scheduled event (e.g.
+        // status fade-out trigger) otherwise.
+        let timeout = app.next_wake_delay();
 
         if let Some(key) = events::poll_with_timeout(timeout) {
             events::handle(&mut app, key);

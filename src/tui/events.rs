@@ -260,7 +260,7 @@ fn handle_template_task(app: &mut App, key: KeyEvent) {
         KeyCode::Esc => app.set_mode(Mode::Normal),
         KeyCode::Enter => {
             if task.trim().is_empty() {
-                app.status_message = "task cannot be empty".into();
+                app.set_status("task cannot be empty");
             } else {
                 app.confirm_template_task();
             }
@@ -526,7 +526,7 @@ fn handle_save_profile(app: &mut App, key: KeyEvent) {
                 return;
             };
             if name.is_empty() {
-                app.status_message = "Profile name cannot be empty".into();
+                app.set_status("Profile name cannot be empty");
                 return;
             }
             app.save_profile(&name);

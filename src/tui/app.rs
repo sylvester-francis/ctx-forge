@@ -52,6 +52,12 @@ pub struct App {
     /// Darkens the Normal content underneath any visible overlay.
     /// Fades in when an overlay opens, fades out when all overlays close.
     pub backdrop_dim: crate::tui::motion::Fade,
+    /// Opacity of the status bar message. Fades in when `set_status` is
+    /// called, holds for STATUS_HOLD, then fades out.
+    pub status_fade: crate::tui::motion::Fade,
+    /// Timestamp of the most recent `set_status` call. Used by
+    /// `tick_status_fade` to schedule the fade-out.
+    pub status_set_at: Option<Instant>,
     /// Set of relative paths currently in the bundle, for fast lookup.
     pub bundled_paths: HashSet<PathBuf>,
     /// Indices into `tree_entries` for fuzzy-search results, ranked by score.
@@ -217,7 +223,34 @@ impl App {
         if self.backdrop_dim.is_active(now) {
             return true;
         }
+        if self.status_fade.is_active(now) {
+            return true;
+        }
         false
+    }
+
+    /// How long the render loop should wait before waking up to run the
+    /// next animation frame or scheduled tick. Returns `Duration::ZERO` to
+    /// tick immediately, a finite duration for scheduled events (e.g. the
+    /// status fade-out trigger), or an effectively-infinite duration when
+    /// idle so event polling blocks on input.
+    pub fn next_wake_delay(&self) -> Duration {
+        if self.has_active_animations() {
+            return Duration::from_millis(16);
+        }
+        // Status fade-out is scheduled for after STATUS_IN + STATUS_HOLD.
+        if let Some(set_at) = self.status_set_at {
+            use crate::tui::motion::constants;
+            let now = self.clock.now();
+            let held = now.saturating_duration_since(set_at);
+            let fade_out_starts = constants::STATUS_IN + constants::STATUS_HOLD;
+            if held < fade_out_starts {
+                return fade_out_starts - held;
+            }
+            // Hold expired; hint the loop to wake up now and trigger fade-out.
+            return Duration::ZERO;
+        }
+        Duration::from_secs(3600)
     }
 
     /// Clear any transition whose duration has elapsed. Called from the
@@ -268,6 +301,8 @@ impl App {
             exact_tokens: false,
             token_gauge: crate::tui::motion::Gauge::new(0.0),
             backdrop_dim: crate::tui::motion::Fade::new_hidden(),
+            status_fade: crate::tui::motion::Fade::new_hidden(),
+            status_set_at: None,
             bundled_paths: HashSet::new(),
             search_results: Vec::new(),
             profile_name: None,
@@ -356,7 +391,7 @@ impl App {
             // Remove from bundle.
             self.bundle.remove_by_path(&path);
             self.bundled_paths.remove(&path);
-            self.status_message = format!("removed {}", path.display());
+            self.set_status(format!("removed {}", path.display()));
         } else {
             // Add to bundle.
             let item = Item {
@@ -366,7 +401,7 @@ impl App {
             };
             self.bundle.add(item);
             self.bundled_paths.insert(path.clone());
-            self.status_message = format!("added {}", path.display());
+            self.set_status(format!("added {}", path.display()));
         }
 
         self.recalculate_tokens();
@@ -384,19 +419,19 @@ impl App {
                     crate::format::render(crate::format::Format::Markdown, &items, &memory);
                 match crate::clipboard::set(&rendered) {
                     Ok(()) => {
-                        self.status_message = format!(
+                        self.set_status(format!(
                             "Copied {} items ({} tokens) to clipboard",
                             self.bundle.len(),
                             self.total_tokens
-                        );
+                        ));
                     }
                     Err(e) => {
-                        self.status_message = format!("Clipboard error: {e}");
+                        self.set_status(format!("Clipboard error: {e}"));
                     }
                 }
             }
             Err(e) => {
-                self.status_message = format!("Resolve error: {e}");
+                self.set_status(format!("Resolve error: {e}"));
             }
         }
     }
@@ -453,14 +488,14 @@ impl App {
         let start_num: usize = match start_str.parse() {
             Ok(n) if n >= 1 => n,
             _ => {
-                self.status_message = "Invalid start line".into();
+                self.set_status("Invalid start line");
                 return;
             }
         };
         let end_num: usize = match end_str.parse() {
             Ok(n) if n >= start_num => n,
             _ => {
-                self.status_message = "Invalid end line (must be >= start)".into();
+                self.set_status("Invalid end line (must be >= start)");
                 return;
             }
         };
@@ -473,7 +508,7 @@ impl App {
         }
         self.recalculate_tokens();
         let _ = self.bundle.save(&self.root);
-        self.status_message = format!("Narrowed to lines {start_num}-{end_num}");
+        self.set_status(format!("Narrowed to lines {start_num}-{end_num}"));
         self.set_mode(mode::Mode::Normal);
     }
 
@@ -482,10 +517,10 @@ impl App {
         match crate::profile::save(&self.root, name, &self.bundle) {
             Ok(()) => {
                 self.profile_name = Some(name.to_string());
-                self.status_message = format!("Saved profile '{name}'");
+                self.set_status(format!("Saved profile '{name}'"));
             }
             Err(e) => {
-                self.status_message = format!("Save error: {e}");
+                self.set_status(format!("Save error: {e}"));
             }
         }
         self.set_mode(mode::Mode::Normal);
@@ -497,7 +532,7 @@ impl App {
         match crate::profile::list(&self.root) {
             Ok(profiles) => {
                 if profiles.is_empty() {
-                    self.status_message = "No profiles saved yet".into();
+                    self.set_status("No profiles saved yet");
                 } else {
                     self.set_mode(mode::Mode::LoadProfile {
                         cursor: 0,
@@ -506,7 +541,7 @@ impl App {
                 }
             }
             Err(e) => {
-                self.status_message = format!("Profile list error: {e}");
+                self.set_status(format!("Profile list error: {e}"));
             }
         }
     }
@@ -527,10 +562,10 @@ impl App {
                     self.recalculate_tokens();
                     let _ = self.bundle.save(&self.root);
                     self.profile_name = Some(name.clone());
-                    self.status_message = format!("Loaded profile '{name}'");
+                    self.set_status(format!("Loaded profile '{name}'"));
                 }
                 Err(e) => {
-                    self.status_message = format!("Load error: {e}");
+                    self.set_status(format!("Load error: {e}"));
                 }
             }
         }
@@ -546,10 +581,10 @@ impl App {
                     .unwrap_or_default();
                 let rendered = crate::format::render(crate::format::Format::Xml, &items, &memory);
                 self.pending_stdout = Some(rendered);
-                self.status_message = "Exported XML to stdout".into();
+                self.set_status("Exported XML to stdout");
             }
             Err(e) => {
-                self.status_message = format!("Export error: {e}");
+                self.set_status(format!("Export error: {e}"));
             }
         }
     }
@@ -561,7 +596,7 @@ impl App {
         self.bundle.model = Some(model_name.to_string());
         self.recalculate_tokens();
         let _ = self.bundle.save(&self.root);
-        self.status_message = format!("Switched to {model_name}");
+        self.set_status(format!("Switched to {model_name}"));
         self.set_mode(mode::Mode::Normal);
     }
 
@@ -573,7 +608,7 @@ impl App {
     pub fn start_function_pick(&mut self) {
         let items = crate::extract::scan::scan_functions(&self.project_root);
         if items.is_empty() {
-            self.status_message = "No functions found in project".into();
+            self.set_status("No functions found in project");
         } else {
             self.set_mode(mode::Mode::FunctionPick { cursor: 0, items });
         }
@@ -585,7 +620,7 @@ impl App {
     pub fn start_type_pick(&mut self) {
         let items = crate::extract::scan::scan_types(&self.project_root);
         if items.is_empty() {
-            self.status_message = "No types found in project".into();
+            self.set_status("No types found in project");
         } else {
             self.set_mode(mode::Mode::TypePick { cursor: 0, items });
         }
@@ -609,7 +644,7 @@ impl App {
             self.rebuild_bundled_paths();
             self.recalculate_tokens();
             let _ = self.bundle.save(&self.root);
-            self.status_message = format!("Added fn:{name}");
+            self.set_status(format!("Added fn:{name}"));
         }
         self.set_mode(mode::Mode::Normal);
     }
@@ -632,7 +667,7 @@ impl App {
             self.rebuild_bundled_paths();
             self.recalculate_tokens();
             let _ = self.bundle.save(&self.root);
-            self.status_message = format!("Added type:{name}");
+            self.set_status(format!("Added type:{name}"));
         }
         self.set_mode(mode::Mode::Normal);
     }
@@ -661,7 +696,7 @@ impl App {
         match crate::git::changed_files(&self.project_root, &branch) {
             Ok(changed) => {
                 if changed.is_empty() {
-                    self.status_message = format!("No changes vs {branch}");
+                    self.set_status(format!("No changes vs {branch}"));
                     self.set_mode(mode::Mode::Normal);
                     return;
                 }
@@ -676,7 +711,7 @@ impl App {
                 }
             }
             Err(e) => {
-                self.status_message = format!("Diff error: {e}");
+                self.set_status(format!("Diff error: {e}"));
                 self.set_mode(mode::Mode::Normal);
             }
         }
@@ -707,7 +742,7 @@ impl App {
             self.rebuild_bundled_paths();
             self.recalculate_tokens();
             let _ = self.bundle.save(&self.root);
-            self.status_message = format!("Added {count} changed file(s)");
+            self.set_status(format!("Added {count} changed file(s)"));
         }
         self.set_mode(mode::Mode::Normal);
     }
@@ -723,13 +758,13 @@ impl App {
             Ok(notes) => {
                 let count = notes.len();
                 if count == 0 {
-                    self.status_message = "No memory notes yet".into();
+                    self.set_status("No memory notes yet");
                 } else {
                     self.set_mode(mode::Mode::MemoryPanel { cursor: 0, count });
                 }
             }
             Err(e) => {
-                self.status_message = format!("Memory error: {e}");
+                self.set_status(format!("Memory error: {e}"));
             }
         }
     }
@@ -745,7 +780,7 @@ impl App {
         };
 
         if body.trim().is_empty() {
-            self.status_message = "Note body cannot be empty".into();
+            self.set_status("Note body cannot be empty");
             self.set_mode(mode::Mode::Normal);
             return;
         }
@@ -757,10 +792,10 @@ impl App {
         match crate::memory::write_note(&self.root, body, tag_opt) {
             Ok(note) => {
                 let ts = note.timestamp.format("%Y-%m-%d %H:%M");
-                self.status_message = format!("Noted: [{ts}] {}", note.body);
+                self.set_status(format!("Noted: [{ts}] {}", note.body));
             }
             Err(e) => {
-                self.status_message = format!("Note error: {e}");
+                self.set_status(format!("Note error: {e}"));
             }
         }
         self.set_mode(mode::Mode::Normal);
@@ -782,7 +817,7 @@ impl App {
                 self.pending_pipe = Some((target.to_string(), rendered));
             }
             Err(e) => {
-                self.status_message = format!("Pipe error: {e}");
+                self.set_status(format!("Pipe error: {e}"));
             }
         }
         self.set_mode(mode::Mode::Normal);
@@ -792,9 +827,49 @@ impl App {
         self.bundled_paths = self.bundle.items.iter().map(|i| i.path.clone()).collect();
     }
 
-    /// Short status message setter (used by command table actions).
-    pub fn set_status(&mut self, msg: &str) {
-        self.status_message = msg.to_string();
+    /// Short status message setter. Kicks off a fade-in animation; the
+    /// render loop handles the fade-out after STATUS_HOLD via
+    /// `tick_status_fade`.
+    pub fn set_status(&mut self, msg: impl Into<String>) {
+        self.status_message = msg.into();
+        if self.status_message.is_empty() {
+            self.status_set_at = None;
+            self.status_fade.snap(0.0);
+            return;
+        }
+        let now = self.clock.now();
+        self.status_set_at = Some(now);
+        let ctx = self.anim_ctx();
+        use crate::tui::motion::{constants, ease_out_cubic};
+        self.status_fade
+            .set_over(1.0, constants::STATUS_IN, ease_out_cubic, &ctx);
+    }
+
+    /// Advance the status-message fade state machine. Should be called each
+    /// render-loop iteration. After STATUS_IN + STATUS_HOLD, triggers the
+    /// fade-out; after the fade-out completes, clears the message text.
+    pub fn tick_status_fade(&mut self) {
+        use crate::tui::motion::{constants, ease_in_cubic};
+        let Some(set_at) = self.status_set_at else {
+            return;
+        };
+        let now = self.clock.now();
+        let held = now.saturating_duration_since(set_at);
+        let fade_out_starts_at = constants::STATUS_IN + constants::STATUS_HOLD;
+        let fully_gone_at = fade_out_starts_at + constants::STATUS_OUT;
+
+        if held >= fade_out_starts_at
+            && self.status_fade.opacity(now) > 0.0
+            && !self.status_fade.is_active(now)
+        {
+            let ctx = self.anim_ctx();
+            self.status_fade
+                .set_over(0.0, constants::STATUS_OUT, ease_in_cubic, &ctx);
+        }
+        if held >= fully_gone_at {
+            self.status_message.clear();
+            self.status_set_at = None;
+        }
     }
 
     /// Open the template flow: if a name is given inline, jump to task input;
@@ -811,7 +886,7 @@ impl App {
                         return;
                     }
                     Err(e) => {
-                        self.status_message = format!("template error: {e}");
+                        self.set_status(format!("template error: {e}"));
                         return;
                     }
                 }
@@ -819,8 +894,7 @@ impl App {
         }
         let templates = scan_all_templates(&self.root);
         if templates.is_empty() {
-            self.status_message =
-                "no templates found; create one with `ctxforge templates new <name>`".into();
+            self.set_status("no templates found; create one with `ctxforge templates new <name>`");
             return;
         }
         self.set_mode(mode::Mode::TemplatePick {
@@ -833,10 +907,10 @@ impl App {
     pub fn show_template_list(&mut self) {
         let templates = scan_all_templates(&self.root);
         if templates.is_empty() {
-            self.status_message = "no templates found".into();
+            self.set_status("no templates found");
         } else {
             let names: Vec<String> = templates.iter().map(|(n, _)| n.clone()).collect();
-            self.status_message = format!("templates: {}", names.join(", "));
+            self.set_status(format!("templates: {}", names.join(", ")));
         }
     }
 
@@ -845,7 +919,7 @@ impl App {
         let name = match name {
             Some(n) if !n.is_empty() => n,
             _ => {
-                self.status_message = "usage: /template-new <name>".into();
+                self.set_status("usage: /template-new <name>");
                 return;
             }
         };
@@ -853,7 +927,7 @@ impl App {
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join(format!("{name}.md"));
         if path.exists() {
-            self.status_message = format!("template '{name}' already exists");
+            self.set_status(format!("template '{name}' already exists"));
             return;
         }
         let content = format!(
@@ -864,10 +938,10 @@ impl App {
         );
         match std::fs::write(&path, content) {
             Ok(()) => {
-                self.status_message = format!("created template '{name}' at {}", path.display());
+                self.set_status(format!("created template '{name}' at {}", path.display()));
             }
             Err(e) => {
-                self.status_message = format!("error creating template: {e}");
+                self.set_status(format!("error creating template: {e}"));
             }
         }
     }
@@ -877,30 +951,29 @@ impl App {
         let name = match name {
             Some(n) if !n.is_empty() => n,
             _ => {
-                self.status_message = "usage: /template-rm <name>".into();
+                self.set_status("usage: /template-rm <name>");
                 return;
             }
         };
         let stem = name.strip_suffix(".md").unwrap_or(&name);
         let path = self.root.template_path(stem);
         if !path.exists() {
-            self.status_message = format!("template '{stem}' not found");
+            self.set_status(format!("template '{stem}' not found"));
             return;
         }
         match std::fs::remove_file(&path) {
             Ok(()) => {
-                self.status_message = format!("deleted template '{stem}'");
+                self.set_status(format!("deleted template '{stem}'"));
             }
             Err(e) => {
-                self.status_message = format!("error deleting template: {e}");
+                self.set_status(format!("error deleting template: {e}"));
             }
         }
     }
 
     /// List built-in starter templates in a status message.
     pub fn run_template_starters(&mut self) {
-        self.status_message =
-            "starters: bugfix, code-review, explain, refactor, migrate (use CLI: ctxforge templates new <name> --from <starter>)".into();
+        self.set_status("starters: bugfix, code-review, explain, refactor, migrate (use CLI: ctxforge templates new <name> --from <starter>)");
     }
 
     /// Confirm template task: render bundle, apply template, copy to clipboard.
@@ -915,7 +988,7 @@ impl App {
         let resolved = match crate::resolve::resolve_all(&self.bundle.items, &self.project_root) {
             Ok(r) => r,
             Err(e) => {
-                self.status_message = format!("resolve error: {e}");
+                self.set_status(format!("resolve error: {e}"));
                 self.set_mode(mode::Mode::Normal);
                 return;
             }
@@ -932,7 +1005,7 @@ impl App {
         ) {
             Ok(c) => c,
             Err(e) => {
-                self.status_message = format!("template error: {e}");
+                self.set_status(format!("template error: {e}"));
                 self.set_mode(mode::Mode::Normal);
                 return;
             }
@@ -940,11 +1013,10 @@ impl App {
 
         match crate::clipboard::set(&final_content) {
             Ok(()) => {
-                self.status_message =
-                    format!("copied template '{template_name}' with bundle + task");
+                self.set_status(format!("copied template '{template_name}' with bundle + task"));
             }
             Err(e) => {
-                self.status_message = format!("clipboard error: {e}");
+                self.set_status(format!("clipboard error: {e}"));
             }
         }
         self.set_mode(mode::Mode::Normal);

@@ -878,8 +878,15 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
             f.render_widget(Paragraph::new(line), chunks[0]);
         }
         _ => {
+            use crate::tui::motion::blend;
+            use ratatui::style::Color;
+            const BG: Color = Color::Rgb(10, 14, 22);
+            let opacity = app.status_fade.opacity(app.clock.now());
+            // Default dim gray for the status bar; faded toward bg based on
+            // the status-fade timeline (fade-in / hold / fade-out).
+            let fg = blend(opacity, Color::Gray, BG);
             let status = Paragraph::new(format!(" {}", app.status_message))
-                .style(Style::default().add_modifier(Modifier::DIM));
+                .style(Style::default().fg(fg));
             f.render_widget(status, chunks[0]);
         }
     }
