@@ -6,7 +6,8 @@ use crate::paths::CtxforgeRoot;
 use crate::resolve;
 use crate::tokens;
 use crate::tui::mode;
-use crate::tui::motion::{AnimCtx, Clock, MotionLevel, SystemClock};
+use crate::tui::motion::{AnimCtx, Clock, MotionLevel, SystemClock, constants};
+use std::time::{Duration, Instant};
 use crate::tui::tree::{self, TreeEntry};
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
@@ -18,6 +19,14 @@ use std::path::PathBuf;
 pub enum Focus {
     FileTree,
     BundleList,
+}
+
+/// In-flight mode transition — both the outgoing and incoming modes render
+/// simultaneously during this window.
+pub struct ModeTransition {
+    pub prev: mode::Mode,
+    pub started: Instant,
+    pub duration: Duration,
 }
 
 /// Full application state.
@@ -53,6 +62,8 @@ pub struct App {
     /// Active input/overlay mode. Drives key dispatch and overlay rendering.
     /// Private — mutate only through `set_mode` so transitions are tracked.
     mode: mode::Mode,
+    /// In-flight mode transition. `None` when no cross-fade is animating.
+    pub mode_transition: Option<ModeTransition>,
     /// Time source. `SystemClock` in production; `MockClock` in tests.
     pub clock: Box<dyn Clock>,
     /// Whether animations play or snap. Detected once at startup.
@@ -74,9 +85,26 @@ impl App {
         &mut self.mode
     }
 
-    /// Transition to a new mode. Task 10 will add transition tracking here.
+    /// Transition to a new mode. If the transition crosses an overlay
+    /// boundary, records a `ModeTransition` with the appropriate duration
+    /// (MODAL_IN for Normal→Overlay, MODAL_OUT for Overlay→Normal,
+    /// MODAL_CROSSFADE for Overlay→Overlay). Normal→Normal is a no-op.
     pub fn set_mode(&mut self, next: mode::Mode) {
-        self.mode = next;
+        let now = self.clock.now();
+        let prev = std::mem::replace(&mut self.mode, next);
+        let duration = match (prev.is_overlay(), self.mode.is_overlay()) {
+            (false, false) => None,
+            (false, true) => Some(constants::MODAL_IN),
+            (true, false) => Some(constants::MODAL_OUT),
+            (true, true) => Some(constants::MODAL_CROSSFADE),
+        };
+        if let Some(duration) = duration {
+            self.mode_transition = Some(ModeTransition {
+                prev,
+                started: now,
+                duration,
+            });
+        }
     }
 
     /// Current animation context (clock time + motion level).
@@ -84,6 +112,30 @@ impl App {
         AnimCtx {
             now: self.clock.now(),
             motion: self.motion,
+        }
+    }
+
+    /// True iff any animation is in flight. Drives the render-loop timeout.
+    /// Task 12+ extend this to include per-feature animations (gauge, status,
+    /// etc.).
+    pub fn has_active_animations(&self) -> bool {
+        let now = self.clock.now();
+        if let Some(t) = &self.mode_transition {
+            if now.saturating_duration_since(t.started) < t.duration {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Clear any transition whose duration has elapsed. Called from the
+    /// render loop after each draw.
+    pub fn cleanup_finished_animations(&mut self) {
+        let now = self.clock.now();
+        if let Some(t) = &self.mode_transition {
+            if now.saturating_duration_since(t.started) >= t.duration {
+                self.mode_transition = None;
+            }
         }
     }
 
@@ -128,6 +180,7 @@ impl App {
             pending_stdout: None,
             pending_pipe: None,
             mode: mode::Mode::Normal,
+            mode_transition: None,
             clock: Box::new(SystemClock),
             motion: crate::tui::motion::detect_motion(),
             should_quit: false,
@@ -862,4 +915,78 @@ fn scan_all_templates(root: &CtxforgeRoot) -> Vec<(String, mode::TemplateSource)
     }
     result.sort_by(|a, b| a.0.cmp(&b.0));
     result
+}
+
+#[cfg(test)]
+mod mode_transition_tests {
+    use super::*;
+    use crate::tui::mode::Mode;
+    use crate::tui::motion::{MockClock, constants};
+    use std::time::Duration;
+    use tempfile::TempDir;
+
+    fn test_app() -> (App, MockClock, TempDir) {
+        let tmp = TempDir::new().unwrap();
+        let root = CtxforgeRoot::find_or_create(tmp.path()).unwrap();
+        let clock = MockClock::new();
+        let app = App::with_clock(root, Box::new(clock.clone()));
+        (app, clock, tmp)
+    }
+
+    #[test]
+    fn normal_to_normal_has_no_transition() {
+        let (mut app, _clock, _tmp) = test_app();
+        app.set_mode(Mode::Normal);
+        assert!(app.mode_transition.is_none());
+    }
+
+    #[test]
+    fn normal_to_overlay_sets_modal_in_duration() {
+        let (mut app, _clock, _tmp) = test_app();
+        app.set_mode(Mode::Help);
+        let t = app.mode_transition.as_ref().unwrap();
+        assert_eq!(t.duration, constants::MODAL_IN);
+    }
+
+    #[test]
+    fn overlay_to_normal_sets_modal_out_duration() {
+        let (mut app, _clock, _tmp) = test_app();
+        app.set_mode(Mode::Help);
+        app.set_mode(Mode::Normal);
+        let t = app.mode_transition.as_ref().unwrap();
+        assert_eq!(t.duration, constants::MODAL_OUT);
+    }
+
+    #[test]
+    fn overlay_to_overlay_sets_crossfade_duration() {
+        let (mut app, _clock, _tmp) = test_app();
+        app.set_mode(Mode::Help);
+        app.set_mode(Mode::PipeMenu);
+        let t = app.mode_transition.as_ref().unwrap();
+        assert_eq!(t.duration, constants::MODAL_CROSSFADE);
+    }
+
+    #[test]
+    fn has_active_animations_false_by_default() {
+        let (app, _clock, _tmp) = test_app();
+        assert!(!app.has_active_animations());
+    }
+
+    #[test]
+    fn has_active_animations_true_during_transition() {
+        let (mut app, _clock, _tmp) = test_app();
+        app.set_mode(Mode::Help);
+        assert!(app.has_active_animations());
+    }
+
+    #[test]
+    fn cleanup_clears_finished_transition() {
+        let (mut app, clock, _tmp) = test_app();
+        app.set_mode(Mode::Help);
+        assert!(app.has_active_animations());
+        clock.advance(Duration::from_millis(500));
+        app.cleanup_finished_animations();
+        assert!(!app.has_active_animations());
+        assert!(app.mode_transition.is_none());
+    }
 }
