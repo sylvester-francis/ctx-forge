@@ -6,6 +6,7 @@ use crate::paths::CtxforgeRoot;
 use crate::resolve;
 use crate::tokens;
 use crate::tui::mode;
+use crate::tui::motion::{AnimCtx, Clock, MotionLevel, SystemClock};
 use crate::tui::tree::{self, TreeEntry};
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
@@ -50,13 +51,52 @@ pub struct App {
     /// as `pending_stdout` but spawns the target binary and writes to its stdin.
     pub pending_pipe: Option<(String, String)>,
     /// Active input/overlay mode. Drives key dispatch and overlay rendering.
-    pub mode: mode::Mode,
+    /// Private — mutate only through `set_mode` so transitions are tracked.
+    mode: mode::Mode,
+    /// Time source. `SystemClock` in production; `MockClock` in tests.
+    pub clock: Box<dyn Clock>,
+    /// Whether animations play or snap. Detected once at startup.
+    pub motion: MotionLevel,
     pub should_quit: bool,
     pub status_message: String,
     pub show_help: bool,
 }
 
 impl App {
+    /// Read-only accessor for the current mode.
+    pub fn mode(&self) -> &mode::Mode {
+        &self.mode
+    }
+
+    /// Mutable accessor for in-place variant-field mutation only. DO NOT use
+    /// this to switch modes — call `set_mode` so transitions stay tracked.
+    pub fn mode_mut(&mut self) -> &mut mode::Mode {
+        &mut self.mode
+    }
+
+    /// Transition to a new mode. Task 10 will add transition tracking here.
+    pub fn set_mode(&mut self, next: mode::Mode) {
+        self.mode = next;
+    }
+
+    /// Current animation context (clock time + motion level).
+    pub fn anim_ctx(&self) -> AnimCtx {
+        AnimCtx {
+            now: self.clock.now(),
+            motion: self.motion,
+        }
+    }
+
+    /// Test-only constructor that installs a mock clock and forces Full
+    /// motion (so animations are observable without depending on env vars).
+    #[cfg(test)]
+    pub fn with_clock(root: CtxforgeRoot, clock: Box<dyn Clock>) -> Self {
+        let mut app = Self::new(root);
+        app.clock = clock;
+        app.motion = MotionLevel::Full;
+        app
+    }
+
     pub fn new(root: CtxforgeRoot) -> Self {
         let project_root = root.project_root().to_path_buf();
         let bundle = Bundle::load_or_default(&root).unwrap_or_default();
@@ -88,6 +128,8 @@ impl App {
             pending_stdout: None,
             pending_pipe: None,
             mode: mode::Mode::Normal,
+            clock: Box::new(SystemClock),
+            motion: crate::tui::motion::detect_motion(),
             should_quit: false,
             status_message: String::new(),
             show_help: false,
@@ -241,11 +283,11 @@ impl App {
         }
         if let Some(item) = self.bundle.items.get(self.bundle_cursor) {
             if matches!(item.kind, ItemKind::File) {
-                self.mode = mode::Mode::Narrow {
+                self.set_mode(mode::Mode::Narrow {
                     start: String::new(),
                     end: String::new(),
                     field: mode::InputField::First,
-                };
+                });
             }
         }
     }
@@ -254,7 +296,7 @@ impl App {
     /// Validates that both inputs parse and that start <= end.
     pub fn confirm_narrow(&mut self) {
         // Pull start/end out of the mode before mutating self further.
-        let (start_str, end_str) = match &self.mode {
+        let (start_str, end_str) = match self.mode() {
             mode::Mode::Narrow { start, end, .. } => (start.clone(), end.clone()),
             _ => return,
         };
@@ -283,7 +325,7 @@ impl App {
         self.recalculate_tokens();
         let _ = self.bundle.save(&self.root);
         self.status_message = format!("Narrowed to lines {start_num}-{end_num}");
-        self.mode = mode::Mode::Normal;
+        self.set_mode(mode::Mode::Normal);
     }
 
     /// Save current bundle as a named profile under `.ctxforge/profiles/`.
@@ -297,7 +339,7 @@ impl App {
                 self.status_message = format!("Save error: {e}");
             }
         }
-        self.mode = mode::Mode::Normal;
+        self.set_mode(mode::Mode::Normal);
     }
 
     /// Open the load-profile picker. If no profiles exist, sets a status
@@ -308,10 +350,10 @@ impl App {
                 if profiles.is_empty() {
                     self.status_message = "No profiles saved yet".into();
                 } else {
-                    self.mode = mode::Mode::LoadProfile {
+                    self.set_mode(mode::Mode::LoadProfile {
                         cursor: 0,
                         profiles,
-                    };
+                    });
                 }
             }
             Err(e) => {
@@ -323,7 +365,7 @@ impl App {
     /// Load whichever profile the cursor is on inside `LoadProfile` mode.
     pub fn load_selected_profile(&mut self) {
         // Pull the chosen name out of the mode before mutating self.
-        let chosen = if let mode::Mode::LoadProfile { cursor, profiles } = &self.mode {
+        let chosen = if let mode::Mode::LoadProfile { cursor, profiles } = self.mode() {
             profiles.get(*cursor).cloned()
         } else {
             None
@@ -343,7 +385,7 @@ impl App {
                 }
             }
         }
-        self.mode = mode::Mode::Normal;
+        self.set_mode(mode::Mode::Normal);
     }
 
     /// Render the bundle as XML and stash it in `pending_stdout` so the run
@@ -371,7 +413,7 @@ impl App {
         self.recalculate_tokens();
         let _ = self.bundle.save(&self.root);
         self.status_message = format!("Switched to {model_name}");
-        self.mode = mode::Mode::Normal;
+        self.set_mode(mode::Mode::Normal);
     }
 
     /// Start function pick mode (extract feature only). Performs a project-wide
@@ -384,7 +426,7 @@ impl App {
         if items.is_empty() {
             self.status_message = "No functions found in project".into();
         } else {
-            self.mode = mode::Mode::FunctionPick { cursor: 0, items };
+            self.set_mode(mode::Mode::FunctionPick { cursor: 0, items });
         }
     }
 
@@ -396,14 +438,14 @@ impl App {
         if items.is_empty() {
             self.status_message = "No types found in project".into();
         } else {
-            self.mode = mode::Mode::TypePick { cursor: 0, items };
+            self.set_mode(mode::Mode::TypePick { cursor: 0, items });
         }
     }
 
     /// Add the function under the FunctionPick cursor to the bundle.
     #[cfg(feature = "extract")]
     pub fn add_picked_function(&mut self) {
-        let chosen = if let mode::Mode::FunctionPick { cursor, items } = &self.mode {
+        let chosen = if let mode::Mode::FunctionPick { cursor, items } = self.mode() {
             items.get(*cursor).cloned()
         } else {
             None
@@ -420,13 +462,13 @@ impl App {
             let _ = self.bundle.save(&self.root);
             self.status_message = format!("Added fn:{name}");
         }
-        self.mode = mode::Mode::Normal;
+        self.set_mode(mode::Mode::Normal);
     }
 
     /// Add the type under the TypePick cursor to the bundle.
     #[cfg(feature = "extract")]
     pub fn add_picked_type(&mut self) {
-        let chosen = if let mode::Mode::TypePick { cursor, items } = &self.mode {
+        let chosen = if let mode::Mode::TypePick { cursor, items } = self.mode() {
             items.get(*cursor).cloned()
         } else {
             None
@@ -443,26 +485,26 @@ impl App {
             let _ = self.bundle.save(&self.root);
             self.status_message = format!("Added type:{name}");
         }
-        self.mode = mode::Mode::Normal;
+        self.set_mode(mode::Mode::Normal);
     }
 
     /// Start diff pick mode — opens a branch-name input first, then a
     /// multi-select list of changed files.
     pub fn start_diff_pick(&mut self) {
-        self.mode = mode::Mode::DiffPick {
+        self.set_mode(mode::Mode::DiffPick {
             branch: "main".into(),
             files: Vec::new(),
             selected: std::collections::HashSet::new(),
             cursor: 0,
             entering_branch: true,
-        };
+        });
     }
 
     /// Load the changed files for the entered branch and switch to the
     /// file-selection phase. On error or empty diff, drops back to Normal
     /// with a status message.
     pub fn load_diff_files(&mut self) {
-        let branch = if let mode::Mode::DiffPick { branch, .. } = &self.mode {
+        let branch = if let mode::Mode::DiffPick { branch, .. } = self.mode() {
             branch.clone()
         } else {
             return;
@@ -471,14 +513,14 @@ impl App {
             Ok(changed) => {
                 if changed.is_empty() {
                     self.status_message = format!("No changes vs {branch}");
-                    self.mode = mode::Mode::Normal;
+                    self.set_mode(mode::Mode::Normal);
                     return;
                 }
                 if let mode::Mode::DiffPick {
                     files,
                     entering_branch,
                     ..
-                } = &mut self.mode
+                } = self.mode_mut()
                 {
                     *files = changed;
                     *entering_branch = false;
@@ -486,7 +528,7 @@ impl App {
             }
             Err(e) => {
                 self.status_message = format!("Diff error: {e}");
-                self.mode = mode::Mode::Normal;
+                self.set_mode(mode::Mode::Normal);
             }
         }
     }
@@ -518,14 +560,14 @@ impl App {
             let _ = self.bundle.save(&self.root);
             self.status_message = format!("Added {count} changed file(s)");
         }
-        self.mode = mode::Mode::Normal;
+        self.set_mode(mode::Mode::Normal);
     }
 
     /// Open or close the memory recall panel. Reads notes from the JSONL
     /// index — sets a status message instead of opening if there are none.
     pub fn toggle_memory_panel(&mut self) {
-        if matches!(self.mode, mode::Mode::MemoryPanel { .. }) {
-            self.mode = mode::Mode::Normal;
+        if matches!(self.mode(), mode::Mode::MemoryPanel { .. }) {
+            self.set_mode(mode::Mode::Normal);
             return;
         }
         match crate::memory::index::read_all(&self.root) {
@@ -534,7 +576,7 @@ impl App {
                 if count == 0 {
                     self.status_message = "No memory notes yet".into();
                 } else {
-                    self.mode = mode::Mode::MemoryPanel { cursor: 0, count };
+                    self.set_mode(mode::Mode::MemoryPanel { cursor: 0, count });
                 }
             }
             Err(e) => {
@@ -547,7 +589,7 @@ impl App {
     /// not empty before writing. An empty tag becomes `None` (untagged → goes
     /// to `decisions.md`).
     pub fn write_note_inline(&mut self) {
-        let (tag, body) = if let mode::Mode::AddNote { tag, body, .. } = &self.mode {
+        let (tag, body) = if let mode::Mode::AddNote { tag, body, .. } = self.mode() {
             (tag.clone(), body.clone())
         } else {
             return;
@@ -555,7 +597,7 @@ impl App {
 
         if body.trim().is_empty() {
             self.status_message = "Note body cannot be empty".into();
-            self.mode = mode::Mode::Normal;
+            self.set_mode(mode::Mode::Normal);
             return;
         }
         let tag_opt = if tag.trim().is_empty() {
@@ -572,7 +614,7 @@ impl App {
                 self.status_message = format!("Note error: {e}");
             }
         }
-        self.mode = mode::Mode::Normal;
+        self.set_mode(mode::Mode::Normal);
     }
 
     /// Pipe the rendered bundle to a local agent CLI. Targets `claude` get
@@ -594,7 +636,7 @@ impl App {
                 self.status_message = format!("Pipe error: {e}");
             }
         }
-        self.mode = mode::Mode::Normal;
+        self.set_mode(mode::Mode::Normal);
     }
 
     pub(crate) fn rebuild_bundled_paths(&mut self) {
@@ -613,10 +655,10 @@ impl App {
             if !n.is_empty() {
                 match crate::template::resolve_template_path(&self.root, &n) {
                     Ok(_) => {
-                        self.mode = mode::Mode::TemplateTask {
+                        self.set_mode(mode::Mode::TemplateTask {
                             template_name: n,
                             task: String::new(),
-                        };
+                        });
                         return;
                     }
                     Err(e) => {
@@ -632,10 +674,10 @@ impl App {
                 "no templates found; create one with `ctxforge templates new <name>`".into();
             return;
         }
-        self.mode = mode::Mode::TemplatePick {
+        self.set_mode(mode::Mode::TemplatePick {
             cursor: 0,
             templates,
-        };
+        });
     }
 
     /// Show available templates in a status message.
@@ -714,7 +756,7 @@ impl App {
 
     /// Confirm template task: render bundle, apply template, copy to clipboard.
     pub fn confirm_template_task(&mut self) {
-        let (template_name, task) = match &self.mode {
+        let (template_name, task) = match self.mode() {
             mode::Mode::TemplateTask {
                 template_name,
                 task,
@@ -725,7 +767,7 @@ impl App {
             Ok(r) => r,
             Err(e) => {
                 self.status_message = format!("resolve error: {e}");
-                self.mode = mode::Mode::Normal;
+                self.set_mode(mode::Mode::Normal);
                 return;
             }
         };
@@ -742,7 +784,7 @@ impl App {
             Ok(c) => c,
             Err(e) => {
                 self.status_message = format!("template error: {e}");
-                self.mode = mode::Mode::Normal;
+                self.set_mode(mode::Mode::Normal);
                 return;
             }
         };
@@ -756,7 +798,7 @@ impl App {
                 self.status_message = format!("clipboard error: {e}");
             }
         }
-        self.mode = mode::Mode::Normal;
+        self.set_mode(mode::Mode::Normal);
     }
 
     pub(crate) fn recalculate_tokens(&mut self) {

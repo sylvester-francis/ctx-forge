@@ -57,17 +57,17 @@ fn draw_overlays(f: &mut Frame, app: &App) {
     use crate::tui::mode::Mode;
 
     // Command palette overlay
-    if matches!(app.mode, Mode::CommandPalette { .. }) {
+    if matches!(app.mode(), Mode::CommandPalette { .. }) {
         draw_command_palette(f, app);
     }
 
     // Help overlay
-    if app.show_help || matches!(app.mode, Mode::Help) {
+    if app.show_help || matches!(app.mode(), Mode::Help) {
         draw_help_overlay(f);
     }
 
     // Legacy mode overlays
-    match &app.mode {
+    match app.mode() {
         Mode::PipeMenu => {
             let area = centered_rect(30, 7, f.area());
             f.render_widget(ratatui::widgets::Clear, area);
@@ -127,7 +127,7 @@ fn draw_overlays(f: &mut Frame, app: &App) {
 
 fn draw_command_palette(f: &mut Frame, app: &App) {
     use crate::tui::mode::Mode;
-    let (query, cursor) = match &app.mode {
+    let (query, cursor) = match app.mode() {
         Mode::CommandPalette { query, cursor } => (query, *cursor),
         _ => return,
     };
@@ -278,13 +278,13 @@ fn draw_template_task_overlay(f: &mut Frame, template_name: &str, task: &str) {
 /// Render the right panel (bundle list, profile list, or memory panel).
 fn draw_right_panel(f: &mut Frame, app: &App, area: Rect) {
     // LoadProfile mode replaces the right panel with the profile picker.
-    if let crate::tui::mode::Mode::LoadProfile { cursor, profiles } = &app.mode {
+    if let crate::tui::mode::Mode::LoadProfile { cursor, profiles } = app.mode() {
         draw_profile_list(f, *cursor, profiles, area);
         return;
     }
 
     // MemoryPanel mode replaces the right panel with the recall view.
-    if matches!(app.mode, crate::tui::mode::Mode::MemoryPanel { .. }) {
+    if matches!(app.mode(), crate::tui::mode::Mode::MemoryPanel { .. }) {
         draw_memory_panel(f, app, area);
         return;
     }
@@ -338,11 +338,11 @@ fn draw_left_panel(f: &mut Frame, app: &App, area: Rect) -> bool {
     use crate::tui::mode::Mode;
     #[cfg(feature = "extract")]
     {
-        if let Mode::FunctionPick { cursor, items } = &app.mode {
+        if let Mode::FunctionPick { cursor, items } = app.mode() {
             draw_symbol_pick(f, "Functions", "λ", *cursor, items, area);
             return true;
         }
-        if let Mode::TypePick { cursor, items } = &app.mode {
+        if let Mode::TypePick { cursor, items } = app.mode() {
             draw_symbol_pick(f, "Types", "τ", *cursor, items, area);
             return true;
         }
@@ -353,7 +353,7 @@ fn draw_left_panel(f: &mut Frame, app: &App, area: Rect) -> bool {
         cursor,
         entering_branch,
         ..
-    } = &app.mode
+    } = app.mode()
     {
         if !*entering_branch {
             draw_diff_pick(f, *cursor, files, selected, area);
@@ -439,8 +439,8 @@ fn draw_memory_panel(f: &mut Frame, app: &App, area: Rect) {
     // Show newest first to match recall semantics.
     notes.reverse();
 
-    let cursor = if let crate::tui::mode::Mode::MemoryPanel { cursor, .. } = app.mode {
-        cursor
+    let cursor = if let crate::tui::mode::Mode::MemoryPanel { cursor, .. } = app.mode() {
+        *cursor
     } else {
         0
     };
@@ -504,7 +504,7 @@ fn draw_profile_list(f: &mut Frame, cursor: usize, profiles: &[String], area: Re
 }
 
 fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
-    let in_search = matches!(app.mode, crate::tui::mode::Mode::Search { .. });
+    let in_search = matches!(app.mode(), crate::tui::mode::Mode::Search { .. });
 
     // Split off a 3-row search input pane when in search mode.
     let (search_area, tree_area) = if in_search {
@@ -518,7 +518,7 @@ fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
     };
 
     if let Some(sa) = search_area {
-        if let crate::tui::mode::Mode::Search { ref query } = app.mode {
+        if let crate::tui::mode::Mode::Search { query } = app.mode() {
             let input = Paragraph::new(format!(" /{query}▏"))
                 .block(Block::default().borders(Borders::ALL).title(" search "));
             f.render_widget(input, sa);
@@ -682,7 +682,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
 
     // Status / input area — when in an input mode, render the inline prompt
     // instead of the regular status message.
-    match &app.mode {
+    match app.mode() {
         Mode::Narrow { start, end, field } => {
             let start_style = if *field == InputField::First {
                 Style::default().fg(ratatui::style::Color::Cyan)
@@ -790,7 +790,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         Focus::FileTree => "j/k move  Enter expand  space add",
         Focus::BundleList => "j/k move  Enter select",
     };
-    let keys_text = match &app.mode {
+    let keys_text = match app.mode() {
         Mode::Normal => {
             format!("  > {focus_label}  |  {nav_keys}  |  / commands  Ctrl+F find  ? help  q quit")
         }

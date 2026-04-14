@@ -62,7 +62,7 @@ pub static COMMANDS: &[CommandSpec] = &[
         description: "pipe to agent (claude / agent / gemini)",
         takes_arg: false,
         action: |app, _| {
-            app.mode = mode::Mode::PipeMenu;
+            app.set_mode(mode::Mode::PipeMenu);
         },
     },
     CommandSpec {
@@ -72,9 +72,9 @@ pub static COMMANDS: &[CommandSpec] = &[
         action: |app, arg| match arg {
             Some(n) if !n.is_empty() => app.save_profile(&n),
             _ => {
-                app.mode = mode::Mode::SaveProfile {
+                app.set_mode(mode::Mode::SaveProfile {
                     name: String::new(),
-                };
+                });
             }
         },
     },
@@ -95,7 +95,7 @@ pub static COMMANDS: &[CommandSpec] = &[
         description: "switch target model <name?>",
         takes_arg: true,
         action: |app, _| {
-            app.mode = mode::Mode::ModelSwitch { cursor: 0 };
+            app.set_mode(mode::Mode::ModelSwitch { cursor: 0 });
         },
     },
     CommandSpec {
@@ -109,11 +109,11 @@ pub static COMMANDS: &[CommandSpec] = &[
         description: "add inline memory note",
         takes_arg: false,
         action: |app, _| {
-            app.mode = mode::Mode::AddNote {
+            app.set_mode(mode::Mode::AddNote {
                 tag: String::new(),
                 body: String::new(),
                 field: mode::InputField::First,
-            };
+            });
         },
     },
     CommandSpec {
@@ -122,9 +122,9 @@ pub static COMMANDS: &[CommandSpec] = &[
         takes_arg: true,
         action: |app, arg| {
             let query = arg.unwrap_or_default();
-            app.mode = mode::Mode::Search {
+            app.set_mode(mode::Mode::Search {
                 query: query.clone(),
-            };
+            });
             app.run_search(&query);
         },
     },

@@ -29,7 +29,7 @@ pub fn handle(app: &mut App, key: KeyEvent) {
         }
     }
 
-    match &app.mode {
+    match app.mode() {
         Mode::Normal => handle_normal(app, key),
         Mode::Search { .. } => handle_search(app, key),
         Mode::Narrow { .. } => handle_narrow(app, key),
@@ -101,23 +101,23 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
 
         // Slash command palette
         KeyCode::Char('/') => {
-            app.mode = Mode::CommandPalette {
+            app.set_mode(Mode::CommandPalette {
                 query: String::new(),
                 cursor: 0,
-            };
+            });
         }
 
         // Help overlay
         KeyCode::Char('?') => {
-            app.mode = Mode::Help;
+            app.set_mode(Mode::Help);
             app.show_help = true;
         }
 
         // Ctrl+F = direct search shortcut
         KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            app.mode = Mode::Search {
+            app.set_mode(Mode::Search {
                 query: String::new(),
-            };
+            });
             app.run_search("");
         }
 
@@ -135,60 +135,60 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
 fn handle_command_palette(app: &mut App, key: KeyEvent) {
     use crate::tui::commands::{fuzzy_filter, parse_palette_query};
 
-    let (query, cursor) = match &app.mode {
+    let (query, cursor) = match app.mode() {
         Mode::CommandPalette { query, cursor } => (query.clone(), *cursor),
         _ => return,
     };
 
     match key.code {
         KeyCode::Esc => {
-            app.mode = Mode::Normal;
+            app.set_mode(Mode::Normal);
         }
         KeyCode::Enter => {
             let results = fuzzy_filter(&query);
             if let Some(cmd) = results.get(cursor) {
                 let (_name_typed, arg) = parse_palette_query(&query);
                 let action = cmd.action;
-                app.mode = Mode::Normal;
+                app.set_mode(Mode::Normal);
                 action(app, arg);
             } else {
-                app.mode = Mode::Normal;
+                app.set_mode(Mode::Normal);
             }
         }
         KeyCode::Char(ch) => {
             let new_query = format!("{query}{ch}");
-            app.mode = Mode::CommandPalette {
+            app.set_mode(Mode::CommandPalette {
                 query: new_query,
                 cursor: 0,
-            };
+            });
         }
         KeyCode::Backspace => {
             if query.is_empty() {
-                app.mode = Mode::Normal;
+                app.set_mode(Mode::Normal);
             } else {
                 let mut new_query = query;
                 new_query.pop();
-                app.mode = Mode::CommandPalette {
+                app.set_mode(Mode::CommandPalette {
                     query: new_query,
                     cursor: 0,
-                };
+                });
             }
         }
         KeyCode::Down => {
             let results = fuzzy_filter(&query);
             if cursor + 1 < results.len() {
-                app.mode = Mode::CommandPalette {
+                app.set_mode(Mode::CommandPalette {
                     query,
                     cursor: cursor + 1,
-                };
+                });
             }
         }
         KeyCode::Up => {
             if cursor > 0 {
-                app.mode = Mode::CommandPalette {
+                app.set_mode(Mode::CommandPalette {
                     query,
                     cursor: cursor - 1,
-                };
+                });
             }
         }
         _ => {}
@@ -199,42 +199,42 @@ fn handle_help(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
             app.show_help = false;
-            app.mode = Mode::Normal;
+            app.set_mode(Mode::Normal);
         }
         _ => {}
     }
 }
 
 fn handle_template_pick(app: &mut App, key: KeyEvent) {
-    let (cursor, templates) = match &app.mode {
+    let (cursor, templates) = match app.mode() {
         Mode::TemplatePick { cursor, templates } => (*cursor, templates.clone()),
         _ => return,
     };
     match key.code {
-        KeyCode::Esc => app.mode = Mode::Normal,
+        KeyCode::Esc => app.set_mode(Mode::Normal),
         KeyCode::Char('j') | KeyCode::Down => {
             if cursor + 1 < templates.len() {
-                app.mode = Mode::TemplatePick {
+                app.set_mode(Mode::TemplatePick {
                     cursor: cursor + 1,
                     templates,
-                };
+                });
             }
         }
         KeyCode::Char('k') | KeyCode::Up => {
             if cursor > 0 {
-                app.mode = Mode::TemplatePick {
+                app.set_mode(Mode::TemplatePick {
                     cursor: cursor - 1,
                     templates,
-                };
+                });
             }
         }
         KeyCode::Enter => {
             if let Some((name, _)) = templates.get(cursor) {
                 let template_name = name.clone();
-                app.mode = Mode::TemplateTask {
+                app.set_mode(Mode::TemplateTask {
                     template_name,
                     task: String::new(),
-                };
+                });
             }
         }
         _ => {}
@@ -242,7 +242,7 @@ fn handle_template_pick(app: &mut App, key: KeyEvent) {
 }
 
 fn handle_template_task(app: &mut App, key: KeyEvent) {
-    let (template_name, task) = match &app.mode {
+    let (template_name, task) = match app.mode() {
         Mode::TemplateTask {
             template_name,
             task,
@@ -250,7 +250,7 @@ fn handle_template_task(app: &mut App, key: KeyEvent) {
         _ => return,
     };
     match key.code {
-        KeyCode::Esc => app.mode = Mode::Normal,
+        KeyCode::Esc => app.set_mode(Mode::Normal),
         KeyCode::Enter => {
             if task.trim().is_empty() {
                 app.status_message = "task cannot be empty".into();
@@ -261,17 +261,17 @@ fn handle_template_task(app: &mut App, key: KeyEvent) {
         KeyCode::Backspace => {
             let mut new_task = task;
             new_task.pop();
-            app.mode = Mode::TemplateTask {
+            app.set_mode(Mode::TemplateTask {
                 template_name,
                 task: new_task,
-            };
+            });
         }
         KeyCode::Char(ch) => {
             let new_task = format!("{task}{ch}");
-            app.mode = Mode::TemplateTask {
+            app.set_mode(Mode::TemplateTask {
                 template_name,
                 task: new_task,
-            };
+            });
         }
         _ => {}
     }
@@ -281,20 +281,20 @@ fn handle_template_task(app: &mut App, key: KeyEvent) {
 fn handle_function_pick(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc => {
-            app.mode = Mode::Normal;
+            app.set_mode(Mode::Normal);
         }
         KeyCode::Enter => {
             app.add_picked_function();
         }
         KeyCode::Char('j') | KeyCode::Down => {
-            if let Mode::FunctionPick { cursor, items } = &mut app.mode {
+            if let Mode::FunctionPick { cursor, items } = app.mode_mut() {
                 if *cursor + 1 < items.len() {
                     *cursor += 1;
                 }
             }
         }
         KeyCode::Char('k') | KeyCode::Up => {
-            if let Mode::FunctionPick { cursor, .. } = &mut app.mode {
+            if let Mode::FunctionPick { cursor, .. } = app.mode_mut() {
                 *cursor = cursor.saturating_sub(1);
             }
         }
@@ -306,20 +306,20 @@ fn handle_function_pick(app: &mut App, key: KeyEvent) {
 fn handle_type_pick(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc => {
-            app.mode = Mode::Normal;
+            app.set_mode(Mode::Normal);
         }
         KeyCode::Enter => {
             app.add_picked_type();
         }
         KeyCode::Char('j') | KeyCode::Down => {
-            if let Mode::TypePick { cursor, items } = &mut app.mode {
+            if let Mode::TypePick { cursor, items } = app.mode_mut() {
                 if *cursor + 1 < items.len() {
                     *cursor += 1;
                 }
             }
         }
         KeyCode::Char('k') | KeyCode::Up => {
-            if let Mode::TypePick { cursor, .. } = &mut app.mode {
+            if let Mode::TypePick { cursor, .. } = app.mode_mut() {
                 *cursor = cursor.saturating_sub(1);
             }
         }
@@ -329,7 +329,7 @@ fn handle_type_pick(app: &mut App, key: KeyEvent) {
 
 fn handle_diff_pick(app: &mut App, key: KeyEvent) {
     let entering = matches!(
-        app.mode,
+        app.mode(),
         Mode::DiffPick {
             entering_branch: true,
             ..
@@ -339,18 +339,18 @@ fn handle_diff_pick(app: &mut App, key: KeyEvent) {
     if entering {
         match key.code {
             KeyCode::Esc => {
-                app.mode = Mode::Normal;
+                app.set_mode(Mode::Normal);
             }
             KeyCode::Enter => {
                 app.load_diff_files();
             }
             KeyCode::Backspace => {
-                if let Mode::DiffPick { branch, .. } = &mut app.mode {
+                if let Mode::DiffPick { branch, .. } = app.mode_mut() {
                     branch.pop();
                 }
             }
             KeyCode::Char(ch) => {
-                if let Mode::DiffPick { branch, .. } = &mut app.mode {
+                if let Mode::DiffPick { branch, .. } = app.mode_mut() {
                     branch.push(ch);
                 }
             }
@@ -362,12 +362,12 @@ fn handle_diff_pick(app: &mut App, key: KeyEvent) {
     // File selection phase.
     match key.code {
         KeyCode::Esc => {
-            app.mode = Mode::Normal;
+            app.set_mode(Mode::Normal);
         }
         KeyCode::Char(' ') => {
             if let Mode::DiffPick {
                 selected, cursor, ..
-            } = &mut app.mode
+            } = app.mode_mut()
             {
                 if selected.contains(cursor) {
                     selected.remove(cursor);
@@ -380,14 +380,14 @@ fn handle_diff_pick(app: &mut App, key: KeyEvent) {
             app.add_selected_diff_files();
         }
         KeyCode::Char('j') | KeyCode::Down => {
-            if let Mode::DiffPick { cursor, files, .. } = &mut app.mode {
+            if let Mode::DiffPick { cursor, files, .. } = app.mode_mut() {
                 if *cursor + 1 < files.len() {
                     *cursor += 1;
                 }
             }
         }
         KeyCode::Char('k') | KeyCode::Up => {
-            if let Mode::DiffPick { cursor, .. } = &mut app.mode {
+            if let Mode::DiffPick { cursor, .. } = app.mode_mut() {
                 *cursor = cursor.saturating_sub(1);
             }
         }
@@ -398,17 +398,17 @@ fn handle_diff_pick(app: &mut App, key: KeyEvent) {
 fn handle_memory_panel(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc | KeyCode::Char('r') => {
-            app.mode = Mode::Normal;
+            app.set_mode(Mode::Normal);
         }
         KeyCode::Char('j') | KeyCode::Down => {
-            if let Mode::MemoryPanel { cursor, count } = &mut app.mode {
+            if let Mode::MemoryPanel { cursor, count } = app.mode_mut() {
                 if *cursor + 1 < *count {
                     *cursor += 1;
                 }
             }
         }
         KeyCode::Char('k') | KeyCode::Up => {
-            if let Mode::MemoryPanel { cursor, .. } = &mut app.mode {
+            if let Mode::MemoryPanel { cursor, .. } = app.mode_mut() {
                 *cursor = cursor.saturating_sub(1);
             }
         }
@@ -420,10 +420,10 @@ fn handle_add_note(app: &mut App, key: KeyEvent) {
     use crate::tui::mode::InputField;
     match key.code {
         KeyCode::Esc => {
-            app.mode = Mode::Normal;
+            app.set_mode(Mode::Normal);
         }
         KeyCode::Tab => {
-            if let Mode::AddNote { field, .. } = &mut app.mode {
+            if let Mode::AddNote { field, .. } = app.mode_mut() {
                 *field = match *field {
                     InputField::First => InputField::Second,
                     InputField::Second => InputField::First,
@@ -434,7 +434,7 @@ fn handle_add_note(app: &mut App, key: KeyEvent) {
             app.write_note_inline();
         }
         KeyCode::Backspace => {
-            if let Mode::AddNote { tag, body, field } = &mut app.mode {
+            if let Mode::AddNote { tag, body, field } = app.mode_mut() {
                 match field {
                     InputField::First => {
                         tag.pop();
@@ -446,7 +446,7 @@ fn handle_add_note(app: &mut App, key: KeyEvent) {
             }
         }
         KeyCode::Char(ch) => {
-            if let Mode::AddNote { tag, body, field } = &mut app.mode {
+            if let Mode::AddNote { tag, body, field } = app.mode_mut() {
                 match field {
                     InputField::First => tag.push(ch),
                     InputField::Second => body.push(ch),
@@ -460,7 +460,7 @@ fn handle_add_note(app: &mut App, key: KeyEvent) {
 fn handle_pipe_menu(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc => {
-            app.mode = Mode::Normal;
+            app.set_mode(Mode::Normal);
         }
         KeyCode::Char('c') => {
             app.pipe_to_agent("claude");
@@ -479,10 +479,10 @@ fn handle_model_switch(app: &mut App, key: KeyEvent) {
     let models = crate::models::all_models();
     match key.code {
         KeyCode::Esc => {
-            app.mode = Mode::Normal;
+            app.set_mode(Mode::Normal);
         }
         KeyCode::Enter => {
-            let chosen = if let Mode::ModelSwitch { cursor } = &app.mode {
+            let chosen = if let Mode::ModelSwitch { cursor } = app.mode() {
                 models.get(*cursor).map(|m| m.name.to_string())
             } else {
                 None
@@ -492,14 +492,14 @@ fn handle_model_switch(app: &mut App, key: KeyEvent) {
             }
         }
         KeyCode::Char('j') | KeyCode::Down => {
-            if let Mode::ModelSwitch { cursor } = &mut app.mode {
+            if let Mode::ModelSwitch { cursor } = app.mode_mut() {
                 if *cursor + 1 < models.len() {
                     *cursor += 1;
                 }
             }
         }
         KeyCode::Char('k') | KeyCode::Up => {
-            if let Mode::ModelSwitch { cursor } = &mut app.mode {
+            if let Mode::ModelSwitch { cursor } = app.mode_mut() {
                 *cursor = cursor.saturating_sub(1);
             }
         }
@@ -510,10 +510,10 @@ fn handle_model_switch(app: &mut App, key: KeyEvent) {
 fn handle_save_profile(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc => {
-            app.mode = Mode::Normal;
+            app.set_mode(Mode::Normal);
         }
         KeyCode::Enter => {
-            let name = if let Mode::SaveProfile { name } = &app.mode {
+            let name = if let Mode::SaveProfile { name } = app.mode() {
                 name.clone()
             } else {
                 return;
@@ -525,12 +525,12 @@ fn handle_save_profile(app: &mut App, key: KeyEvent) {
             app.save_profile(&name);
         }
         KeyCode::Backspace => {
-            if let Mode::SaveProfile { name } = &mut app.mode {
+            if let Mode::SaveProfile { name } = app.mode_mut() {
                 name.pop();
             }
         }
         KeyCode::Char(ch) => {
-            if let Mode::SaveProfile { name } = &mut app.mode {
+            if let Mode::SaveProfile { name } = app.mode_mut() {
                 name.push(ch);
             }
         }
@@ -541,20 +541,20 @@ fn handle_save_profile(app: &mut App, key: KeyEvent) {
 fn handle_load_profile(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc => {
-            app.mode = Mode::Normal;
+            app.set_mode(Mode::Normal);
         }
         KeyCode::Enter => {
             app.load_selected_profile();
         }
         KeyCode::Char('j') | KeyCode::Down => {
-            if let Mode::LoadProfile { cursor, profiles } = &mut app.mode {
+            if let Mode::LoadProfile { cursor, profiles } = app.mode_mut() {
                 if *cursor + 1 < profiles.len() {
                     *cursor += 1;
                 }
             }
         }
         KeyCode::Char('k') | KeyCode::Up => {
-            if let Mode::LoadProfile { cursor, .. } = &mut app.mode {
+            if let Mode::LoadProfile { cursor, .. } = app.mode_mut() {
                 *cursor = cursor.saturating_sub(1);
             }
         }
@@ -566,10 +566,10 @@ fn handle_narrow(app: &mut App, key: KeyEvent) {
     use crate::tui::mode::InputField;
     match key.code {
         KeyCode::Esc => {
-            app.mode = Mode::Normal;
+            app.set_mode(Mode::Normal);
         }
         KeyCode::Tab => {
-            if let Mode::Narrow { ref mut field, .. } = app.mode {
+            if let Mode::Narrow { field, .. } = app.mode_mut() {
                 *field = match *field {
                     InputField::First => InputField::Second,
                     InputField::Second => InputField::First,
@@ -580,12 +580,7 @@ fn handle_narrow(app: &mut App, key: KeyEvent) {
             app.confirm_narrow();
         }
         KeyCode::Backspace => {
-            if let Mode::Narrow {
-                ref mut start,
-                ref mut end,
-                ref field,
-            } = app.mode
-            {
+            if let Mode::Narrow { start, end, field } = app.mode_mut() {
                 match field {
                     InputField::First => {
                         start.pop();
@@ -597,12 +592,7 @@ fn handle_narrow(app: &mut App, key: KeyEvent) {
             }
         }
         KeyCode::Char(ch) if ch.is_ascii_digit() => {
-            if let Mode::Narrow {
-                ref mut start,
-                ref mut end,
-                ref field,
-            } = app.mode
-            {
+            if let Mode::Narrow { start, end, field } = app.mode_mut() {
                 match field {
                     InputField::First => start.push(ch),
                     InputField::Second => end.push(ch),
@@ -616,7 +606,7 @@ fn handle_narrow(app: &mut App, key: KeyEvent) {
 fn handle_search(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc => {
-            app.mode = Mode::Normal;
+            app.set_mode(Mode::Normal);
         }
         KeyCode::Enter => {
             // Move cursor to top search result and exit search.
@@ -626,10 +616,10 @@ fn handle_search(app: &mut App, key: KeyEvent) {
                     app.tree_cursor = pos;
                 }
             }
-            app.mode = Mode::Normal;
+            app.set_mode(Mode::Normal);
         }
         KeyCode::Backspace => {
-            let q = if let Mode::Search { ref mut query } = app.mode {
+            let q = if let Mode::Search { query } = app.mode_mut() {
                 query.pop();
                 Some(query.clone())
             } else {
@@ -640,7 +630,7 @@ fn handle_search(app: &mut App, key: KeyEvent) {
             }
         }
         KeyCode::Char(ch) => {
-            let q = if let Mode::Search { ref mut query } = app.mode {
+            let q = if let Mode::Search { query } = app.mode_mut() {
                 query.push(ch);
                 Some(query.clone())
             } else {
