@@ -26,10 +26,12 @@ pub fn run(root: CtxforgeRoot) -> Result<()> {
 }
 
 fn run_loop(terminal: &mut ratatui::DefaultTerminal, root: CtxforgeRoot) -> Result<()> {
+    use std::time::Duration;
     let mut app = App::new(root);
 
     loop {
         terminal.draw(|f| ui::draw(f, &app))?;
+        app.cleanup_finished_animations();
 
         // Drain any pending stdout export (e.g. `x` key). We restore the
         // terminal, print, wait for a keypress, then re-init a fresh terminal
@@ -69,7 +71,16 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, root: CtxforgeRoot) -> Resu
             continue;
         }
 
-        if let Some(key) = events::poll() {
+        // Animation-aware timeout: ~60fps while animating, effectively block
+        // on input otherwise. `has_active_animations` walks every animated
+        // field on App and returns true iff anything is still tweening.
+        let timeout = if app.has_active_animations() {
+            Duration::from_millis(16)
+        } else {
+            Duration::from_secs(3600)
+        };
+
+        if let Some(key) = events::poll_with_timeout(timeout) {
             events::handle(&mut app, key);
         }
 

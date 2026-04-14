@@ -8,9 +8,16 @@ use crate::tui::mode::Mode;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use std::time::Duration;
 
-/// Poll for a key event with a 100ms timeout.
+/// Poll for a key event with a 100ms timeout (legacy entry point, kept for
+/// any callers that don't need the animation-aware timeout).
 pub fn poll() -> Option<KeyEvent> {
-    if event::poll(Duration::from_millis(100)).ok()? {
+    poll_with_timeout(Duration::from_millis(100))
+}
+
+/// Poll for a key event with a caller-supplied timeout. The render loop
+/// passes 16ms while animating and an effectively-infinite timeout when idle.
+pub fn poll_with_timeout(timeout: Duration) -> Option<KeyEvent> {
+    if event::poll(timeout).ok()? {
         if let Event::Key(key) = event::read().ok()? {
             return Some(key);
         }
