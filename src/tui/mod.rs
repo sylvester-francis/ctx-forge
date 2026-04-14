@@ -28,7 +28,7 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, root: CtxforgeRoot) -> Resu
     let mut app = App::new(root);
 
     loop {
-        terminal.draw(|f| ui::draw(f, &app))?;
+        terminal.draw(|f| ui::draw(f, &mut app))?;
 
         // Drain any pending stdout export (e.g. `x` key). We restore the
         // terminal, print, wait for a keypress, then re-init a fresh terminal

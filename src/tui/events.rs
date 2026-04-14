@@ -65,6 +65,27 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
             Focus::FileTree => app.move_tree_cursor(-1),
             Focus::BundleList => app.move_bundle_cursor(-1),
         },
+
+        // Page scrolling — PageDown / PageUp jumps a full viewport.
+        KeyCode::PageDown => match app.focus {
+            Focus::FileTree => app.page_tree_cursor(1),
+            Focus::BundleList => app.page_bundle_cursor(1),
+        },
+        KeyCode::PageUp => match app.focus {
+            Focus::FileTree => app.page_tree_cursor(-1),
+            Focus::BundleList => app.page_bundle_cursor(-1),
+        },
+
+        // Vim-style half-page: Ctrl-D / Ctrl-U.
+        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => match app.focus {
+            Focus::FileTree => app.half_page_tree_cursor(1),
+            Focus::BundleList => app.half_page_bundle_cursor(1),
+        },
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => match app.focus {
+            Focus::FileTree => app.half_page_tree_cursor(-1),
+            Focus::BundleList => app.half_page_bundle_cursor(-1),
+        },
+
         KeyCode::Char(' ') => {
             if app.focus == Focus::FileTree {
                 app.toggle_current();
@@ -98,6 +119,18 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
             Focus::FileTree => app.tree_cursor = 0,
             Focus::BundleList => app.bundle_cursor = 0,
         },
+
+        // Expand / collapse all directories in the tree.
+        KeyCode::Char('E') => {
+            if app.focus == Focus::FileTree {
+                app.expand_all_dirs();
+            }
+        }
+        KeyCode::Char('C') => {
+            if app.focus == Focus::FileTree {
+                app.collapse_all_dirs();
+            }
+        }
 
         // Slash command palette
         KeyCode::Char('/') => {
