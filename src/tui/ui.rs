@@ -78,6 +78,29 @@ pub fn draw(f: &mut Frame, app: &App) {
             render_overlay_blended(f, app, &current, opacity);
         }
     }
+
+    // Pass 4 — startup fade. Applied to the entire frame buffer so the whole
+    // TUI eases in on launch.
+    let startup_opacity = app.startup_fade.opacity(app.clock.now());
+    if startup_opacity < 0.999 {
+        apply_opacity_to_buffer(f.buffer_mut(), startup_opacity);
+    }
+}
+
+/// Fade every cell toward the theme bg by `1 - opacity`. Used by the
+/// startup fade-in to ease the whole TUI into view.
+fn apply_opacity_to_buffer(buf: &mut Buffer, opacity: f32) {
+    use crate::tui::motion::blend;
+    use ratatui::style::Color;
+    const BG: Color = Color::Rgb(10, 14, 22);
+    let area = buf.area;
+    for y in area.top()..area.bottom() {
+        for x in area.left()..area.right() {
+            let cell = &mut buf[(x, y)];
+            cell.fg = blend(opacity, cell.fg, BG);
+            cell.bg = blend(opacity, cell.bg, BG);
+        }
+    }
 }
 
 /// Render an overlay for `mode` into a scratch buffer, then blend it onto the

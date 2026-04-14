@@ -66,6 +66,8 @@ pub struct App {
     /// Animated border highlight — tweens between FileTree and BundleList
     /// focus colors on Tab switch.
     pub focus_highlight: crate::tui::motion::Highlight,
+    /// Fade-in applied to the entire TUI on first render.
+    pub startup_fade: crate::tui::motion::Fade,
     /// Set of relative paths currently in the bundle, for fast lookup.
     pub bundled_paths: HashSet<PathBuf>,
     /// Indices into `tree_entries` for fuzzy-search results, ranked by score.
@@ -253,6 +255,9 @@ impl App {
         if self.focus_highlight.is_active(now) {
             return true;
         }
+        if self.startup_fade.is_active(now) {
+            return true;
+        }
         false
     }
 
@@ -333,6 +338,7 @@ impl App {
             tree_list_state: std::cell::RefCell::new(ratatui::widgets::ListState::default()),
             bundle_list_state: std::cell::RefCell::new(ratatui::widgets::ListState::default()),
             focus_highlight: crate::tui::motion::Highlight::new(ratatui::style::Color::Cyan),
+            startup_fade: crate::tui::motion::Fade::new_hidden(),
             bundled_paths: HashSet::new(),
             search_results: Vec::new(),
             profile_name: None,
@@ -350,6 +356,14 @@ impl App {
         app.recalculate_tokens();
         // Snap the gauge to current total so startup doesn't fade from 0.
         app.token_gauge.snap(app.total_tokens as f32);
+        // Kick the startup fade — the whole TUI fades in over STARTUP duration.
+        let ctx = app.anim_ctx();
+        app.startup_fade.set_over(
+            1.0,
+            crate::tui::motion::constants::STARTUP,
+            crate::tui::motion::ease_out_cubic,
+            &ctx,
+        );
         app
     }
 
@@ -1169,7 +1183,10 @@ mod mode_transition_tests {
 
     #[test]
     fn has_active_animations_false_by_default() {
-        let (app, _clock, _tmp) = test_app();
+        let (mut app, clock, _tmp) = test_app();
+        // The startup fade is active right after construction; advance past it.
+        clock.advance(Duration::from_millis(500));
+        app.cleanup_finished_animations();
         assert!(!app.has_active_animations());
     }
 
