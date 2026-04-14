@@ -803,7 +803,7 @@ fn draw_bundle_list(f: &mut Frame, app: &App, area: Rect) {
                 pct
             );
 
-            let style = if i == app.bundle_cursor && app.focus == Focus::BundleList {
+            let mut style = if i == app.bundle_cursor && app.focus == Focus::BundleList {
                 Style::default()
                     .fg(ratatui::style::Color::Black)
                     .bg(ratatui::style::Color::White)
@@ -812,6 +812,18 @@ fn draw_bundle_list(f: &mut Frame, app: &App, area: Rect) {
             } else {
                 Style::default()
             };
+
+            // Apply per-row fade-in if this path was just added.
+            if let Some(fade) = app.bundle_row_fades.get(&item.path) {
+                use crate::tui::motion::blend;
+                use ratatui::style::Color;
+                const BG: Color = Color::Rgb(10, 14, 22);
+                let opacity = fade.opacity(app.clock.now());
+                if opacity < 0.999 {
+                    let fg = style.fg.unwrap_or(Color::Gray);
+                    style = style.fg(blend(opacity, fg, BG));
+                }
+            }
 
             ListItem::new(Line::from(vec![Span::styled(text, style)]))
         })

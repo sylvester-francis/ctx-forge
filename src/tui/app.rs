@@ -68,6 +68,9 @@ pub struct App {
     pub focus_highlight: crate::tui::motion::Highlight,
     /// Fade-in applied to the entire TUI on first render.
     pub startup_fade: crate::tui::motion::Fade,
+    /// Per-bundle-row fade animations keyed by path. Populated on add; each
+    /// entry is removed once its Fade settles at 1.0.
+    pub bundle_row_fades: std::collections::HashMap<PathBuf, crate::tui::motion::Fade>,
     /// Set of relative paths currently in the bundle, for fast lookup.
     pub bundled_paths: HashSet<PathBuf>,
     /// Indices into `tree_entries` for fuzzy-search results, ranked by score.
@@ -258,6 +261,9 @@ impl App {
         if self.startup_fade.is_active(now) {
             return true;
         }
+        if self.bundle_row_fades.values().any(|f| f.is_active(now)) {
+            return true;
+        }
         false
     }
 
@@ -294,6 +300,8 @@ impl App {
                 self.mode_transition = None;
             }
         }
+        // Drop settled row fades so the map doesn't grow unbounded.
+        self.bundle_row_fades.retain(|_, fade| fade.is_active(now));
     }
 
     /// Test-only constructor that installs a mock clock and forces Full
@@ -339,6 +347,7 @@ impl App {
             bundle_list_state: std::cell::RefCell::new(ratatui::widgets::ListState::default()),
             focus_highlight: crate::tui::motion::Highlight::new(ratatui::style::Color::Cyan),
             startup_fade: crate::tui::motion::Fade::new_hidden(),
+            bundle_row_fades: std::collections::HashMap::new(),
             bundled_paths: HashSet::new(),
             search_results: Vec::new(),
             profile_name: None,
@@ -435,6 +444,7 @@ impl App {
             // Remove from bundle.
             self.bundle.remove_by_path(&path);
             self.bundled_paths.remove(&path);
+            self.bundle_row_fades.remove(&path);
             self.set_status(format!("removed {}", path.display()));
         } else {
             // Add to bundle.
@@ -445,6 +455,12 @@ impl App {
             };
             self.bundle.add(item);
             self.bundled_paths.insert(path.clone());
+            // Kick a per-row fade-in.
+            let ctx = self.anim_ctx();
+            use crate::tui::motion::{Fade, constants, ease_out_cubic};
+            let mut fade = Fade::new_hidden();
+            fade.set_over(1.0, constants::ROW_IN, ease_out_cubic, &ctx);
+            self.bundle_row_fades.insert(path.clone(), fade);
             self.set_status(format!("added {}", path.display()));
         }
 
