@@ -69,3 +69,63 @@ fn highlight_preserves_line_count() {
     let lines = h.highlight("txt", source);
     assert_eq!(lines.len(), 5);
 }
+
+use std::fs;
+use std::path::PathBuf;
+use tempfile::TempDir;
+
+fn write_file(dir: &TempDir, name: &str, content: &[u8]) -> PathBuf {
+    let path = dir.path().join(name);
+    fs::write(&path, content).unwrap();
+    path
+}
+
+#[test]
+fn read_small_text_file_returns_highlighted_lines() {
+    let h = Highlighter::new();
+    let tmp = TempDir::new().unwrap();
+    let path = write_file(&tmp, "x.rs", b"fn main() {}\n");
+    let load = ctxforge::tui::viewer::read_and_highlight(&path, &h);
+    assert!(load.error.is_none());
+    assert!(!load.truncated);
+    assert_eq!(load.lines.len(), 1);
+}
+
+#[test]
+fn read_binary_file_returns_binary_error() {
+    let h = Highlighter::new();
+    let tmp = TempDir::new().unwrap();
+    let path = write_file(&tmp, "img.bin", &[0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    let load = ctxforge::tui::viewer::read_and_highlight(&path, &h);
+    assert!(matches!(load.error, Some(ViewerError::Binary(_))));
+    assert!(load.lines.is_empty());
+}
+
+#[test]
+fn read_missing_file_returns_not_found() {
+    let h = Highlighter::new();
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("nope.txt");
+    let load = ctxforge::tui::viewer::read_and_highlight(&path, &h);
+    assert_eq!(load.error, Some(ViewerError::NotFound));
+}
+
+#[test]
+fn read_directory_returns_directory_error() {
+    let h = Highlighter::new();
+    let tmp = TempDir::new().unwrap();
+    let load = ctxforge::tui::viewer::read_and_highlight(tmp.path(), &h);
+    assert_eq!(load.error, Some(ViewerError::Directory));
+}
+
+#[test]
+fn read_over_2mb_truncates_and_flags_truncated() {
+    let h = Highlighter::new();
+    let tmp = TempDir::new().unwrap();
+    let big: Vec<u8> = std::iter::repeat(b'a').take(2_500_000).collect();
+    let path = write_file(&tmp, "big.txt", &big);
+    let load = ctxforge::tui::viewer::read_and_highlight(&path, &h);
+    assert!(load.truncated);
+    assert!(load.error.is_none());
+    assert!(!load.lines.is_empty());
+}

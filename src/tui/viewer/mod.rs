@@ -10,4 +10,4 @@ pub mod highlight;
 pub mod load;
 
 pub use highlight::Highlighter;
-pub use load::{ViewerError, ViewerLoad};
+pub use load::{ViewerError, ViewerLoad, read_and_highlight};
