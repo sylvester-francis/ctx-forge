@@ -1,8 +1,8 @@
 #![cfg(feature = "tui")]
 
 use ctxforge::tui::motion::{
-    Clock, Lerp, MockClock, SystemClock, blend, ease_in_cubic, ease_in_out_cubic, ease_out_cubic,
-    ease_out_quad, linear,
+    AnimCtx, Clock, Lerp, MockClock, MotionLevel, SystemClock, blend, detect_motion, ease_in_cubic,
+    ease_in_out_cubic, ease_out_cubic, ease_out_quad, linear,
 };
 use ratatui::style::Color;
 use std::time::Duration;
@@ -92,4 +92,53 @@ fn blend_at_opacity_half_is_midpoint() {
     let fg = Color::Rgb(200, 0, 0);
     let bg = Color::Rgb(0, 0, 100);
     assert_eq!(blend(0.5, fg, bg), Color::Rgb(100, 0, 50));
+}
+
+#[test]
+fn detect_motion_respects_no_animations_env() {
+    temp_env::with_vars(
+        [
+            ("NO_ANIMATIONS", Some("1")),
+            ("COLORTERM", Some("truecolor")),
+        ],
+        || {
+            assert_eq!(detect_motion(), MotionLevel::None);
+        },
+    );
+}
+
+#[test]
+fn detect_motion_requires_truecolor_otherwise() {
+    temp_env::with_vars(
+        [
+            ("NO_ANIMATIONS", None::<&str>),
+            ("PROMPT_NO_ANIMATIONS", None::<&str>),
+            ("COLORTERM", Some("truecolor")),
+        ],
+        || {
+            assert_eq!(detect_motion(), MotionLevel::Full);
+        },
+    );
+    temp_env::with_vars(
+        [
+            ("NO_ANIMATIONS", None::<&str>),
+            ("PROMPT_NO_ANIMATIONS", None::<&str>),
+            ("COLORTERM", Some("ansi")),
+        ],
+        || {
+            assert_eq!(detect_motion(), MotionLevel::None);
+        },
+    );
+}
+
+#[test]
+fn anim_ctx_carries_clock_and_motion() {
+    let clock = MockClock::new();
+    let now = clock.now();
+    let ctx = AnimCtx {
+        now,
+        motion: MotionLevel::Full,
+    };
+    assert_eq!(ctx.now, now);
+    assert_eq!(ctx.motion, MotionLevel::Full);
 }

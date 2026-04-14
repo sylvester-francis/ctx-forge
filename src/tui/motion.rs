@@ -5,8 +5,45 @@
 
 use ratatui::style::Color;
 use std::cell::Cell;
+use std::env;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
+
+/// Whether animations are allowed. Detected once at app startup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MotionLevel {
+    /// Full animation support (truecolor terminal, user hasn't opted out).
+    Full,
+    /// Animations snap to target. No tweening.
+    None,
+}
+
+/// Context passed to animation calls. Threads the clock and motion level
+/// through the app without globals.
+#[derive(Clone, Copy)]
+pub struct AnimCtx {
+    pub now: Instant,
+    pub motion: MotionLevel,
+}
+
+/// Detect the motion level from env vars.
+///
+/// Rules:
+/// - `NO_ANIMATIONS` or `PROMPT_NO_ANIMATIONS` set → `None`.
+/// - `COLORTERM = truecolor` or `24bit` → `Full`.
+/// - Everything else → `None`.
+pub fn detect_motion() -> MotionLevel {
+    if env::var("NO_ANIMATIONS").is_ok() {
+        return MotionLevel::None;
+    }
+    if env::var("PROMPT_NO_ANIMATIONS").is_ok() {
+        return MotionLevel::None;
+    }
+    match env::var("COLORTERM").as_deref() {
+        Ok("truecolor") | Ok("24bit") => MotionLevel::Full,
+        _ => MotionLevel::None,
+    }
+}
 
 /// Interpolation between two values. `t` is clamped to `[0.0, 1.0]`.
 pub trait Lerp: Copy {
