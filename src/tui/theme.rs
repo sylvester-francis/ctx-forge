@@ -22,8 +22,12 @@ pub fn selected_color() -> Color {
 }
 
 /// Color for directory names in the file tree.
+///
+/// Uses a direct RGB (GitHub-style link blue) instead of the terminal's
+/// palette-level `Color::Blue`, which renders as a near-unreadable dark
+/// navy in most default terminal themes.
 pub fn dir_color() -> Color {
-    Color::Blue
+    Color::Rgb(121, 192, 255)
 }
 
 /// Color for the hotspot warning.
