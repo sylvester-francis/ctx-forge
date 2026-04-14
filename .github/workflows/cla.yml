@@ -44,8 +44,13 @@ jobs:
           # Public URL where contributors can read the CLA.
           path-to-document: 'https://github.com/sylvester-francis/ctx-forge/blob/main/CLA.md'
 
-          # Branch where signatures are stored.
-          branch: 'main'
+          # Branch where signatures are stored. Must NOT be a protected
+          # branch — the bot needs to push the signatures file directly,
+          # which would fail against required-status-check protections on
+          # `main`. Create this branch once (from `main`) and leave it
+          # unprotected; the bot manages `signatures/version1/cla.json`
+          # on it automatically.
+          branch: 'cla-signatures'
 
           # PR comment posted when a contributor needs to sign.
           custom-notsigned-prcomment: >
