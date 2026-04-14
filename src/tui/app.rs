@@ -9,6 +9,7 @@ use crate::tui::mode;
 use crate::tui::tree::{self, TreeEntry};
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
+use ratatui::widgets::ListState;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -54,6 +55,16 @@ pub struct App {
     pub should_quit: bool,
     pub status_message: String,
     pub show_help: bool,
+    /// Scroll state for the file tree list. Ratatui uses this to auto-scroll
+    /// so the selected row stays visible.
+    pub tree_list_state: ListState,
+    /// Scroll state for the bundle list.
+    pub bundle_list_state: ListState,
+    /// Last known height (in rows) of the file tree viewport, minus borders.
+    /// Captured during render; used by PageUp/PageDown and half-page scrolls.
+    pub tree_viewport_height: u16,
+    /// Last known height of the bundle list viewport, minus borders.
+    pub bundle_viewport_height: u16,
 }
 
 impl App {
@@ -91,6 +102,10 @@ impl App {
             should_quit: false,
             status_message: String::new(),
             show_help: false,
+            tree_list_state: ListState::default(),
+            bundle_list_state: ListState::default(),
+            tree_viewport_height: 0,
+            bundle_viewport_height: 0,
         };
         app.rebuild_bundled_paths();
         app.recalculate_tokens();
@@ -216,6 +231,94 @@ impl App {
         }
         let new = self.tree_cursor as i32 + delta;
         self.tree_cursor = new.clamp(0, self.visible_tree.len() as i32 - 1) as usize;
+    }
+
+    /// Page-sized movement for the file tree. Uses the last captured viewport
+    /// height; falls back to 10 rows if nothing has been rendered yet.
+    pub fn page_tree_cursor(&mut self, direction: i32) {
+        let page = if self.tree_viewport_height > 0 {
+            self.tree_viewport_height as i32
+        } else {
+            10
+        };
+        self.move_tree_cursor(direction * page);
+    }
+
+    /// Half-page movement (Ctrl-D / Ctrl-U style) for the file tree.
+    pub fn half_page_tree_cursor(&mut self, direction: i32) {
+        let half = if self.tree_viewport_height > 0 {
+            (self.tree_viewport_height as i32 / 2).max(1)
+        } else {
+            5
+        };
+        self.move_tree_cursor(direction * half);
+    }
+
+    /// Page-sized movement for the bundle list.
+    pub fn page_bundle_cursor(&mut self, direction: i32) {
+        let page = if self.bundle_viewport_height > 0 {
+            self.bundle_viewport_height as i32
+        } else {
+            10
+        };
+        self.move_bundle_cursor(direction * page);
+    }
+
+    /// Half-page movement for the bundle list.
+    pub fn half_page_bundle_cursor(&mut self, direction: i32) {
+        let half = if self.bundle_viewport_height > 0 {
+            (self.bundle_viewport_height as i32 / 2).max(1)
+        } else {
+            5
+        };
+        self.move_bundle_cursor(direction * half);
+    }
+
+    /// Expand every directory in the tree. Keeps the cursor on the same file
+    /// (by relative path) when possible.
+    pub fn expand_all_dirs(&mut self) {
+        let anchor = self.cursor_anchor_path();
+        tree::expand_all(&mut self.tree_entries);
+        self.visible_tree = tree::visible_indices(&self.tree_entries);
+        self.restore_cursor_from_anchor(anchor);
+        self.status_message = "expanded all directories".into();
+    }
+
+    /// Collapse every directory in the tree. Cursor is kept on the same file
+    /// if it's still visible, otherwise clamped to the last visible row.
+    pub fn collapse_all_dirs(&mut self) {
+        let anchor = self.cursor_anchor_path();
+        tree::collapse_all(&mut self.tree_entries);
+        self.visible_tree = tree::visible_indices(&self.tree_entries);
+        self.restore_cursor_from_anchor(anchor);
+        self.status_message = "collapsed all directories".into();
+    }
+
+    fn cursor_anchor_path(&self) -> Option<PathBuf> {
+        self.visible_tree
+            .get(self.tree_cursor)
+            .and_then(|&idx| self.tree_entries.get(idx))
+            .map(|e| e.rel_path.clone())
+    }
+
+    fn restore_cursor_from_anchor(&mut self, anchor: Option<PathBuf>) {
+        if self.visible_tree.is_empty() {
+            self.tree_cursor = 0;
+            return;
+        }
+        if let Some(path) = anchor {
+            if let Some(pos) = self
+                .visible_tree
+                .iter()
+                .position(|&i| self.tree_entries.get(i).map(|e| &e.rel_path) == Some(&path))
+            {
+                self.tree_cursor = pos;
+                return;
+            }
+        }
+        if self.tree_cursor >= self.visible_tree.len() {
+            self.tree_cursor = self.visible_tree.len() - 1;
+        }
     }
 
     pub fn move_bundle_cursor(&mut self, delta: i32) {

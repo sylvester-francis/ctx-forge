@@ -8,7 +8,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, Paragraph};
 
-pub fn draw(f: &mut Frame, app: &App) {
+pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -197,9 +197,10 @@ fn draw_help_overlay(f: &mut Frame) {
     let lines = vec![
         Line::from(""),
         Line::from("  Movement                          Selection"),
-        Line::from("    j / k     down / up               space  toggle file (in tree)"),
-        Line::from("    g / G     top / bottom            Enter  expand directory"),
-        Line::from("    Tab       switch panel"),
+        Line::from("    j / k       down / up             space  toggle file (in tree)"),
+        Line::from("    g / G       top / bottom          Enter  expand directory"),
+        Line::from("    PgDn / PgUp page down / up        E / C  expand / collapse all"),
+        Line::from("    Ctrl+D/U    half-page down / up   Tab    switch panel"),
         Line::from(""),
         Line::from("  Discoverable input"),
         Line::from("    /         open command palette  (every feature lives here)"),
@@ -276,7 +277,7 @@ fn draw_template_task_overlay(f: &mut Frame, template_name: &str, task: &str) {
 }
 
 /// Render the right panel (bundle list, profile list, or memory panel).
-fn draw_right_panel(f: &mut Frame, app: &App, area: Rect) {
+fn draw_right_panel(f: &mut Frame, app: &mut App, area: Rect) {
     // LoadProfile mode replaces the right panel with the profile picker.
     if let crate::tui::mode::Mode::LoadProfile { cursor, profiles } = &app.mode {
         draw_profile_list(f, *cursor, profiles, area);
@@ -503,7 +504,7 @@ fn draw_profile_list(f: &mut Frame, cursor: usize, profiles: &[String], area: Re
     f.render_widget(List::new(items).block(block), area);
 }
 
-fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
+fn draw_file_tree(f: &mut Frame, app: &mut App, area: Rect) {
     let in_search = matches!(app.mode, crate::tui::mode::Mode::Search { .. });
 
     // Split off a 3-row search input pane when in search mode.
@@ -596,11 +597,25 @@ fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
+    // Capture viewport height for PageUp/PageDown/half-page movement. Subtract 2
+    // for the top + bottom borders; clamp to 0 if the area is tiny.
+    app.tree_viewport_height = tree_area.height.saturating_sub(2);
+
+    let selected = if entries_to_show.is_empty() {
+        None
+    } else if in_search {
+        // In search mode the cursor is implicit — always highlight the top result.
+        Some(0usize)
+    } else {
+        Some(app.tree_cursor.min(entries_to_show.len().saturating_sub(1)))
+    };
+    app.tree_list_state.select(selected);
+
     let list = List::new(items).block(block);
-    f.render_widget(list, tree_area);
+    f.render_stateful_widget(list, tree_area, &mut app.tree_list_state);
 }
 
-fn draw_bundle_list(f: &mut Frame, app: &App, area: Rect) {
+fn draw_bundle_list(f: &mut Frame, app: &mut App, area: Rect) {
     let title = format!(" bundle ({} items) ", app.bundle.len());
     let border_style = if app.focus == Focus::BundleList {
         Style::default().fg(ratatui::style::Color::Cyan)
@@ -669,8 +684,18 @@ fn draw_bundle_list(f: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
+    // Capture viewport height for PageUp/PageDown on the bundle list.
+    app.bundle_viewport_height = area.height.saturating_sub(2);
+
+    let selected = if app.bundle.items.is_empty() {
+        None
+    } else {
+        Some(app.bundle_cursor.min(app.bundle.items.len() - 1))
+    };
+    app.bundle_list_state.select(selected);
+
     let list = List::new(items).block(block);
-    f.render_widget(list, area);
+    f.render_stateful_widget(list, area, &mut app.bundle_list_state);
 }
 
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
@@ -787,8 +812,8 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         Focus::BundleList => "bundle",
     };
     let nav_keys = match app.focus {
-        Focus::FileTree => "j/k move  Enter expand  space add",
-        Focus::BundleList => "j/k move  Enter select",
+        Focus::FileTree => "j/k PgUp/PgDn  Enter expand  space add  E/C expand-all/collapse-all",
+        Focus::BundleList => "j/k PgUp/PgDn  Enter select",
     };
     let keys_text = match &app.mode {
         Mode::Normal => {

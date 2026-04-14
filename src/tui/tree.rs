@@ -98,6 +98,24 @@ pub fn build(project_root: &Path) -> Vec<TreeEntry> {
     entries
 }
 
+/// Mark every directory entry as expanded. Files are untouched.
+pub fn expand_all(entries: &mut [TreeEntry]) {
+    for e in entries.iter_mut() {
+        if e.is_dir {
+            e.expanded = true;
+        }
+    }
+}
+
+/// Mark every directory entry as collapsed. Files are untouched.
+pub fn collapse_all(entries: &mut [TreeEntry]) {
+    for e in entries.iter_mut() {
+        if e.is_dir {
+            e.expanded = false;
+        }
+    }
+}
+
 /// Returns indices of entries visible given current expand/collapse state.
 /// A file or dir is visible if all its ancestor directories are expanded.
 pub fn visible_indices(entries: &[TreeEntry]) -> Vec<usize> {
@@ -241,6 +259,77 @@ mod tests {
         ];
         let vis = visible_indices(&entries);
         assert_eq!(vis, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn expand_all_marks_every_directory_expanded() {
+        let mut entries = vec![
+            TreeEntry {
+                name: "src/".into(),
+                rel_path: "src".into(),
+                depth: 0,
+                is_dir: true,
+                expanded: true,
+            },
+            TreeEntry {
+                name: "hub/".into(),
+                rel_path: "src/hub".into(),
+                depth: 1,
+                is_dir: true,
+                expanded: false,
+            },
+            TreeEntry {
+                name: "deep/".into(),
+                rel_path: "src/hub/deep".into(),
+                depth: 2,
+                is_dir: true,
+                expanded: false,
+            },
+            TreeEntry {
+                name: "main.rs".into(),
+                rel_path: "src/main.rs".into(),
+                depth: 1,
+                is_dir: false,
+                expanded: false,
+            },
+        ];
+        expand_all(&mut entries);
+        assert!(entries[0].expanded);
+        assert!(entries[1].expanded);
+        assert!(entries[2].expanded);
+        // Files are not directories — their `expanded` flag is ignored and untouched.
+        assert!(!entries[3].expanded);
+    }
+
+    #[test]
+    fn collapse_all_marks_every_directory_collapsed() {
+        let mut entries = vec![
+            TreeEntry {
+                name: "src/".into(),
+                rel_path: "src".into(),
+                depth: 0,
+                is_dir: true,
+                expanded: true,
+            },
+            TreeEntry {
+                name: "hub/".into(),
+                rel_path: "src/hub".into(),
+                depth: 1,
+                is_dir: true,
+                expanded: true,
+            },
+            TreeEntry {
+                name: "main.rs".into(),
+                rel_path: "src/main.rs".into(),
+                depth: 1,
+                is_dir: false,
+                expanded: false,
+            },
+        ];
+        collapse_all(&mut entries);
+        assert!(!entries[0].expanded);
+        assert!(!entries[1].expanded);
+        assert!(!entries[2].expanded);
     }
 
     #[test]
