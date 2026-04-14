@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.6 — 2026-04-14
+
+### Fixed
+- **TUI file tree and bundle list now scroll.** Both lists were rendered with ratatui's `List` widget stateless, so rendering always started from index 0 and the highlighted cursor scrolled off-screen as the user moved past the viewport — large projects looked truncated (e.g. only ~7 of 89 files visible). Both lists are now rendered as stateful widgets with `ListState::select(Some(cursor))`, so ratatui auto-scrolls to keep the cursor visible.
+
+### Added
+- **TUI navigation keys for long trees**:
+  - `PgDn` / `PgUp` — full-viewport scroll.
+  - `Ctrl-D` / `Ctrl-U` — half-page scroll (vim-style).
+  - `E` / `C` — expand-all / collapse-all directories. The cursor is preserved on its current file (by relative path) when possible, and clamped to the last visible row otherwise.
+- Footer hint row and `?` help overlay updated with the new keys.
+
 ## 1.1.4 — 2026-04-12
 
 ### Fixed
