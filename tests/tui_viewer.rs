@@ -1,7 +1,7 @@
 //! Integration tests for the code viewer.
 #![cfg(feature = "tui")]
 
-use ctxforge::tui::viewer::{Highlighter, ViewerError, ViewerLoad};
+use ctxforge::tui::viewer::{Highlighter, ViewerError, ViewerLoad, ViewerState};
 
 #[test]
 fn viewer_error_display_messages() {
@@ -129,3 +129,95 @@ fn read_over_2mb_truncates_and_flags_truncated() {
     assert!(load.error.is_none());
     assert!(!load.lines.is_empty());
 }
+
+#[test]
+fn viewer_state_starts_disabled_and_empty() {
+    let v = ViewerState::new();
+    assert!(!v.enabled);
+    assert_eq!(v.scroll, 0);
+    assert!(v.cached_path.is_none());
+    assert!(v.lines().is_empty());
+    assert!(v.error().is_none());
+    assert!(!v.truncated());
+}
+
+#[test]
+fn viewer_toggle_flips_enabled() {
+    let mut v = ViewerState::new();
+    assert!(!v.enabled);
+    v.toggle();
+    assert!(v.enabled);
+    v.toggle();
+    assert!(!v.enabled);
+}
+
+#[test]
+fn viewer_load_for_path_populates_cache() {
+    let mut v = ViewerState::new();
+    let tmp = TempDir::new().unwrap();
+    let path = write_file(&tmp, "x.rs", b"fn main() {}\n");
+    v.load_for_path(&path);
+    assert_eq!(v.cached_path.as_deref(), Some(path.as_path()));
+    assert_eq!(v.lines().len(), 1);
+    assert_eq!(v.scroll, 0);
+}
+
+#[test]
+fn viewer_load_for_same_path_is_idempotent() {
+    let mut v = ViewerState::new();
+    let tmp = TempDir::new().unwrap();
+    let path = write_file(&tmp, "x.rs", b"fn main() {}\nfn other() {}\n");
+    v.load_for_path(&path);
+    v.scroll = 1;
+    v.load_for_path(&path);
+    assert_eq!(v.scroll, 1);
+}
+
+#[test]
+fn viewer_load_for_different_path_resets_scroll() {
+    let mut v = ViewerState::new();
+    let tmp = TempDir::new().unwrap();
+    let a = write_file(&tmp, "a.rs", b"a1\na2\na3\n");
+    let b = write_file(&tmp, "b.rs", b"b1\nb2\nb3\n");
+    v.load_for_path(&a);
+    v.scroll = 2;
+    v.load_for_path(&b);
+    assert_eq!(v.scroll, 0);
+}
+
+#[test]
+fn viewer_scroll_clamped_to_valid_range() {
+    let mut v = ViewerState::new();
+    let tmp = TempDir::new().unwrap();
+    let path = write_file(&tmp, "x.txt", b"1\n2\n3\n4\n5\n");
+    v.load_for_path(&path);
+    v.scroll_by(10, 3);
+    assert_eq!(v.scroll, 2);
+    v.scroll_by(-100, 3);
+    assert_eq!(v.scroll, 0);
+}
+
+#[test]
+fn viewer_scroll_to_top_and_bottom_helpers() {
+    let mut v = ViewerState::new();
+    let tmp = TempDir::new().unwrap();
+    let path = write_file(&tmp, "x.txt", b"1\n2\n3\n4\n5\n");
+    v.load_for_path(&path);
+    v.scroll_to_bottom(2);
+    assert_eq!(v.scroll, 3);
+    v.scroll_to_top();
+    assert_eq!(v.scroll, 0);
+}
+
+#[test]
+fn viewer_load_for_directory_sets_directory_error() {
+    let mut v = ViewerState::new();
+    let tmp = TempDir::new().unwrap();
+    v.load_for_path(tmp.path());
+    assert_eq!(v.error(), Some(&ViewerError::Directory));
+    assert!(v.lines().is_empty());
+}
+
+// Silence unused warnings from the imports we'll need in later tasks.
+#[allow(dead_code)]
+fn _unused(_: ViewerLoad) {}
