@@ -7,7 +7,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, Paragraph, Widget};
+use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, ListState, Paragraph, Widget};
 
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
@@ -578,7 +578,11 @@ fn draw_memory_panel(f: &mut Frame, app: &App, area: Rect) {
             .block(block);
         f.render_widget(msg, area);
     } else {
-        f.render_widget(List::new(items).block(block), area);
+        let list = List::new(items).block(block);
+        let mut state = ListState::default();
+        let len = notes.len();
+        state.select(Some(cursor.min(len.saturating_sub(1))));
+        f.render_stateful_widget(list, area, &mut state);
     }
 }
 
@@ -603,7 +607,12 @@ fn draw_profile_list(f: &mut Frame, cursor: usize, profiles: &[String], area: Re
         })
         .collect();
 
-    f.render_widget(List::new(items).block(block), area);
+    let list = List::new(items).block(block);
+    let mut state = ListState::default();
+    if !profiles.is_empty() {
+        state.select(Some(cursor.min(profiles.len() - 1)));
+    }
+    f.render_stateful_widget(list, area, &mut state);
 }
 
 fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
@@ -699,8 +708,18 @@ fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
-    let list = List::new(items).block(block);
-    f.render_widget(list, tree_area);
+    let list = List::new(items)
+        .block(block)
+        .highlight_style(
+            Style::default()
+                .fg(ratatui::style::Color::Black)
+                .bg(ratatui::style::Color::White),
+        );
+    let mut state = ListState::default();
+    if !entries_to_show.is_empty() {
+        state.select(Some(app.tree_cursor.min(entries_to_show.len() - 1)));
+    }
+    f.render_stateful_widget(list, tree_area, &mut state);
 }
 
 fn draw_bundle_list(f: &mut Frame, app: &App, area: Rect) {
@@ -773,7 +792,11 @@ fn draw_bundle_list(f: &mut Frame, app: &App, area: Rect) {
         .collect();
 
     let list = List::new(items).block(block);
-    f.render_widget(list, area);
+    let mut state = ListState::default();
+    if !app.bundle.is_empty() {
+        state.select(Some(app.bundle_cursor.min(app.bundle.len() - 1)));
+    }
+    f.render_stateful_widget(list, area, &mut state);
 }
 
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
