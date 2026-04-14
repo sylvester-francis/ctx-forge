@@ -151,6 +151,56 @@ impl App {
         }
     }
 
+    /// Opacity of the currently-visible overlay (incoming during cross-fade).
+    /// 0.0 = not visible, 1.0 = fully visible. Drives the overlay blend.
+    pub fn incoming_overlay_opacity(&self) -> f32 {
+        if !self.mode.is_overlay() {
+            return 0.0;
+        }
+        let now = self.clock.now();
+        match &self.mode_transition {
+            Some(t) => {
+                let elapsed = now.saturating_duration_since(t.started);
+                if elapsed >= t.duration {
+                    1.0
+                } else {
+                    crate::tui::motion::ease_in_out_cubic(
+                        elapsed.as_secs_f32() / t.duration.as_secs_f32(),
+                    )
+                }
+            }
+            None => 1.0,
+        }
+    }
+
+    /// Opacity of the outgoing overlay during a cross-fade. 0.0 when there's
+    /// no outgoing overlay (i.e. the previous mode was Normal, or no
+    /// transition is in flight).
+    pub fn outgoing_overlay_opacity(&self) -> f32 {
+        let now = self.clock.now();
+        match &self.mode_transition {
+            Some(t) if t.prev.is_overlay() => {
+                let elapsed = now.saturating_duration_since(t.started);
+                if elapsed >= t.duration {
+                    0.0
+                } else {
+                    1.0 - crate::tui::motion::ease_in_out_cubic(
+                        elapsed.as_secs_f32() / t.duration.as_secs_f32(),
+                    )
+                }
+            }
+            _ => 0.0,
+        }
+    }
+
+    /// The outgoing overlay mode, if one is mid-fade-out.
+    pub fn outgoing_overlay_mode(&self) -> Option<&mode::Mode> {
+        self.mode_transition
+            .as_ref()
+            .filter(|t| t.prev.is_overlay())
+            .map(|t| &t.prev)
+    }
+
     /// True iff any animation is in flight. Drives the render-loop timeout.
     /// Task 12+ extend this to include per-feature animations (gauge, status,
     /// etc.).

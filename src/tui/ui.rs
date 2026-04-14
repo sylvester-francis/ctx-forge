@@ -3,10 +3,11 @@
 use crate::tui::app::{App, Focus};
 use crate::tui::theme;
 use ratatui::Frame;
+use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, Paragraph, Widget};
 
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
@@ -56,44 +57,89 @@ pub fn draw(f: &mut Frame, app: &App) {
         apply_dim_to_buffer(f.buffer_mut(), dim);
     }
 
-    // Pass 3 — overlays on top of the dimmed background.
-    draw_overlays(f, app);
-}
+    // Pass 3a — outgoing overlay (during cross-fade).
+    let outgoing_opacity = app.outgoing_overlay_opacity();
+    if outgoing_opacity > 0.01 {
+        if let Some(prev_mode) = app.outgoing_overlay_mode() {
+            let prev = prev_mode.clone();
+            render_overlay_blended(f, app, &prev, outgoing_opacity);
+        }
+    }
 
-/// Blend every cell's fg and bg toward `BG` by `dim`, leaving symbols intact.
-/// Used to darken Normal content behind an overlay.
-fn apply_dim_to_buffer(buf: &mut ratatui::buffer::Buffer, dim: f32) {
-    use crate::tui::motion::blend;
-    use ratatui::style::Color;
-    const BG: Color = Color::Rgb(10, 14, 22);
-    let area = buf.area;
-    for y in area.top()..area.bottom() {
-        for x in area.left()..area.right() {
-            let cell = &mut buf[(x, y)];
-            cell.fg = blend(1.0 - dim, cell.fg, BG);
-            cell.bg = blend(1.0 - dim, cell.bg, BG);
+    // Pass 3b — incoming (or currently-visible) overlay.
+    if app.mode().is_overlay() || app.show_help {
+        let opacity = if app.show_help && matches!(app.mode(), crate::tui::mode::Mode::Normal) {
+            1.0 // Legacy show_help flag without mode transition — full opacity.
+        } else {
+            app.incoming_overlay_opacity()
+        };
+        if opacity > 0.01 {
+            let current = app.mode().clone();
+            render_overlay_blended(f, app, &current, opacity);
         }
     }
 }
 
-fn draw_overlays(f: &mut Frame, app: &App) {
+/// Render an overlay for `mode` into a scratch buffer, then blend it onto the
+/// frame's buffer with `opacity`. At 0.0 the overlay is invisible (frame
+/// untouched); at 1.0 cells are written as-is. Empty (unset) scratch cells
+/// are skipped so only the overlay's own rect is affected.
+fn render_overlay_blended(f: &mut Frame, app: &App, mode: &crate::tui::mode::Mode, opacity: f32) {
+    use crate::tui::motion::blend;
+    use ratatui::style::Color;
+
+    let area = f.area();
+    let mut scratch = Buffer::empty(area);
+    draw_overlay_into_buffer(&mut scratch, area, app, mode);
+
+    let dst = f.buffer_mut();
+    for y in area.top()..area.bottom() {
+        for x in area.left()..area.right() {
+            let s = scratch[(x, y)].clone();
+            // Treat cells the overlay never touched as "transparent": they keep
+            // the default symbol (" ") and default style. A cell with a
+            // non-default bg was explicitly written (Clear or a widget fill).
+            let wrote_symbol = s.symbol() != " ";
+            let wrote_bg = !matches!(s.bg, Color::Reset);
+            let wrote_fg = !matches!(s.fg, Color::Reset);
+            if !(wrote_symbol || wrote_bg || wrote_fg) {
+                continue;
+            }
+            let d = &mut dst[(x, y)];
+            let new_fg = blend(opacity, s.fg, d.fg);
+            let new_bg = blend(opacity, s.bg, d.bg);
+            if opacity >= 0.5 {
+                d.set_symbol(s.symbol());
+            }
+            d.fg = new_fg;
+            d.bg = new_bg;
+        }
+    }
+}
+
+/// Dispatch: render the given mode's overlay into `buf`. Mirrors the legacy
+/// `draw_overlays` function but writes to a caller-supplied buffer so we can
+/// blend the result during cross-fades.
+fn draw_overlay_into_buffer(
+    buf: &mut Buffer,
+    frame_area: Rect,
+    app: &App,
+    mode: &crate::tui::mode::Mode,
+) {
     use crate::tui::mode::Mode;
 
-    // Command palette overlay
-    if matches!(app.mode(), Mode::CommandPalette { .. }) {
-        draw_command_palette(f, app);
+    if matches!(mode, Mode::CommandPalette { .. }) {
+        draw_command_palette_buf(buf, frame_area, app, mode);
     }
 
-    // Help overlay
-    if app.show_help || matches!(app.mode(), Mode::Help) {
-        draw_help_overlay(f);
+    if matches!(mode, Mode::Help) {
+        draw_help_overlay_buf(buf, frame_area);
     }
 
-    // Legacy mode overlays
-    match app.mode() {
+    match mode {
         Mode::PipeMenu => {
-            let area = centered_rect(30, 7, f.area());
-            f.render_widget(ratatui::widgets::Clear, area);
+            let area = centered_rect(30, 7, frame_area);
+            ratatui::widgets::Clear.render(area, buf);
             let block = Block::default()
                 .title(" Pipe to Agent ")
                 .borders(Borders::ALL)
@@ -105,13 +151,13 @@ fn draw_overlays(f: &mut Frame, app: &App) {
                 Line::from(""),
                 Line::from("  Esc cancel"),
             ];
-            f.render_widget(Paragraph::new(text).block(block), area);
+            Paragraph::new(text).block(block).render(area, buf);
         }
         Mode::ModelSwitch { cursor } => {
             let models = crate::models::all_models();
             let height = (models.len() + 2).min(20) as u16;
-            let area = centered_rect(45, height, f.area());
-            f.render_widget(ratatui::widgets::Clear, area);
+            let area = centered_rect(45, height, frame_area);
+            ratatui::widgets::Clear.render(area, buf);
             let block = Block::default()
                 .title(" Switch Model ")
                 .borders(Borders::ALL)
@@ -133,49 +179,73 @@ fn draw_overlays(f: &mut Frame, app: &App) {
                     ))
                 })
                 .collect();
-            f.render_widget(List::new(items).block(block), area);
+            List::new(items).block(block).render(area, buf);
         }
         Mode::TemplatePick { cursor, templates } => {
-            draw_template_pick_overlay(f, *cursor, templates);
+            draw_template_pick_overlay_buf(buf, frame_area, *cursor, templates);
         }
         Mode::TemplateTask {
             template_name,
             task,
         } => {
-            draw_template_task_overlay(f, template_name, task);
+            draw_template_task_overlay_buf(buf, frame_area, template_name, task);
         }
         _ => {}
     }
 }
 
-fn draw_command_palette(f: &mut Frame, app: &App) {
+/// Blend every cell's fg and bg toward `BG` by `dim`, leaving symbols intact.
+/// Used to darken Normal content behind an overlay.
+fn apply_dim_to_buffer(buf: &mut ratatui::buffer::Buffer, dim: f32) {
+    use crate::tui::motion::blend;
+    use ratatui::style::Color;
+    const BG: Color = Color::Rgb(10, 14, 22);
+    let area = buf.area;
+    for y in area.top()..area.bottom() {
+        for x in area.left()..area.right() {
+            let cell = &mut buf[(x, y)];
+            cell.fg = blend(1.0 - dim, cell.fg, BG);
+            cell.bg = blend(1.0 - dim, cell.bg, BG);
+        }
+    }
+}
+
+// Legacy dispatcher kept only as a compile-time no-op placeholder — the real
+// rendering now goes through `draw_overlay_into_buffer`. Left here so other
+// callers inside this file (none currently) don't break silently.
+
+fn draw_command_palette_buf(
+    buf: &mut Buffer,
+    frame_area: Rect,
+    _app: &App,
+    mode: &crate::tui::mode::Mode,
+) {
     use crate::tui::mode::Mode;
-    let (query, cursor) = match app.mode() {
-        Mode::CommandPalette { query, cursor } => (query, *cursor),
+    let (query, cursor) = match mode {
+        Mode::CommandPalette { query, cursor } => (query.as_str(), *cursor),
         _ => return,
     };
     let results = crate::tui::commands::fuzzy_filter(query);
-    let area = centered_rect(70, 16, f.area());
-    f.render_widget(ratatui::widgets::Clear, area);
+    let area = centered_rect(70, 16, frame_area);
+    ratatui::widgets::Clear.render(area, buf);
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // input
-            Constraint::Min(5),    // results list
-            Constraint::Length(3), // footer
+            Constraint::Length(3),
+            Constraint::Min(5),
+            Constraint::Length(3),
         ])
         .split(area);
 
-    // Input row
     let input_block = Block::default()
         .title(" / command palette ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(ratatui::style::Color::Cyan));
-    let input = Paragraph::new(format!(" /{query}")).block(input_block);
-    f.render_widget(input, chunks[0]);
+    Paragraph::new(format!(" /{query}"))
+        .block(input_block)
+        .render(chunks[0], buf);
 
-    // Results list
     let items: Vec<ListItem> = results
         .iter()
         .enumerate()
@@ -194,25 +264,24 @@ fn draw_command_palette(f: &mut Frame, app: &App) {
             ))
         })
         .collect();
-    let list_block = Block::default().borders(Borders::ALL);
-    let list = List::new(items).block(list_block);
-    f.render_widget(list, chunks[1]);
+    List::new(items)
+        .block(Block::default().borders(Borders::ALL))
+        .render(chunks[1], buf);
 
-    // Footer row
     let footer_text = format!(
         " {} of {} matches  |  Enter run  |  Esc cancel ",
         results.len(),
         crate::tui::commands::COMMANDS.len()
     );
-    let footer = Paragraph::new(footer_text)
+    Paragraph::new(footer_text)
         .block(Block::default().borders(Borders::ALL))
-        .style(Style::default().add_modifier(Modifier::DIM));
-    f.render_widget(footer, chunks[2]);
+        .style(Style::default().add_modifier(Modifier::DIM))
+        .render(chunks[2], buf);
 }
 
-fn draw_help_overlay(f: &mut Frame) {
-    let area = centered_rect(80, 22, f.area());
-    f.render_widget(ratatui::widgets::Clear, area);
+fn draw_help_overlay_buf(buf: &mut Buffer, frame_area: Rect) {
+    let area = centered_rect(80, 22, frame_area);
+    ratatui::widgets::Clear.render(area, buf);
     let block = Block::default()
         .title(" ctxforge -- navigation keys ")
         .borders(Borders::ALL)
@@ -240,18 +309,18 @@ fn draw_help_overlay(f: &mut Frame) {
         Line::from(""),
         Line::from("                          Esc or ? to close"),
     ];
-    let p = Paragraph::new(lines).block(block);
-    f.render_widget(p, area);
+    Paragraph::new(lines).block(block).render(area, buf);
 }
 
-fn draw_template_pick_overlay(
-    f: &mut Frame,
+fn draw_template_pick_overlay_buf(
+    buf: &mut Buffer,
+    frame_area: Rect,
     cursor: usize,
     templates: &[(String, crate::tui::mode::TemplateSource)],
 ) {
     use crate::tui::mode::TemplateSource;
-    let area = centered_rect(60, (templates.len() + 4).min(20) as u16, f.area());
-    f.render_widget(ratatui::widgets::Clear, area);
+    let area = centered_rect(60, (templates.len() + 4).min(20) as u16, frame_area);
+    ratatui::widgets::Clear.render(area, buf);
     let block = Block::default()
         .title(" / template -- pick a template ")
         .borders(Borders::ALL)
@@ -278,12 +347,17 @@ fn draw_template_pick_overlay(
             ))
         })
         .collect();
-    f.render_widget(List::new(items).block(block), area);
+    List::new(items).block(block).render(area, buf);
 }
 
-fn draw_template_task_overlay(f: &mut Frame, template_name: &str, task: &str) {
-    let area = centered_rect(70, 7, f.area());
-    f.render_widget(ratatui::widgets::Clear, area);
+fn draw_template_task_overlay_buf(
+    buf: &mut Buffer,
+    frame_area: Rect,
+    template_name: &str,
+    task: &str,
+) {
+    let area = centered_rect(70, 7, frame_area);
+    ratatui::widgets::Clear.render(area, buf);
     let block = Block::default()
         .title(format!(" task for template '{template_name}' "))
         .borders(Borders::ALL)
@@ -294,8 +368,7 @@ fn draw_template_task_overlay(f: &mut Frame, template_name: &str, task: &str) {
         Line::from(""),
         Line::from("  Enter to copy with template  |  Esc to cancel"),
     ];
-    let p = Paragraph::new(text).block(block);
-    f.render_widget(p, area);
+    Paragraph::new(text).block(block).render(area, buf);
 }
 
 /// Render the right panel (bundle list, profile list, or memory panel).
