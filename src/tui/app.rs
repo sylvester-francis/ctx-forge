@@ -46,6 +46,9 @@ pub struct App {
     pub item_tokens: Vec<usize>,
     pub total_tokens: usize,
     pub exact_tokens: bool,
+    /// Animated token gauge — smoothly tweens toward `total_tokens` on
+    /// bundle mutations. UI reads via `token_gauge.current(now)`.
+    pub token_gauge: crate::tui::motion::Gauge,
     /// Set of relative paths currently in the bundle, for fast lookup.
     pub bundled_paths: HashSet<PathBuf>,
     /// Indices into `tree_entries` for fuzzy-search results, ranked by score.
@@ -125,6 +128,9 @@ impl App {
                 return true;
             }
         }
+        if self.token_gauge.is_active(now) {
+            return true;
+        }
         false
     }
 
@@ -174,6 +180,7 @@ impl App {
             item_tokens: Vec::new(),
             total_tokens: 0,
             exact_tokens: false,
+            token_gauge: crate::tui::motion::Gauge::new(0.0),
             bundled_paths: HashSet::new(),
             search_results: Vec::new(),
             profile_name: None,
@@ -189,6 +196,8 @@ impl App {
         };
         app.rebuild_bundled_paths();
         app.recalculate_tokens();
+        // Snap the gauge to current total so startup doesn't fade from 0.
+        app.token_gauge.snap(app.total_tokens as f32);
         app
     }
 
@@ -870,6 +879,9 @@ impl App {
         self.exact_tokens = matches!(model.tokenizer, models::Tokenizer::Estimate)
             .then_some(false)
             .unwrap_or(true);
+        // Animate the gauge toward the new total.
+        let ctx = self.anim_ctx();
+        self.token_gauge.set(self.total_tokens as f32, &ctx);
     }
 }
 

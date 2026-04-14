@@ -301,6 +301,7 @@ fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
 }
 
 fn draw_header(f: &mut Frame, app: &App, area: Rect) {
+    // Text values use the real total (numbers update instantly).
     let pct = app.window_pct();
     let color = theme::gauge_color(pct);
 
@@ -321,13 +322,19 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         profile_str, app.model_name, token_str, app.model_window, pct
     );
 
-    let ratio = (pct / 100.0).min(1.0);
+    // The bar fill tweens smoothly via `token_gauge`.
+    let animated_tokens = app.token_gauge.current(app.clock.now()) as f64;
+    let animated_ratio = if app.model_window == 0 {
+        0.0
+    } else {
+        (animated_tokens / app.model_window as f64).clamp(0.0, 1.0)
+    };
 
     let gauge = Gauge::default()
         .block(Block::default().borders(Borders::ALL))
         .gauge_style(Style::default().fg(color))
         .label(label)
-        .ratio(ratio);
+        .ratio(animated_ratio);
 
     f.render_widget(gauge, area);
 }
