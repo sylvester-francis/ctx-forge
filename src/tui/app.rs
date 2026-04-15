@@ -123,6 +123,13 @@ pub struct App {
     /// Remembers which panel had focus before the user switched to Prompt,
     /// so Esc can restore focus accurately.
     pub last_panel_focus: Focus,
+    /// Last deliver choice this session. The picker uses this to pre-position
+    /// its cursor so repeated deliveries are single-Enter.
+    pub deliver_last: Option<crate::tui::deliver::DeliverChoice>,
+    /// One-shot override set by Task 27's full-prompt editor. When
+    /// `Some`, the next `deliver::run_choice` call uses this content
+    /// verbatim instead of rebuilding from the template + bundle.
+    pub prompt_override: Option<String>,
 }
 
 impl App {
@@ -596,6 +603,8 @@ impl App {
             },
             prompt_input: crate::tui::prompt_input::PromptInput::new(),
             last_panel_focus: Focus::FileTree,
+            deliver_last: None,
+            prompt_override: None,
         };
         // Seed the prompt input from any task text the bundle already carries.
         if !app.bundle.task_text.is_empty() {

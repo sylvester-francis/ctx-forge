@@ -101,6 +101,10 @@ pub enum Mode {
         results: Vec<std::path::PathBuf>,
         cursor: usize,
     },
+    /// Deliver picker — appears on Ctrl-Enter / Alt-Enter from the prompt
+    /// (and via /deliver). Enter runs the highlighted choice through the
+    /// existing copy / pipe / export pipeline.
+    DeliverPick { cursor: usize },
 }
 
 impl Mode {

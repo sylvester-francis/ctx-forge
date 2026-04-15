@@ -267,8 +267,43 @@ fn draw_overlay_into_buffer(
         } => {
             draw_at_picker_overlay_buf(buf, frame_area, query, results, *cursor, app.theme);
         }
+        Mode::DeliverPick { cursor } => {
+            draw_deliver_pick_overlay_buf(buf, frame_area, *cursor, app.theme);
+        }
         _ => {}
     }
+}
+
+fn draw_deliver_pick_overlay_buf(
+    buf: &mut Buffer,
+    frame_area: Rect,
+    cursor: usize,
+    theme: &crate::tui::theme::AppTheme,
+) {
+    use crate::tui::deliver::DeliverChoice;
+    let choices = DeliverChoice::all();
+    let width = 40u16.min(frame_area.width.saturating_sub(4));
+    let height = (choices.len() as u16).saturating_add(2);
+    let area = centered_rect(width, height, frame_area);
+    ratatui::widgets::Clear.render(area, buf);
+    let block = Block::default()
+        .title(" deliver · Enter run · Esc cancel ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.border_focused));
+    let items: Vec<ListItem> = choices
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            let selected = i == cursor;
+            let style = if selected {
+                Style::default().fg(theme.selected_fg).bg(theme.selected_bg)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Span::styled(format!("  {}", c.label()), style))
+        })
+        .collect();
+    List::new(items).block(block).render(area, buf);
 }
 
 fn draw_at_picker_overlay_buf(

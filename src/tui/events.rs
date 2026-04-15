@@ -97,6 +97,38 @@ pub fn handle(app: &mut App, key: KeyEvent) {
         Mode::ScenarioPick { .. } => handle_scenario_pick(app, key),
         Mode::FullPromptPreview { .. } => handle_full_preview(app, key),
         Mode::AtPicker { .. } => handle_at_picker(app, key),
+        Mode::DeliverPick { .. } => handle_deliver_pick(app, key),
+    }
+}
+
+fn handle_deliver_pick(app: &mut App, key: KeyEvent) {
+    use crate::tui::deliver::DeliverChoice;
+    let len = DeliverChoice::all().len();
+    let action = {
+        let Mode::DeliverPick { cursor } = app.mode_mut() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => Some(None),
+            KeyCode::Char('j') | KeyCode::Down => {
+                *cursor = (*cursor + 1).min(len - 1);
+                None
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                *cursor = cursor.saturating_sub(1);
+                None
+            }
+            KeyCode::Enter => Some(Some(DeliverChoice::all()[*cursor])),
+            _ => None,
+        }
+    };
+    if let Some(maybe_choice) = action {
+        app.set_mode(Mode::Normal);
+        if let Some(choice) = maybe_choice {
+            if let Err(e) = crate::tui::deliver::run_choice(app, choice) {
+                app.set_status(format!("deliver failed: {e}"));
+            }
+        }
     }
 }
 
@@ -257,13 +289,31 @@ fn handle_prompt_key(app: &mut App, key: KeyEvent) {
             app.toggle_focus();
             return;
         }
+        (KeyCode::Enter, mods)
+            if mods.contains(KeyModifiers::CONTROL) || mods.contains(KeyModifiers::ALT) =>
+        {
+            // Ctrl-Enter / Alt-Enter both open the deliver picker.
+            // Terminals vary on whether they can distinguish Ctrl-Enter
+            // from plain Enter; Alt-Enter is a more reliable fallback
+            // and /deliver covers the rest.
+            let cursor = app
+                .deliver_last
+                .and_then(|last| {
+                    crate::tui::deliver::DeliverChoice::all()
+                        .iter()
+                        .position(|&c| c == last)
+                })
+                .unwrap_or(0);
+            app.set_mode(Mode::DeliverPick { cursor });
+            return;
+        }
         (KeyCode::Enter, mods) if mods.contains(KeyModifiers::SHIFT) => {
             app.prompt_input.insert_newline();
         }
         (KeyCode::Enter, _) => {
-            // Plain Enter inside the prompt inserts a newline too — this
-            // is a multi-line surface. Ctrl-Enter / Alt-Enter (Task 23)
-            // will trigger delivery.
+            // Plain Enter inside the prompt inserts a newline — this is
+            // a multi-line surface. Ctrl-Enter / Alt-Enter opens the
+            // deliver picker (handled above).
             app.prompt_input.insert_newline();
         }
         (KeyCode::Backspace, _) => app.prompt_input.backspace(),

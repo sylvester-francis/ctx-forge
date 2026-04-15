@@ -6,6 +6,7 @@
 
 pub mod app;
 pub mod commands;
+pub mod deliver;
 pub mod events;
 pub mod mode;
 pub mod motion;
