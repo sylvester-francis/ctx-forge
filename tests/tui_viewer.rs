@@ -122,7 +122,7 @@ fn read_directory_returns_directory_error() {
 fn read_over_2mb_truncates_and_flags_truncated() {
     let h = Highlighter::new();
     let tmp = TempDir::new().unwrap();
-    let big: Vec<u8> = std::iter::repeat(b'a').take(2_500_000).collect();
+    let big: Vec<u8> = std::iter::repeat_n(b'a', 2_500_000).collect();
     let path = write_file(&tmp, "big.txt", &big);
     let load = ctxforge::tui::viewer::read_and_highlight(&path, &h);
     assert!(load.truncated);
@@ -226,7 +226,7 @@ fn _unused(_: ViewerLoad) {}
 fn viewer_renders_highlighted_lines_against_test_backend() {
     use ctxforge::paths::CtxforgeRoot;
     use ctxforge::tui::app::App;
-    use ctxforge::tui::motion::{Clock, MockClock, MotionLevel};
+    use ctxforge::tui::motion::{MockClock, MotionLevel};
     use ctxforge::tui::ui;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
