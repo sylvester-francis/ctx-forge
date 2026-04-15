@@ -158,7 +158,12 @@ pub mod constants {
     pub const STARTUP: Duration = Duration::from_millis(260);
     pub const LIST_STAGGER_STEP: Duration = Duration::from_millis(20);
     pub const LIST_STAGGER_CAP_ROWS: usize = 6;
-    pub const BACKDROP_DIM: f32 = 0.55;
+    /// How far the Normal content fades toward `theme.bg` when an overlay
+    /// is visible. 0.0 = no dim, 1.0 = solid bg. Tuned to signal 'overlay
+    /// active' without hiding the preview / bundle summary / unfocused
+    /// borders — with the v1.3 theme-driven unfocused borders (DarkGray
+    /// against navy bg), dims > 0.4 made those regions invisible.
+    pub const BACKDROP_DIM: f32 = 0.35;
 }
 
 /// Opacity animation, 0.0..1.0.

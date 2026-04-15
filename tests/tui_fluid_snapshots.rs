@@ -54,7 +54,10 @@ fn mode_transition_lifecycle_advances_cleanly() {
     // Past the transition duration — animations settled.
     clock.advance(Duration::from_millis(300));
     app.cleanup_finished_animations();
-    assert_eq!(app.backdrop_dim.opacity(clock.now()), 0.55);
+    assert_eq!(
+        app.backdrop_dim.opacity(clock.now()),
+        ctxforge::tui::motion::constants::BACKDROP_DIM
+    );
     assert!(!app.has_active_animations());
     term.draw(|f| ui::draw(f, &app)).unwrap();
 }

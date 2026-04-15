@@ -274,7 +274,11 @@ fn motion_constants_are_defined() {
     assert_eq!(constants::STARTUP, Duration::from_millis(260));
     assert_eq!(constants::LIST_STAGGER_STEP, Duration::from_millis(20));
     assert_eq!(constants::LIST_STAGGER_CAP_ROWS, 6);
-    assert!((constants::BACKDROP_DIM - 0.55).abs() < 1e-6);
+    // Tuned down from 0.55 in v1.3 — the scenario-aware layout's unfocused
+    // theme borders (DarkGray on the default palette) vanished under a
+    // 0.55 dim. 0.35 still signals 'overlay active' without hiding the
+    // preview / bundle summary.
+    assert!((constants::BACKDROP_DIM - 0.35).abs() < 1e-6);
 }
 
 #[test]

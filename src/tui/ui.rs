@@ -605,13 +605,16 @@ fn draw_right_panel(f: &mut Frame, app: &App, area: Rect) {
 /// Render the prompt preview — the crafted prompt structure. Replaces the
 /// bundle list as the default right-column surface.
 fn draw_preview(f: &mut Frame, app: &App, area: Rect) {
-    let border_color = app.theme.border;
+    // Unfocused borders use the terminal default fg (same choice as the
+    // file tree) so they remain visible through the backdrop dim when an
+    // overlay opens. Theme.border (DarkGray on the default palette) was
+    // too faint once dimmed — the user couldn't tell the preview was
+    // even on screen.
     let preview = crate::tui::preview::PromptPreview::from_app(app);
     let text = preview.to_text();
     let block = Block::default()
         .title(" prompt preview ")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(border_color));
+        .borders(Borders::ALL);
     let paragraph = Paragraph::new(text)
         .block(block)
         .wrap(ratatui::widgets::Wrap { trim: false });
@@ -639,7 +642,9 @@ fn draw_bundle_summary(f: &mut Frame, app: &App, area: Rect) {
     let border_style = if app.focus == Focus::BundleList {
         Style::default().fg(app.focus_highlight.current(app.clock.now()))
     } else {
-        Style::default().fg(app.theme.border)
+        // Default terminal fg for unfocused borders — DarkGray from
+        // theme.border disappeared under the backdrop dim.
+        Style::default()
     };
     let block = Block::default()
         .title(title)
@@ -1179,19 +1184,20 @@ fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
 /// only drawn when `Focus::Prompt` is active.
 fn draw_prompt_input(f: &mut Frame, app: &App, area: Rect) {
     let focused = matches!(app.focus, Focus::Prompt);
-    let border_color = if focused {
-        app.focus_highlight.current(app.clock.now())
-    } else {
-        app.theme.border
-    };
     let title = match app.bundle.scenario.as_deref() {
         Some(s) => format!(" prompt · scenario: {s} "),
         None => " prompt · (no scenario) ".to_string(),
     };
+    let border_style = if focused {
+        Style::default().fg(app.focus_highlight.current(app.clock.now()))
+    } else {
+        // Default terminal fg — stays legible behind the backdrop dim.
+        Style::default()
+    };
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(border_color));
+        .border_style(border_style);
 
     let text = if app.prompt_input.is_empty() && !focused {
         "(press i to edit)".to_string()
