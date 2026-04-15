@@ -106,11 +106,17 @@ Run `ctxforge` with no subcommand to launch the fullscreen composer. The TUI is 
 
 **New in v1.1: Slash command palette.** Press `/` to open the fuzzy-matched command palette. Every feature lives there — type the first few characters and press Enter. No more memorizing single-letter keybindings.
 
-**Responsive layout.** Wide terminals (≥120 cols) get a 40/60 horizontal split. Narrower terminals stack panels vertically with bundle on top.
+**New: Code viewer + drag-to-add.** Press `v` to open a syntect-highlighted preview pane next to the tree. Click-and-drag to select a line range, then press `a` to add it to the bundle as a `Range` item. Line numbers on every line.
 
-- **Live token gauge** — color grades green → yellow → orange → red as you approach the model's context window
+**New: Fluid TUI.** The whole TUI animates: token gauge smoothly fills, modal overlays cross-fade with a dimmed backdrop, status messages fade in and out, focus borders transition on Tab. Event-driven render loop — idles at 0% CPU, ticks at 60fps only while something is animating. Auto-disabled on non-truecolor terminals and via `NO_ANIMATIONS=1`.
+
+**Responsive layout.** Wide terminals (≥140 cols) with the viewer on get a 25/45/30 three-column split (tree / viewer / bundle); ≥120 cols get the existing 40/60 two-column layout. Narrower terminals stack panels vertically.
+
+- **Code viewer** — `v` toggles a syntect-highlighted preview of the file under the tree cursor. Three-column layout on wide terminals. Line numbers, scroll with j/k/PgUp/PgDn/Ctrl+U/Ctrl+D. Binary files and 2 MB+ files are detected and labeled
+- **Drag-to-select a range** — with the viewer on, click-and-drag across lines, press `a` to append that range to the bundle as a line-range item. Terminal mouse capture is only active while the viewer is open, so your terminal's normal text selection still works the rest of the time
+- **Live token gauge** — color grades green → yellow → orange → red as you approach the model's context window; fills smoothly when the bundle changes
 - **Collapsible file tree** — `▾`/`▸` markers, `Enter` expands/collapses, top-level dirs start open
-- **Bundle table** — tabular view with kind, path, tokens, and percentage columns. Items consuming >25% of the budget get an inline `(!)` hotspot marker
+- **Bundle table** — tabular view with kind, path, tokens, and percentage columns. Items consuming >25% of the budget get an inline `(!)` hotspot marker. New rows fade in when added
 - **Fuzzy search** — `Ctrl+F` or `/find` to filter the tree by path (powered by `fuzzy-matcher`)
 - **Profiles** — `/save` to save the current bundle, `/load` to load one; the active profile name is shown in the header
 - **Pipe to agent** — `/pipe` opens a menu to pipe the bundle to `claude` (XML), `agent` (Cursor CLI, markdown), or `gemini`
@@ -129,15 +135,20 @@ Only navigation keys and three shortcuts remain as direct keybindings. Everythin
 
 | Key | Mode | Action |
 |---|---|---|
-| `j`/`k` or ↓/↑ | any list | Move cursor |
-| `g` / `G` | any list | Jump to first / last |
-| `Tab` | normal | Switch focus between file tree and bundle list |
+| `j`/`k` or ↓/↑ | any list | Move cursor (or scroll the viewer when focused) |
+| `g` / `G` | any list | Jump to first / last (or top/bottom of viewer) |
+| `Tab` | normal | Cycle focus: tree → (viewer, if on) → bundle → tree |
 | `space` | normal | Toggle file selection (file tree) |
 | `Enter` | normal | Expand/collapse directory (file tree) |
+| `v` | normal | Toggle the code viewer pane |
+| `a` | viewer focused | Add the current drag-selected line range to the bundle |
+| `PgDn`/`PgUp` / `Ctrl+D`/`Ctrl+U` | viewer focused | Half-page scroll |
+| mouse drag | viewer visible | Select a line range |
+| mouse wheel | viewer visible | Scroll the viewer (3 lines per tick) |
 | `/` | normal | Open the slash command palette (fuzzy-matched) |
 | `Ctrl+F` | normal | Open fuzzy file search (shortcut for `/find`) |
 | `?` | normal | Toggle help overlay showing all navigation keys |
-| `Esc` | any overlay | Cancel and return to normal mode |
+| `Esc` | any overlay | Cancel and return to normal mode (also clears viewer selection) |
 | `q` | normal | Quit |
 | `Ctrl-C` | any mode | Quit (global) |
 
@@ -164,6 +175,8 @@ All features are available from the `/` palette. Type the first few chars to fil
 | `/find-fn` | Function picker (requires `--features=extract`) |
 | `/find-type` | Type picker (requires `--features=extract`) |
 | `/find-diff <branch?>` | Diff picker against branch |
+| `/view` | Toggle the code viewer pane (alias for `v`) |
+| `/add-selection` | Add the viewer's drag-selected lines to the bundle (alias for `a`) |
 | `/template <name?>` | Pick template + task -> copy to clipboard |
 | `/template-list` | Show available templates |
 | `/template-new <name>` | Scaffold a new project template |
@@ -502,6 +515,7 @@ project/
 | Language | Rust (edition 2024, MSRV 1.85) |
 | CLI parsing | clap 4.6 (derive) |
 | TUI framework | ratatui 0.30 + crossterm 0.29 |
+| Syntax highlighting | syntect 5 (bundled syntaxes + `base16-ocean.dark` theme) |
 | Token counting | tiktoken-rs 0.11 (OpenAI exact) + chars/4 fallback |
 | Git integration | git2 0.20 (vendored libgit2) |
 | File walking | ignore 0.4 (.gitignore-aware) |
@@ -541,6 +555,7 @@ project/
 - **v1.0.3** — Fix: skip dotfiles in glob walks, non-UTF-8 files get a placeholder instead of crashing resolve.
 - **v1.1** — Slash command palette (`/`), responsive TUI layout (40/60 wide, stacked narrow), help overlay (`?`), `Ctrl+F` search shortcut. Prompt templates (`{{bundle}}`/`{{task}}`) with 5 built-in starters. `--template`/`--task` on copy/export/pipe. CLI polish: colored output (`owo-colors`), `comfy-table` status, progress spinners (`indicatif`), interactive save prompt (`dialoguer`), "did you mean?" suggestions (`strsim`).
 - **v1.1.3** — MCP server expanded from 4 to 15 tools (add_files, add_function, add_type, remove, clear, export, list_items, save_bundle, list_profiles, list_templates, apply_template). MCP resources (`ctxforge://bundle`, `ctxforge://memory`) and prompts (bugfix, code-review, explain, refactor, migrate). Safety annotations on all tools. Protocol updated to `2025-03-26`. Claude Code plugin with `/ctxforge` slash command and context engineering skill.
+- **v1.2 (unreleased)** — Fluid TUI: typed animation layer (`Animated<T>` + `Fade`/`Gauge`/`Highlight`/`Slide`), event-driven render loop, modal cross-fade with backdrop dim, smooth token gauge, status message fade, startup fade, animated focus borders. Bugfix: persistent `ListState` so long file trees and bundles scroll with the cursor. Code viewer pane (`v` toggles a syntect-highlighted preview; drag-select lines then `a` to append as a `Range` item). Three-way focus cycle (tree → viewer → bundle). Mouse capture scoped to viewer-on so normal terminal selection still works when it's off.
 
 ---
 
