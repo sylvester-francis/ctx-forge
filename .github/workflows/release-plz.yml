@@ -45,7 +45,12 @@ jobs:
         with:
           command: release-pr
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Use PAT instead of default GITHUB_TOKEN so:
+          #   1. release-plz can create PRs (default token is blocked
+          #      by the "Actions can't create PRs" policy), AND
+          #   2. the Release PR it opens DOES trigger CI (PRs opened
+          #      via GITHUB_TOKEN don't trigger downstream workflows).
+          GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   # Publishes to crates.io + cuts the GitHub Release. No-ops if the current
@@ -70,5 +75,10 @@ jobs:
         with:
           command: release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Use PAT instead of default GITHUB_TOKEN so:
+          #   1. release-plz can create PRs (default token is blocked
+          #      by the "Actions can't create PRs" policy), AND
+          #   2. the Release PR it opens DOES trigger CI (PRs opened
+          #      via GITHUB_TOKEN don't trigger downstream workflows).
+          GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
