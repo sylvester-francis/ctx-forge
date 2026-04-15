@@ -46,3 +46,64 @@ fn app_has_default_theme() {
     let app = ctxforge::tui::app::App::new(root);
     assert_eq!(app.theme.name, "ctxforge");
 }
+
+#[test]
+fn registry_has_four_themes() {
+    let names: Vec<_> = registry::all_themes().iter().map(|t| t.name).collect();
+    assert_eq!(names, vec!["ctxforge", "zinc", "tokyo-night", "gruvbox"]);
+}
+
+#[test]
+fn every_theme_has_readable_accent_against_bg() {
+    // WCAG AA for large text / UI chrome: contrast ratio >= 3.0.
+    // Plain text (fg vs bg) should clear 4.5 where possible; Color::Reset
+    // is treated as the terminal's default so we don't enforce that.
+    for theme in registry::all_themes() {
+        let ratio = contrast(theme.accent, theme.bg);
+        assert!(
+            ratio >= 3.0,
+            "{} accent/bg contrast {:.2} < 3.0 (WCAG AA large)",
+            theme.name,
+            ratio
+        );
+        let ratio = contrast(theme.border_focused, theme.bg);
+        assert!(
+            ratio >= 3.0,
+            "{} border_focused/bg contrast {:.2} < 3.0",
+            theme.name,
+            ratio
+        );
+    }
+}
+
+fn contrast(a: Color, b: Color) -> f64 {
+    let la = luminance(a);
+    let lb = luminance(b);
+    let (l1, l2) = if la > lb { (la, lb) } else { (lb, la) };
+    (l1 + 0.05) / (l2 + 0.05)
+}
+
+fn luminance(c: Color) -> f64 {
+    let (r, g, b) = match c {
+        Color::Rgb(r, g, b) => (r as f64 / 255.0, g as f64 / 255.0, b as f64 / 255.0),
+        Color::Reset | Color::White => (1.0, 1.0, 1.0),
+        Color::Black => (0.0, 0.0, 0.0),
+        Color::Red => (0.5, 0.0, 0.0),
+        Color::Green => (0.0, 0.5, 0.0),
+        Color::Yellow => (0.5, 0.5, 0.0),
+        Color::Blue => (0.0, 0.0, 0.5),
+        Color::Magenta => (0.5, 0.0, 0.5),
+        Color::Cyan => (0.0, 0.5, 0.5),
+        Color::Gray => (0.7, 0.7, 0.7),
+        Color::DarkGray => (0.4, 0.4, 0.4),
+        _ => (0.5, 0.5, 0.5),
+    };
+    let lin = |c: f64| {
+        if c <= 0.03928 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+}
