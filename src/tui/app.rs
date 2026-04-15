@@ -18,6 +18,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
     FileTree,
+    Viewer,
     BundleList,
 }
 
@@ -71,6 +72,12 @@ pub struct App {
     /// Per-bundle-row fade animations keyed by path. Populated on add; each
     /// entry is removed once its Fade settles at 1.0.
     pub bundle_row_fades: std::collections::HashMap<PathBuf, crate::tui::motion::Fade>,
+    /// File preview pane state (toggle flag + cached highlighted lines).
+    pub viewer: crate::tui::viewer::ViewerState,
+    /// Last-rendered body height of the viewer pane. Cell<usize> because
+    /// `ui::draw` has only `&App` and needs to update this each frame so
+    /// key handlers can clamp scroll without knowing layout dimensions.
+    pub viewer_last_viewport_height: std::cell::Cell<usize>,
     /// Set of relative paths currently in the bundle, for fast lookup.
     pub bundled_paths: HashSet<PathBuf>,
     /// Indices into `tree_entries` for fuzzy-search results, ranked by score.
@@ -162,20 +169,85 @@ impl App {
         }
     }
 
-    /// Swap the active panel (FileTree ↔ BundleList) and tween the focus
-    /// border color to the new panel's accent.
+    /// Swap the active panel and tween the focus border color. Cycle order
+    /// depends on whether the viewer is enabled:
+    ///   viewer off: FileTree → BundleList → FileTree
+    ///   viewer on:  FileTree → Viewer → BundleList → FileTree
     pub fn toggle_focus(&mut self) {
-        let next = match self.focus {
-            Focus::FileTree => Focus::BundleList,
-            Focus::BundleList => Focus::FileTree,
+        let next = match (self.focus, self.viewer.enabled) {
+            (Focus::FileTree, true) => Focus::Viewer,
+            (Focus::FileTree, false) => Focus::BundleList,
+            (Focus::Viewer, _) => Focus::BundleList,
+            (Focus::BundleList, _) => Focus::FileTree,
         };
         self.focus = next;
         let target = match next {
             Focus::FileTree => ratatui::style::Color::Rgb(88, 166, 255), // soft blue
+            Focus::Viewer => ratatui::style::Color::Rgb(163, 113, 247), // violet
             Focus::BundleList => ratatui::style::Color::Rgb(255, 165, 0), // orange
         };
         let ctx = self.anim_ctx();
         self.focus_highlight.transition_to(target, &ctx);
+    }
+
+    /// Toggle the file viewer pane on/off. On transition to `on`, kicks a
+    /// load for whatever file the tree cursor is on. If focus was on the
+    /// viewer and it's being disabled, snap focus back to FileTree.
+    ///
+    /// Note: on terminals narrower than 100 cols, the viewer flag is still
+    /// set but the render layout suppresses it. Resizing wider activates it.
+    pub fn toggle_viewer(&mut self) {
+        self.viewer.toggle();
+        if self.viewer.enabled {
+            self.reload_viewer_for_cursor();
+        } else if self.focus == Focus::Viewer {
+            self.focus = Focus::FileTree;
+            let ctx = self.anim_ctx();
+            self.focus_highlight
+                .transition_to(ratatui::style::Color::Rgb(88, 166, 255), &ctx);
+        }
+    }
+
+    /// Sync the viewer cache with whatever file is currently under the tree
+    /// cursor. No-op when viewer is disabled.
+    pub fn reload_viewer_for_cursor(&mut self) {
+        if !self.viewer.enabled {
+            return;
+        }
+        let Some(&actual_idx) = self.visible_tree.get(self.tree_cursor) else {
+            self.viewer.clear();
+            return;
+        };
+        let Some(entry) = self.tree_entries.get(actual_idx) else {
+            self.viewer.clear();
+            return;
+        };
+        let path = self.project_root.join(&entry.rel_path);
+        if entry.is_dir {
+            // Force a reload for directories too (the path is a dir; load will
+            // set ViewerError::Directory). Reset cached_path first so the
+            // idempotency short-circuit doesn't skip.
+            self.viewer.cached_path = None;
+        }
+        self.viewer.load_for_path(&path);
+    }
+
+    pub fn move_viewer_scroll(&mut self, delta: i32) {
+        let vh = self.viewer_last_viewport_height.get().max(1);
+        self.viewer.scroll_by(delta, vh);
+    }
+
+    pub fn scroll_viewer_to_top(&mut self) {
+        self.viewer.scroll_to_top();
+    }
+
+    pub fn scroll_viewer_to_bottom(&mut self) {
+        let vh = self.viewer_last_viewport_height.get().max(1);
+        self.viewer.scroll_to_bottom(vh);
+    }
+
+    pub fn set_viewer_viewport_height(&self, h: usize) {
+        self.viewer_last_viewport_height.set(h);
     }
 
     /// Current animation context (clock time + motion level).
@@ -348,6 +420,8 @@ impl App {
             focus_highlight: crate::tui::motion::Highlight::new(ratatui::style::Color::Cyan),
             startup_fade: crate::tui::motion::Fade::new_hidden(),
             bundle_row_fades: std::collections::HashMap::new(),
+            viewer: crate::tui::viewer::ViewerState::new(),
+            viewer_last_viewport_height: std::cell::Cell::new(10),
             bundled_paths: HashSet::new(),
             search_results: Vec::new(),
             profile_name: None,

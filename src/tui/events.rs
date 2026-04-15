@@ -66,10 +66,12 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
         // Navigation (vim-style)
         KeyCode::Char('j') | KeyCode::Down => match app.focus {
             Focus::FileTree => app.move_tree_cursor(1),
+            Focus::Viewer => app.move_viewer_scroll(1),
             Focus::BundleList => app.move_bundle_cursor(1),
         },
         KeyCode::Char('k') | KeyCode::Up => match app.focus {
             Focus::FileTree => app.move_tree_cursor(-1),
+            Focus::Viewer => app.move_viewer_scroll(-1),
             Focus::BundleList => app.move_bundle_cursor(-1),
         },
         KeyCode::Char(' ') => {
@@ -90,8 +92,10 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
                 let len = app.visible_tree_len();
                 if len > 0 {
                     app.tree_cursor = len - 1;
+                    app.reload_viewer_for_cursor();
                 }
             }
+            Focus::Viewer => app.scroll_viewer_to_bottom(),
             Focus::BundleList => {
                 if !app.bundle.is_empty() {
                     app.bundle_cursor = app.bundle.len() - 1;
@@ -99,7 +103,11 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
             }
         },
         KeyCode::Char('g') => match app.focus {
-            Focus::FileTree => app.tree_cursor = 0,
+            Focus::FileTree => {
+                app.tree_cursor = 0;
+                app.reload_viewer_for_cursor();
+            }
+            Focus::Viewer => app.scroll_viewer_to_top(),
             Focus::BundleList => app.bundle_cursor = 0,
         },
 
