@@ -77,8 +77,13 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, root: CtxforgeRoot) -> Resu
         // status fade-out trigger) otherwise.
         let timeout = app.next_wake_delay();
 
-        if let Some(key) = events::poll_with_timeout(timeout) {
-            events::handle(&mut app, key);
+        if let Some(ev) = events::poll_event_with_timeout(timeout) {
+            use crossterm::event::Event;
+            match ev {
+                Event::Key(k) => events::handle(&mut app, k),
+                Event::Mouse(m) => events::handle_mouse(&mut app, m),
+                _ => {}
+            }
         }
 
         if app.should_quit {

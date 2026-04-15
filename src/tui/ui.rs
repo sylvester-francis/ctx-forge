@@ -462,8 +462,9 @@ fn draw_viewer(f: &mut Frame, app: &App, area: Rect) {
     } else {
         inner_height
     };
-    // Remember for key-handler scroll clamping.
+    // Remember for key-handler scroll clamping and mouse hit-testing.
     app.set_viewer_viewport_height(body_height);
+    app.set_viewer_pane_rect(area);
 
     let title = build_viewer_title(app, body_height, area.width);
     let block = Block::default()

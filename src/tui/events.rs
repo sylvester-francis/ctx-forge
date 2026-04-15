@@ -17,12 +17,51 @@ pub fn poll() -> Option<KeyEvent> {
 /// Poll for a key event with a caller-supplied timeout. The render loop
 /// passes 16ms while animating and an effectively-infinite timeout when idle.
 pub fn poll_with_timeout(timeout: Duration) -> Option<KeyEvent> {
+    match poll_event_with_timeout(timeout) {
+        Some(Event::Key(k)) => Some(k),
+        _ => None,
+    }
+}
+
+/// Poll for any supported event (Key or Mouse). The render loop dispatches
+/// mouse events to `handle_mouse` and key events to `handle`.
+pub fn poll_event_with_timeout(timeout: Duration) -> Option<Event> {
     if event::poll(timeout).ok()? {
-        if let Event::Key(key) = event::read().ok()? {
-            return Some(key);
-        }
+        return event::read().ok();
     }
     None
+}
+
+/// Handle a mouse event. Only meaningful when the viewer is enabled and
+/// the mouse lands inside the viewer pane.
+pub fn handle_mouse(app: &mut App, ev: crossterm::event::MouseEvent) {
+    use crossterm::event::{MouseButton, MouseEventKind};
+    if !app.viewer.enabled {
+        return;
+    }
+    match ev.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            app.viewer_mouse_down(ev.column, ev.row);
+        }
+        MouseEventKind::Drag(MouseButton::Left) => {
+            app.viewer_mouse_drag(ev.column, ev.row);
+        }
+        MouseEventKind::Up(MouseButton::Left) => {
+            app.viewer_mouse_up(ev.column, ev.row);
+        }
+        MouseEventKind::ScrollDown => {
+            // Scroll only when the cursor is over the viewer pane.
+            if app.viewer_line_at(ev.column, ev.row).is_some() {
+                app.move_viewer_scroll(3);
+            }
+        }
+        MouseEventKind::ScrollUp => {
+            if app.viewer_line_at(ev.column, ev.row).is_some() {
+                app.move_viewer_scroll(-3);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Handle a key event, mutating app state. Routes to the appropriate

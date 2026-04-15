@@ -78,6 +78,10 @@ pub struct App {
     /// `ui::draw` has only `&App` and needs to update this each frame so
     /// key handlers can clamp scroll without knowing layout dimensions.
     pub viewer_last_viewport_height: std::cell::Cell<usize>,
+    /// Last-rendered rect of the viewer pane (including borders), in
+    /// terminal-absolute coordinates. Used by mouse event handling to map
+    /// click positions to line indices. `None` before the first frame.
+    pub viewer_pane_rect: std::cell::Cell<Option<ratatui::layout::Rect>>,
     /// Set of relative paths currently in the bundle, for fast lookup.
     pub bundled_paths: HashSet<PathBuf>,
     /// Indices into `tree_entries` for fuzzy-search results, ranked by score.
@@ -191,8 +195,10 @@ impl App {
     }
 
     /// Toggle the file viewer pane on/off. On transition to `on`, kicks a
-    /// load for whatever file the tree cursor is on. If focus was on the
-    /// viewer and it's being disabled, snap focus back to FileTree.
+    /// load for whatever file the tree cursor is on and enables terminal
+    /// mouse capture so drag-selection works. On transition to `off`,
+    /// disables mouse capture (restores the terminal's native text
+    /// selection) and snaps focus to FileTree if it was on the viewer.
     ///
     /// Note: on terminals narrower than 100 cols, the viewer flag is still
     /// set but the render layout suppresses it. Resizing wider activates it.
@@ -200,11 +206,29 @@ impl App {
         self.viewer.toggle();
         if self.viewer.enabled {
             self.reload_viewer_for_cursor();
-        } else if self.focus == Focus::Viewer {
-            self.focus = Focus::FileTree;
-            let ctx = self.anim_ctx();
-            self.focus_highlight
-                .transition_to(ratatui::style::Color::Rgb(88, 166, 255), &ctx);
+            self.set_mouse_capture(true);
+        } else {
+            self.set_mouse_capture(false);
+            if self.focus == Focus::Viewer {
+                self.focus = Focus::FileTree;
+                let ctx = self.anim_ctx();
+                self.focus_highlight
+                    .transition_to(ratatui::style::Color::Rgb(88, 166, 255), &ctx);
+            }
+        }
+    }
+
+    /// Enable or disable terminal mouse capture. Swallows I/O errors —
+    /// on failure the viewer still works via keyboard; the user just can't
+    /// drag-select.
+    fn set_mouse_capture(&self, enable: bool) {
+        use crossterm::execute;
+        use std::io::stdout;
+        let mut out = stdout();
+        if enable {
+            let _ = execute!(out, crossterm::event::EnableMouseCapture);
+        } else {
+            let _ = execute!(out, crossterm::event::DisableMouseCapture);
         }
     }
 
@@ -248,6 +272,87 @@ impl App {
 
     pub fn set_viewer_viewport_height(&self, h: usize) {
         self.viewer_last_viewport_height.set(h);
+    }
+
+    pub fn set_viewer_pane_rect(&self, rect: ratatui::layout::Rect) {
+        self.viewer_pane_rect.set(Some(rect));
+    }
+
+    /// Translate an absolute (col, row) mouse position to a 0-based line
+    /// index into the viewer's cached lines. Returns `None` if the click
+    /// fell outside the viewer's content area (on a border, in another
+    /// pane, or below the last line).
+    pub fn viewer_line_at(&self, col: u16, row: u16) -> Option<usize> {
+        let rect = self.viewer_pane_rect.get()?;
+        // Outside the pane entirely.
+        if col < rect.x || col >= rect.x + rect.width || row < rect.y || row >= rect.y + rect.height
+        {
+            return None;
+        }
+        // Inside borders (skip top border and bottom border).
+        if row == rect.y || row == rect.y + rect.height - 1 {
+            return None;
+        }
+        let row_offset = (row - rect.y - 1) as usize;
+        let line_idx = self.viewer.scroll + row_offset;
+        if line_idx >= self.viewer.lines().len() {
+            return None;
+        }
+        Some(line_idx)
+    }
+
+    /// Called on a left-button mouse-down event within the viewer pane.
+    /// Clears any prior selection and anchors a new drag.
+    pub fn viewer_mouse_down(&mut self, col: u16, row: u16) {
+        if let Some(line) = self.viewer_line_at(col, row) {
+            self.viewer.begin_selection(line);
+        }
+    }
+
+    /// Extend the active drag as the mouse moves with the button held.
+    pub fn viewer_mouse_drag(&mut self, col: u16, row: u16) {
+        if let Some(line) = self.viewer_line_at(col, row) {
+            self.viewer.extend_selection(line);
+        }
+    }
+
+    /// Finalize the drag (selection stays visible until cleared or added).
+    pub fn viewer_mouse_up(&mut self, _col: u16, _row: u16) {
+        self.viewer.end_drag();
+    }
+
+    /// Add the current viewer selection to the bundle as a Range item.
+    /// No-op if no selection or no cached file.
+    pub fn add_viewer_selection_to_bundle(&mut self) {
+        let Some((a, b)) = self.viewer.selection() else {
+            self.set_status("no lines selected (drag in the viewer first)");
+            return;
+        };
+        let Some(path) = self.viewer.cached_path.clone() else {
+            self.set_status("no file in viewer");
+            return;
+        };
+        // Path is absolute; bundle stores relative paths from project_root.
+        let rel = path
+            .strip_prefix(&self.project_root)
+            .unwrap_or(&path)
+            .to_path_buf();
+        // Lines are 0-based internally; bundle Range is 1-based inclusive.
+        let start = a + 1;
+        let end = b + 1;
+        self.bundle.add(Item {
+            path: rel.clone(),
+            kind: ItemKind::Range(Range { start, end }),
+            label: None,
+        });
+        self.bundled_paths.insert(rel.clone());
+        self.recalculate_tokens();
+        let _ = self.bundle.save(&self.root);
+        self.viewer.clear_selection();
+        self.set_status(format!(
+            "added {} lines {start}-{end}",
+            rel.display()
+        ));
     }
 
     /// Current animation context (clock time + motion level).
@@ -422,6 +527,7 @@ impl App {
             bundle_row_fades: std::collections::HashMap::new(),
             viewer: crate::tui::viewer::ViewerState::new(),
             viewer_last_viewport_height: std::cell::Cell::new(10),
+            viewer_pane_rect: std::cell::Cell::new(None),
             bundled_paths: HashSet::new(),
             search_results: Vec::new(),
             profile_name: None,
