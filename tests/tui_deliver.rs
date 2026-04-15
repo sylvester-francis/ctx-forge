@@ -106,7 +106,10 @@ fn pipe_claude_stashes_pending_pipe() {
 
     ctxforge::tui::deliver::run_choice(&mut app, DeliverChoice::PipeClaude)
         .expect("pipe claude should succeed");
-    let (target, content) = app.pending_pipe.as_ref().expect("pending_pipe should be set");
+    let (target, content) = app
+        .pending_pipe
+        .as_ref()
+        .expect("pending_pipe should be set");
     assert_eq!(target, "claude");
     assert!(
         content.contains("fix it"),
@@ -140,6 +143,18 @@ fn prompt_override_wins_over_template_rendering() {
     assert_eq!(content, "HAND-EDITED");
     // Override is one-shot — cleared after delivery.
     assert!(app.prompt_override.is_none());
+}
+
+#[test]
+fn slash_deliver_opens_picker() {
+    let (mut app, _tmp) = setup();
+    // Simulate the command palette -> /deliver dispatch.
+    let spec = ctxforge::tui::commands::COMMANDS
+        .iter()
+        .find(|c| c.name == "deliver")
+        .expect("/deliver command should exist");
+    (spec.action)(&mut app, None);
+    assert!(matches!(app.mode(), Mode::DeliverPick { .. }));
 }
 
 #[test]

@@ -239,6 +239,22 @@ pub static COMMANDS: &[CommandSpec] = &[
         },
     },
     CommandSpec {
+        name: "deliver",
+        description: "deliver the crafted prompt (pipe / copy / export)",
+        takes_arg: false,
+        action: |app, _| {
+            let cursor = app
+                .deliver_last
+                .and_then(|last| {
+                    crate::tui::deliver::DeliverChoice::all()
+                        .iter()
+                        .position(|&c| c == last)
+                })
+                .unwrap_or(0);
+            app.set_mode(mode::Mode::DeliverPick { cursor });
+        },
+    },
+    CommandSpec {
         name: "quit",
         description: "quit ctxforge",
         takes_arg: false,
