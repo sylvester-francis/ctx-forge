@@ -316,6 +316,25 @@ fn handle_prompt_key(app: &mut App, key: KeyEvent) {
             });
             return;
         }
+        (KeyCode::Char('/'), mods)
+            if !mods.contains(KeyModifiers::CONTROL) && !mods.contains(KeyModifiers::ALT) =>
+        {
+            // Opens the slash-command palette when the cursor is at the
+            // start of a line (empty buffer or sitting right after a
+            // newline). Anywhere else, `/` inserts literally — this
+            // keeps paths like `src/main.rs` type-able inside the task.
+            let text = app.prompt_input.text();
+            let cursor = app.prompt_input.cursor();
+            let at_line_start = cursor == 0 || text[..cursor].ends_with('\n');
+            if at_line_start {
+                app.set_mode(Mode::CommandPalette {
+                    query: String::new(),
+                    cursor: 0,
+                });
+                return;
+            }
+            app.prompt_input.insert_char('/');
+        }
         (KeyCode::Char(c), mods)
             if !mods.contains(KeyModifiers::CONTROL) && !mods.contains(KeyModifiers::ALT) =>
         {

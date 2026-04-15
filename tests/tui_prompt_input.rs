@@ -304,6 +304,71 @@ fn task_text_survives_app_restart() {
 }
 
 #[test]
+fn slash_at_empty_prompt_opens_command_palette() {
+    let (mut app, _tmp) = test_app();
+    app.bundle.scenario = Some("bugfix".to_string());
+    app.focus_prompt();
+
+    ctxforge::tui::events::handle(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE),
+    );
+    assert!(matches!(
+        app.mode(),
+        ctxforge::tui::mode::Mode::CommandPalette { .. }
+    ));
+    // The '/' was NOT typed into the prompt.
+    assert_eq!(app.prompt_input.text(), "");
+}
+
+#[test]
+fn slash_after_newline_opens_command_palette() {
+    let (mut app, _tmp) = test_app();
+    app.bundle.scenario = Some("bugfix".to_string());
+    app.focus_prompt();
+    app.prompt_input.set_text("first line\n".to_string());
+    ctxforge::tui::events::sync_task_text(&mut app);
+
+    ctxforge::tui::events::handle(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE),
+    );
+    assert!(matches!(
+        app.mode(),
+        ctxforge::tui::mode::Mode::CommandPalette { .. }
+    ));
+    // Cursor was at column 0 of line 2 → '/' was NOT inserted.
+    assert_eq!(app.prompt_input.text(), "first line\n");
+}
+
+#[test]
+fn slash_mid_line_inserts_literally() {
+    let (mut app, _tmp) = test_app();
+    app.bundle.scenario = Some("bugfix".to_string());
+    app.focus_prompt();
+
+    for c in "path".chars() {
+        ctxforge::tui::events::handle(
+            &mut app,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        );
+    }
+    ctxforge::tui::events::handle(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE),
+    );
+    for c in "to".chars() {
+        ctxforge::tui::events::handle(
+            &mut app,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        );
+    }
+    assert!(matches!(app.mode(), ctxforge::tui::mode::Mode::Normal));
+    assert_eq!(app.prompt_input.text(), "path/to");
+    assert_eq!(app.bundle.task_text, "path/to");
+}
+
+#[test]
 fn preview_reflects_live_task_text() {
     let (mut app, _tmp) = test_app();
     app.bundle.scenario = Some("bugfix".to_string());
