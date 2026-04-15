@@ -218,6 +218,66 @@ fn viewer_load_for_directory_sets_directory_error() {
     assert!(v.lines().is_empty());
 }
 
+#[test]
+fn selection_begins_extends_and_clears() {
+    let mut v = ViewerState::new();
+    let tmp = TempDir::new().unwrap();
+    let path = write_file(&tmp, "x.txt", b"1\n2\n3\n4\n5\n6\n7\n");
+    v.load_for_path(&path);
+    assert_eq!(v.selection(), None);
+
+    v.begin_selection(2);
+    assert_eq!(v.selection(), Some((2, 2)));
+
+    v.extend_selection(5);
+    assert_eq!(v.selection(), Some((2, 5)));
+
+    // Extending backwards flips the range so start <= end.
+    v.extend_selection(0);
+    assert_eq!(v.selection(), Some((0, 2)));
+
+    v.end_drag();
+    v.clear_selection();
+    assert_eq!(v.selection(), None);
+}
+
+#[test]
+fn selection_clamps_to_line_count() {
+    let mut v = ViewerState::new();
+    let tmp = TempDir::new().unwrap();
+    let path = write_file(&tmp, "x.txt", b"1\n2\n3\n");
+    v.load_for_path(&path);
+    v.begin_selection(10);
+    // 3 lines → max index is 2.
+    assert_eq!(v.selection(), Some((2, 2)));
+    v.extend_selection(100);
+    assert_eq!(v.selection(), Some((2, 2)));
+}
+
+#[test]
+fn extend_without_anchor_is_noop() {
+    let mut v = ViewerState::new();
+    let tmp = TempDir::new().unwrap();
+    let path = write_file(&tmp, "x.txt", b"1\n2\n3\n");
+    v.load_for_path(&path);
+    v.extend_selection(1);
+    // No anchor ever set → no selection.
+    assert_eq!(v.selection(), None);
+}
+
+#[test]
+fn loading_a_new_file_clears_selection() {
+    let mut v = ViewerState::new();
+    let tmp = TempDir::new().unwrap();
+    let a = write_file(&tmp, "a.txt", b"1\n2\n3\n");
+    let b = write_file(&tmp, "b.txt", b"A\nB\nC\n");
+    v.load_for_path(&a);
+    v.begin_selection(1);
+    assert!(v.selection().is_some());
+    v.load_for_path(&b);
+    assert_eq!(v.selection(), None);
+}
+
 // Silence unused warnings from the imports we'll need in later tasks.
 #[allow(dead_code)]
 fn _unused(_: ViewerLoad) {}

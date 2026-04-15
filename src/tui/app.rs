@@ -1501,4 +1501,41 @@ mod viewer_integration_tests {
         app.toggle_focus();
         assert_eq!(app.focus, Focus::FileTree);
     }
+
+    #[test]
+    fn add_selection_with_no_selection_sets_status_and_no_bundle_change() {
+        let (mut app, _tmp) = test_app_with_files(&[("a.rs", b"fn a() {}\n")]);
+        app.toggle_viewer();
+        let before = app.bundle.len();
+        app.add_viewer_selection_to_bundle();
+        assert_eq!(app.bundle.len(), before);
+        assert!(app.status_message.contains("no lines selected"));
+    }
+
+    #[test]
+    fn add_selection_appends_range_item_to_bundle() {
+        let (mut app, _tmp) = test_app_with_files(&[(
+            "big.rs",
+            b"fn one() {}\nfn two() {}\nfn three() {}\nfn four() {}\n",
+        )]);
+        app.toggle_viewer();
+        // Select lines 1-2 (0-based) → stored as 1-based 2-3.
+        app.viewer.begin_selection(1);
+        app.viewer.extend_selection(2);
+
+        let before = app.bundle.len();
+        app.add_viewer_selection_to_bundle();
+        assert_eq!(app.bundle.len(), before + 1);
+
+        let last = app.bundle.items.last().unwrap();
+        match &last.kind {
+            crate::bundle::ItemKind::Range(r) => {
+                assert_eq!(r.start, 2);
+                assert_eq!(r.end, 3);
+            }
+            other => panic!("expected Range, got {other:?}"),
+        }
+        // Selection clears after add.
+        assert!(app.viewer.selection().is_none());
+    }
 }
