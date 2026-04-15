@@ -352,6 +352,7 @@ fn draw_help_overlay_buf(buf: &mut Buffer, frame_area: Rect) {
         Line::from("  Discoverable input"),
         Line::from("    /         open command palette  (every feature lives here)"),
         Line::from("    Ctrl+F    file fuzzy search     (alias for /find)"),
+        Line::from("    v         toggle code viewer"),
         Line::from("    ?         this help overlay"),
         Line::from("    q         quit"),
         Line::from(""),
