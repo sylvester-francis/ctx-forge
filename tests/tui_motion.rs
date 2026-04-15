@@ -5,9 +5,9 @@ use ctxforge::tui::motion::{
     blend, constants, detect_motion, ease_in_cubic, ease_in_out_cubic, ease_out_cubic,
     ease_out_quad, linear,
 };
-use std::time::Instant;
 use ratatui::style::Color;
 use std::time::Duration;
+use std::time::Instant;
 
 #[test]
 fn system_clock_returns_monotonic_instants() {

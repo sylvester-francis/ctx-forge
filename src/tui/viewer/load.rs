@@ -85,10 +85,7 @@ pub fn read_and_highlight(path: &Path, highlighter: &Highlighter) -> ViewerLoad 
     }
 
     let content = String::from_utf8_lossy(&buf).into_owned();
-    let extension = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
+    let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let lines = highlighter.highlight(extension, &content);
 
     ViewerLoad {

@@ -7,12 +7,12 @@ use crate::resolve;
 use crate::tokens;
 use crate::tui::mode;
 use crate::tui::motion::{AnimCtx, Clock, MotionLevel, SystemClock, constants};
-use std::time::{Duration, Instant};
 use crate::tui::tree::{self, TreeEntry};
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 /// Which panel has focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -193,7 +193,7 @@ impl App {
         self.focus = next;
         let target = match next {
             Focus::FileTree => ratatui::style::Color::Rgb(88, 166, 255), // soft blue
-            Focus::Viewer => ratatui::style::Color::Rgb(163, 113, 247), // violet
+            Focus::Viewer => ratatui::style::Color::Rgb(163, 113, 247),  // violet
             Focus::BundleList => ratatui::style::Color::Rgb(255, 165, 0), // orange
         };
         let ctx = self.anim_ctx();
@@ -355,10 +355,7 @@ impl App {
         self.recalculate_tokens();
         let _ = self.bundle.save(&self.root);
         self.viewer.clear_selection();
-        self.set_status(format!(
-            "added {} lines {start}-{end}",
-            rel.display()
-        ));
+        self.set_status(format!("added {} lines {start}-{end}", rel.display()));
     }
 
     /// Current animation context (clock time + motion level).
@@ -1353,7 +1350,9 @@ impl App {
 
         match crate::clipboard::set(&final_content) {
             Ok(()) => {
-                self.set_status(format!("copied template '{template_name}' with bundle + task"));
+                self.set_status(format!(
+                    "copied template '{template_name}' with bundle + task"
+                ));
             }
             Err(e) => {
                 self.set_status(format!("clipboard error: {e}"));
@@ -1535,10 +1534,8 @@ mod viewer_integration_tests {
 
     #[test]
     fn toggle_viewer_on_triggers_load_for_current_cursor() {
-        let (mut app, _tmp) = test_app_with_files(&[
-            ("a.rs", b"fn a() {}\n"),
-            ("b.rs", b"fn b() {}\n"),
-        ]);
+        let (mut app, _tmp) =
+            test_app_with_files(&[("a.rs", b"fn a() {}\n"), ("b.rs", b"fn b() {}\n")]);
         assert!(!app.visible_tree.is_empty());
         app.toggle_viewer();
         assert!(app.viewer.cached_path.is_some());
@@ -1546,10 +1543,8 @@ mod viewer_integration_tests {
 
     #[test]
     fn move_tree_cursor_reloads_viewer_when_enabled() {
-        let (mut app, _tmp) = test_app_with_files(&[
-            ("a.rs", b"fn a() {}\n"),
-            ("b.rs", b"fn b() {}\n"),
-        ]);
+        let (mut app, _tmp) =
+            test_app_with_files(&[("a.rs", b"fn a() {}\n"), ("b.rs", b"fn b() {}\n")]);
         app.toggle_viewer();
         let first_path = app.viewer.cached_path.clone();
         app.move_tree_cursor(1);
@@ -1559,10 +1554,8 @@ mod viewer_integration_tests {
 
     #[test]
     fn move_tree_cursor_when_viewer_disabled_does_not_load() {
-        let (mut app, _tmp) = test_app_with_files(&[
-            ("a.rs", b"fn a() {}\n"),
-            ("b.rs", b"fn b() {}\n"),
-        ]);
+        let (mut app, _tmp) =
+            test_app_with_files(&[("a.rs", b"fn a() {}\n"), ("b.rs", b"fn b() {}\n")]);
         assert!(!app.viewer.enabled);
         app.move_tree_cursor(1);
         assert!(app.viewer.cached_path.is_none());

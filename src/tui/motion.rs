@@ -202,7 +202,8 @@ impl Gauge {
         self.0.value(now)
     }
     pub fn set(&mut self, target: f32, ctx: &AnimCtx) {
-        self.0.set(target, ctx, constants::GAUGE_FILL, ease_out_quad);
+        self.0
+            .set(target, ctx, constants::GAUGE_FILL, ease_out_quad);
     }
     pub fn snap(&mut self, target: f32) {
         self.0.snap(target);

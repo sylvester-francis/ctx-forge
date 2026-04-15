@@ -521,7 +521,11 @@ fn draw_viewer(f: &mut Frame, app: &App, area: Rect) {
             let divider = "│ ".to_string();
             let row_bg = if selected { Some(selection_bg) } else { None };
             let apply_bg = |style: Style| -> Style {
-                if let Some(bg) = row_bg { style.bg(bg) } else { style }
+                if let Some(bg) = row_bg {
+                    style.bg(bg)
+                } else {
+                    style
+                }
             };
             let mut spans: Vec<Span<'static>> = vec![
                 Span::styled(gutter, apply_bg(gutter_style)),
@@ -903,7 +907,8 @@ fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
 
     // Capture viewport height for PageUp/PageDown/half-page movement. Subtract 2
     // for the top + bottom borders; clamp to 0 if the area is tiny.
-    app.tree_viewport_height.set(tree_area.height.saturating_sub(2));
+    app.tree_viewport_height
+        .set(tree_area.height.saturating_sub(2));
 
     let list = List::new(items)
         .block(block)
@@ -1016,7 +1021,8 @@ fn draw_bundle_list(f: &mut Frame, app: &App, area: Rect) {
                 .bg(ratatui::style::Color::White),
         );
     // Capture viewport height for PageUp/PageDown on the bundle list.
-    app.bundle_viewport_height.set(area.height.saturating_sub(2));
+    app.bundle_viewport_height
+        .set(area.height.saturating_sub(2));
     let mut state = app.bundle_list_state.borrow_mut();
     if app.bundle.is_empty() {
         state.select(None);
@@ -1135,8 +1141,8 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
             // Default dim gray for the status bar; faded toward bg based on
             // the status-fade timeline (fade-in / hold / fade-out).
             let fg = blend(opacity, Color::Gray, BG);
-            let status = Paragraph::new(format!(" {}", app.status_message))
-                .style(Style::default().fg(fg));
+            let status =
+                Paragraph::new(format!(" {}", app.status_message)).style(Style::default().fg(fg));
             f.render_widget(status, chunks[0]);
         }
     }
