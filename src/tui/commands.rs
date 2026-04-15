@@ -226,6 +226,19 @@ pub static COMMANDS: &[CommandSpec] = &[
         },
     },
     CommandSpec {
+        name: "scenario",
+        description: "switch the active scenario <name?>",
+        takes_arg: true,
+        action: |app, arg| match arg {
+            Some(name) if !name.is_empty() => {
+                if let Err(e) = app.set_scenario(&name) {
+                    app.set_status(e);
+                }
+            }
+            _ => app.open_scenario_picker(),
+        },
+    },
+    CommandSpec {
         name: "quit",
         description: "quit ctxforge",
         takes_arg: false,

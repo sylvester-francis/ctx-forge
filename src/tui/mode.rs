@@ -83,6 +83,11 @@ pub enum Mode {
     },
     /// Template task input open after a template is picked.
     TemplateTask { template_name: String, task: String },
+    /// Scenario picker overlay.
+    ScenarioPick {
+        cursor: usize,
+        scenarios: Vec<crate::tui::scenario::Scenario>,
+    },
 }
 
 impl Mode {

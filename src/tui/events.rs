@@ -94,6 +94,34 @@ pub fn handle(app: &mut App, key: KeyEvent) {
         Mode::Help => handle_help(app, key),
         Mode::TemplatePick { .. } => handle_template_pick(app, key),
         Mode::TemplateTask { .. } => handle_template_task(app, key),
+        Mode::ScenarioPick { .. } => handle_scenario_pick(app, key),
+    }
+}
+
+fn handle_scenario_pick(app: &mut App, key: KeyEvent) {
+    let Mode::ScenarioPick { cursor, scenarios } = app.mode_mut() else {
+        return;
+    };
+    match key.code {
+        KeyCode::Esc => app.set_mode(Mode::Normal),
+        KeyCode::Char('j') | KeyCode::Down => {
+            if !scenarios.is_empty() {
+                *cursor = (*cursor + 1).min(scenarios.len() - 1);
+            }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            *cursor = cursor.saturating_sub(1);
+        }
+        KeyCode::Enter => {
+            let picked = scenarios.get(*cursor).map(|s| s.name.clone());
+            app.set_mode(Mode::Normal);
+            if let Some(name) = picked {
+                if let Err(e) = app.set_scenario(&name) {
+                    app.set_status(e);
+                }
+            }
+        }
+        _ => {}
     }
 }
 

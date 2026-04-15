@@ -1172,6 +1172,42 @@ impl App {
         self.bundled_paths = self.bundle.items.iter().map(|i| i.path.clone()).collect();
     }
 
+    /// Switch to a named scenario. Validates against the available list
+    /// (built-in starters + project/global templates) and persists to
+    /// `.ctxforge/bundle.json`. Returns `Ok(())` on success; callers set
+    /// the status message based on the outcome.
+    pub fn set_scenario(&mut self, name: &str) -> Result<(), String> {
+        let available = crate::tui::scenario::available(&self.root);
+        if !available.iter().any(|s| s.name == name) {
+            return Err(format!("unknown scenario: {name}"));
+        }
+        self.bundle.scenario = Some(name.to_string());
+        self.bundle
+            .save(&self.root)
+            .map_err(|e| format!("save bundle: {e}"))?;
+        self.set_status(format!("scenario: {name}"));
+        Ok(())
+    }
+
+    /// Open the scenario picker overlay. If a scenario is already set, the
+    /// cursor starts on it; otherwise on the first built-in starter.
+    pub fn open_scenario_picker(&mut self) {
+        let scenarios = crate::tui::scenario::available(&self.root);
+        if scenarios.is_empty() {
+            // Built-ins are always present so this really only fires if the
+            // binary was trimmed to zero starters at build time — warn loudly.
+            self.set_status("no scenarios available");
+            return;
+        }
+        let cursor = self
+            .bundle
+            .scenario
+            .as_deref()
+            .and_then(|active| scenarios.iter().position(|s| s.name == active))
+            .unwrap_or(0);
+        self.set_mode(crate::tui::mode::Mode::ScenarioPick { cursor, scenarios });
+    }
+
     /// Switch to a named theme and persist the choice to
     /// `~/.config/ctxforge/config.toml`. Falls back with an error status
     /// message if the name does not match a known theme.

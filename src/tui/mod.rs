@@ -9,6 +9,7 @@ pub mod commands;
 pub mod events;
 pub mod mode;
 pub mod motion;
+pub mod scenario;
 pub mod theme;
 pub mod tree;
 pub mod ui;

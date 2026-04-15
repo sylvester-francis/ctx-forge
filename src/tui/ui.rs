@@ -244,8 +244,49 @@ fn draw_overlay_into_buffer(
         } => {
             draw_template_task_overlay_buf(buf, frame_area, template_name, task, app.theme);
         }
+        Mode::ScenarioPick { cursor, scenarios } => {
+            draw_scenario_pick_overlay_buf(buf, frame_area, *cursor, scenarios, app.theme);
+        }
         _ => {}
     }
+}
+
+fn draw_scenario_pick_overlay_buf(
+    buf: &mut Buffer,
+    frame_area: Rect,
+    cursor: usize,
+    scenarios: &[crate::tui::scenario::Scenario],
+    theme: &crate::tui::theme::AppTheme,
+) {
+    use crate::tui::scenario::Source;
+    let area = centered_rect(60, (scenarios.len() + 4).min(20) as u16, frame_area);
+    ratatui::widgets::Clear.render(area, buf);
+    let block = Block::default()
+        .title(" / scenario — pick a scenario ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.border_focused));
+    let items: Vec<ListItem> = scenarios
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            let source_label = match s.source {
+                Source::BuiltIn => "built-in",
+                Source::Project => "project",
+                Source::Global => "global",
+            };
+            let marker = if i == cursor { " > " } else { "   " };
+            let style = if i == cursor {
+                Style::default().fg(theme.selected_fg).bg(theme.selected_bg)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Span::styled(
+                format!("{marker}{:<24} ({source_label})", s.name),
+                style,
+            ))
+        })
+        .collect();
+    List::new(items).block(block).render(area, buf);
 }
 
 /// Blend every cell's fg and bg toward `bg` by `dim`, leaving symbols intact.
