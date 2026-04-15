@@ -195,6 +195,12 @@ pub static COMMANDS: &[CommandSpec] = &[
         },
     },
     CommandSpec {
+        name: "view",
+        description: "toggle code viewer pane",
+        takes_arg: false,
+        action: |app, _| app.toggle_viewer(),
+    },
+    CommandSpec {
         name: "quit",
         description: "quit ctxforge",
         takes_arg: false,
