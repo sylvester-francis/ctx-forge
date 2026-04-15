@@ -207,6 +207,25 @@ pub static COMMANDS: &[CommandSpec] = &[
         action: |app, _| app.add_viewer_selection_to_bundle(),
     },
     CommandSpec {
+        name: "theme",
+        description: "switch the active theme <name?> (ctxforge / zinc / tokyo-night / gruvbox)",
+        takes_arg: true,
+        action: |app, arg| match arg {
+            Some(name) if !name.is_empty() => app.set_theme_by_name(&name),
+            _ => {
+                let available: Vec<&'static str> = crate::tui::theme::registry::all_themes()
+                    .iter()
+                    .map(|t| t.name)
+                    .collect();
+                app.set_status(format!(
+                    "current: {}  ·  available: {}",
+                    app.theme.name,
+                    available.join(", ")
+                ));
+            }
+        },
+    },
+    CommandSpec {
         name: "quit",
         description: "quit ctxforge",
         takes_arg: false,

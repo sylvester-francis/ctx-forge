@@ -6,6 +6,7 @@
 
 use ratatui::style::Color;
 
+pub mod config;
 pub mod palettes;
 pub mod registry;
 

@@ -83,6 +83,76 @@ fn contrast(a: Color, b: Color) -> f64 {
     (l1 + 0.05) / (l2 + 0.05)
 }
 
+#[test]
+fn config_round_trips_theme() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("config.toml");
+
+    let config = ctxforge::tui::theme::config::Config {
+        theme: "tokyo-night".to_string(),
+        default_send: None,
+    };
+    ctxforge::tui::theme::config::save_to(&path, &config).unwrap();
+
+    let loaded = ctxforge::tui::theme::config::load_from(&path).unwrap();
+    assert_eq!(loaded.theme, "tokyo-night");
+}
+
+#[test]
+fn config_missing_file_returns_defaults() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("does-not-exist.toml");
+    let config = ctxforge::tui::theme::config::load_from(&path).unwrap();
+    assert_eq!(config.theme, "ctxforge");
+}
+
+#[test]
+fn set_theme_by_name_switches_app_theme() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().to_path_buf();
+    let root = ctxforge::paths::CtxforgeRoot::find_or_create(tmp.path()).unwrap();
+    // Confine the global config path to the tempdir so the test doesn't
+    // touch the developer's real ~/.config/ctxforge/config.toml.
+    temp_env::with_var("XDG_CONFIG_HOME", Some(home.as_os_str()), || {
+        let mut app = ctxforge::tui::app::App::new(root);
+        assert_eq!(app.theme.name, "ctxforge");
+        app.set_theme_by_name("gruvbox");
+        assert_eq!(app.theme.name, "gruvbox");
+        // Persisted — reload resolves to gruvbox.
+        let path = ctxforge::paths::config_file_path().unwrap();
+        let name = ctxforge::tui::theme::config::resolve_theme_name(&path);
+        assert_eq!(name, "gruvbox");
+    });
+}
+
+#[test]
+fn set_theme_by_name_rejects_unknown() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().to_path_buf();
+    let root = ctxforge::paths::CtxforgeRoot::find_or_create(tmp.path()).unwrap();
+    temp_env::with_var("XDG_CONFIG_HOME", Some(home.as_os_str()), || {
+        let mut app = ctxforge::tui::app::App::new(root);
+        app.set_theme_by_name("nonexistent");
+        assert_eq!(app.theme.name, "ctxforge", "theme should not change");
+        assert!(app.status_message.contains("unknown theme"));
+    });
+}
+
+#[test]
+fn env_override_beats_config() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("config.toml");
+    std::fs::write(&path, "[ui]\ntheme = \"gruvbox\"\n").unwrap();
+
+    // temp_env ensures we don't leak env between tests that run in parallel.
+    let name = temp_env::with_var(
+        "CTXFORGE_THEME",
+        Some("zinc"),
+        || ctxforge::tui::theme::config::resolve_theme_name(&path),
+    );
+    assert_eq!(name, "zinc");
+}
+
 fn luminance(c: Color) -> f64 {
     let (r, g, b) = match c {
         Color::Rgb(r, g, b) => (r as f64 / 255.0, g as f64 / 255.0, b as f64 / 255.0),

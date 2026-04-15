@@ -547,7 +547,13 @@ impl App {
             show_help: false,
             tree_viewport_height: std::cell::Cell::new(0),
             bundle_viewport_height: std::cell::Cell::new(0),
-            theme: crate::tui::theme::registry::default_theme(),
+            theme: {
+                let name = crate::paths::config_file_path()
+                    .map(|p| crate::tui::theme::config::resolve_theme_name(&p))
+                    .unwrap_or_else(|| "ctxforge".to_string());
+                crate::tui::theme::registry::by_name(&name)
+                    .unwrap_or_else(|| crate::tui::theme::registry::default_theme())
+            },
         };
         app.rebuild_bundled_paths();
         app.recalculate_tokens();
@@ -1165,6 +1171,26 @@ impl App {
 
     pub(crate) fn rebuild_bundled_paths(&mut self) {
         self.bundled_paths = self.bundle.items.iter().map(|i| i.path.clone()).collect();
+    }
+
+    /// Switch to a named theme and persist the choice to
+    /// `~/.config/ctxforge/config.toml`. Falls back with an error status
+    /// message if the name does not match a known theme.
+    pub fn set_theme_by_name(&mut self, name: &str) {
+        let Some(theme) = crate::tui::theme::registry::by_name(name) else {
+            self.set_status(format!("unknown theme: {name}"));
+            return;
+        };
+        self.theme = theme;
+        if let Some(path) = crate::paths::config_file_path() {
+            let mut cfg = crate::tui::theme::config::load_from(&path).unwrap_or_default();
+            cfg.theme = name.to_string();
+            if let Err(e) = crate::tui::theme::config::save_to(&path, &cfg) {
+                self.set_status(format!("theme set but config save failed: {e}"));
+                return;
+            }
+        }
+        self.set_status(format!("theme: {name}"));
     }
 
     /// Short status message setter. Kicks off a fade-in animation; the
