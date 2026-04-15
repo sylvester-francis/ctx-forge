@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 — 2026-04-14
 
 ### Added
 - **Fluid TUI animations.** New `src/tui/motion/` module with `Animated<T>` + semantic wrappers (`Fade`, `Gauge`, `Highlight`, `Slide`), easings, truecolor blending, and a `Clock` abstraction. The render loop is event-driven while idle and ticks at 16ms only when animations are active. Applied to: smooth token gauge fill, modal overlay fade-in with cross-fade between overlays, animated backdrop dim, status message fade-in / hold / fade-out, animated focus border on Tab, bundle-row fade on add, startup fade.
