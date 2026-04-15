@@ -9,6 +9,8 @@
 
 #![allow(dead_code)]
 
+pub mod at_picker;
+
 #[derive(Debug, Clone, Default)]
 pub struct PromptInput {
     text: String,

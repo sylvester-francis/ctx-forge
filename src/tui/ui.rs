@@ -259,8 +259,58 @@ fn draw_overlay_into_buffer(
         Mode::FullPromptPreview { content, scroll } => {
             draw_full_preview_overlay_buf(buf, frame_area, content, *scroll, app.theme);
         }
+        Mode::AtPicker {
+            query,
+            results,
+            cursor,
+            ..
+        } => {
+            draw_at_picker_overlay_buf(buf, frame_area, query, results, *cursor, app.theme);
+        }
         _ => {}
     }
+}
+
+fn draw_at_picker_overlay_buf(
+    buf: &mut Buffer,
+    frame_area: Rect,
+    query: &str,
+    results: &[std::path::PathBuf],
+    cursor: usize,
+    theme: &crate::tui::theme::AppTheme,
+) {
+    let width = 60.min(frame_area.width.saturating_sub(4));
+    let height = (results.len().saturating_add(3).min(14)) as u16;
+    let area = centered_rect(width, height, frame_area);
+    ratatui::widgets::Clear.render(area, buf);
+    let title = format!(" @{query} ");
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.border_focused));
+
+    if results.is_empty() {
+        Paragraph::new("  (no matches)")
+            .style(Style::default().add_modifier(Modifier::DIM))
+            .block(block)
+            .render(area, buf);
+        return;
+    }
+
+    let items: Vec<ListItem> = results
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let selected = i == cursor;
+            let style = if selected {
+                Style::default().fg(theme.selected_fg).bg(theme.selected_bg)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Span::styled(format!("  {}", p.display()), style))
+        })
+        .collect();
+    List::new(items).block(block).render(area, buf);
 }
 
 fn draw_full_preview_overlay_buf(

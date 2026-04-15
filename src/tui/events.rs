@@ -96,7 +96,109 @@ pub fn handle(app: &mut App, key: KeyEvent) {
         Mode::TemplateTask { .. } => handle_template_task(app, key),
         Mode::ScenarioPick { .. } => handle_scenario_pick(app, key),
         Mode::FullPromptPreview { .. } => handle_full_preview(app, key),
+        Mode::AtPicker { .. } => handle_at_picker(app, key),
     }
+}
+
+/// Handle keys while the `@` file picker is open. Typing extends the
+/// query; Up/Down moves the cursor; Backspace either shortens the query
+/// or — when the query is empty — closes the picker (leaving the `@`
+/// literally in the prompt as a degenerate no-op). Enter is handled in
+/// Task 21; Esc always closes cleanly.
+fn handle_at_picker(app: &mut App, key: KeyEvent) {
+    // Borrow-split: we need `app.set_mode` later but can't hold a mutable
+    // borrow of the variant fields across it. Pull out what we need.
+    let (close, extend, rerank): (bool, Option<char>, bool);
+    let mut new_cursor_delta: i32 = 0;
+    {
+        let Mode::AtPicker {
+            query,
+            results,
+            cursor,
+            ..
+        } = app.mode_mut()
+        else {
+            return;
+        };
+        match (key.code, key.modifiers) {
+            (KeyCode::Esc, _) => {
+                close = true;
+                extend = None;
+                rerank = false;
+            }
+            (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
+                new_cursor_delta = 1;
+                let max = results.len().saturating_sub(1);
+                *cursor = (*cursor + 1).min(max);
+                close = false;
+                extend = None;
+                rerank = false;
+            }
+            (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
+                new_cursor_delta = -1;
+                *cursor = cursor.saturating_sub(1);
+                close = false;
+                extend = None;
+                rerank = false;
+            }
+            (KeyCode::Backspace, _) => {
+                if query.is_empty() {
+                    close = true;
+                } else {
+                    query.pop();
+                    close = false;
+                }
+                extend = None;
+                rerank = !close;
+            }
+            (KeyCode::Char(c), mods)
+                if !mods.contains(KeyModifiers::CONTROL)
+                    && !mods.contains(KeyModifiers::ALT) =>
+            {
+                query.push(c);
+                close = false;
+                extend = Some(c);
+                rerank = true;
+            }
+            _ => {
+                close = false;
+                extend = None;
+                rerank = false;
+            }
+        }
+    }
+
+    // Re-rank after mutating `query` (borrow of `app.mode_mut()` released).
+    if rerank {
+        if let Mode::AtPicker {
+            all,
+            query,
+            results,
+            cursor,
+        } = app.mode_mut()
+        {
+            *results = crate::tui::prompt_input::at_picker::rank(
+                all,
+                query,
+                crate::tui::prompt_input::at_picker::RESULT_LIMIT,
+            );
+            *cursor = 0;
+        }
+    }
+
+    // Extending the query also types the char into the prompt so the `@`
+    // token grows in-place — users can see what they're filtering on.
+    if let Some(c) = extend {
+        app.prompt_input.insert_char(c);
+        sync_task_text(app);
+    }
+
+    if close {
+        app.set_mode(Mode::Normal);
+    }
+
+    // new_cursor_delta is a debug hook for future tests; suppress unused.
+    let _ = new_cursor_delta;
 }
 
 /// Route a keystroke into the multi-line prompt input. Only reached when
@@ -148,6 +250,28 @@ fn handle_prompt_key(app: &mut App, key: KeyEvent) {
         }
         (KeyCode::Char('e'), mods) if mods.contains(KeyModifiers::CONTROL) => {
             app.prompt_input.move_end();
+            return;
+        }
+        (KeyCode::Char('@'), mods)
+            if !mods.contains(KeyModifiers::CONTROL) && !mods.contains(KeyModifiers::ALT) =>
+        {
+            // Insert the literal '@' at the cursor (so the picker can
+            // later replace it with the selected path) and open the
+            // fuzzy popover.
+            app.prompt_input.insert_char('@');
+            sync_task_text(app);
+            let all = crate::tui::prompt_input::at_picker::walk_files(&app.project_root);
+            let results = crate::tui::prompt_input::at_picker::rank(
+                &all,
+                "",
+                crate::tui::prompt_input::at_picker::RESULT_LIMIT,
+            );
+            app.set_mode(Mode::AtPicker {
+                all,
+                query: String::new(),
+                results,
+                cursor: 0,
+            });
             return;
         }
         (KeyCode::Char(c), mods)

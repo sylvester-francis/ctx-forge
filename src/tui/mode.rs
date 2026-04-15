@@ -91,6 +91,16 @@ pub enum Mode {
     /// Full-text preview of the composed prompt that would be delivered
     /// right now. Scrollable. Opened via `P` from Normal mode.
     FullPromptPreview { content: String, scroll: u16 },
+    /// `@` file-mention popover. `all` is the cached project file list
+    /// (walked once when the popover opens). `query` is whatever the
+    /// user has typed after the `@`; `results` is the top-N fuzzy
+    /// ranking refreshed on every key.
+    AtPicker {
+        all: Vec<std::path::PathBuf>,
+        query: String,
+        results: Vec<std::path::PathBuf>,
+        cursor: usize,
+    },
 }
 
 impl Mode {
