@@ -85,9 +85,7 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, root: CtxforgeRoot) -> Resu
                     }
                     PendingEditor::FullPrompt(_) => {
                         app.prompt_override = Some(updated);
-                        app.set_status(
-                            "prompt override active - sent on next deliver".to_string(),
-                        );
+                        app.set_status("prompt override active - sent on next deliver".to_string());
                     }
                 },
                 Err(e) => {
@@ -97,10 +95,7 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, root: CtxforgeRoot) -> Resu
                 }
             }
             *terminal = ratatui::init();
-            let _ = crossterm::execute!(
-                std::io::stdout(),
-                crossterm::event::EnableBracketedPaste
-            );
+            let _ = crossterm::execute!(std::io::stdout(), crossterm::event::EnableBracketedPaste);
             continue;
         }
 

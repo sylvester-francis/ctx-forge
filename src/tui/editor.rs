@@ -20,17 +20,14 @@ use std::process::{Command, Stdio};
 pub fn spawn_editor(content: &str) -> Result<String, String> {
     let editor = std::env::var("CTXFORGE_EDITOR")
         .or_else(|_| std::env::var("EDITOR"))
-        .map_err(|_| {
-            "no $EDITOR set — configure your shell or set CTXFORGE_EDITOR".to_string()
-        })?;
+        .map_err(|_| "no $EDITOR set — configure your shell or set CTXFORGE_EDITOR".to_string())?;
     spawn_editor_with(content, &editor)
 }
 
 /// Variant that accepts an explicit editor command (useful for tests
 /// that point at a fake editor script instead of `$EDITOR`).
 pub fn spawn_editor_with(content: &str, editor: &str) -> Result<String, String> {
-    let mut tmp =
-        tempfile::NamedTempFile::new().map_err(|e| format!("create temp file: {e}"))?;
+    let mut tmp = tempfile::NamedTempFile::new().map_err(|e| format!("create temp file: {e}"))?;
     tmp.write_all(content.as_bytes())
         .map_err(|e| format!("write temp file: {e}"))?;
     tmp.flush().map_err(|e| format!("flush temp file: {e}"))?;
