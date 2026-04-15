@@ -20,6 +20,7 @@ pub enum Focus {
     FileTree,
     Viewer,
     BundleList,
+    Prompt,
 }
 
 /// In-flight mode transition — both the outgoing and incoming modes render
@@ -116,6 +117,12 @@ pub struct App {
     /// Active colour theme. Read from `~/.config/ctxforge/config.toml` at
     /// startup (Task 7); defaults to the built-in `ctxforge` palette.
     pub theme: &'static crate::tui::theme::AppTheme,
+    /// Multi-line prompt input widget. Displays at the bottom of the TUI;
+    /// focus moves to it on `i` from Normal mode, defocuses with Esc.
+    pub prompt_input: crate::tui::prompt_input::PromptInput,
+    /// Remembers which panel had focus before the user switched to Prompt,
+    /// so Esc can restore focus accurately.
+    pub last_panel_focus: Focus,
 }
 
 impl App {
@@ -191,10 +198,40 @@ impl App {
             (Focus::FileTree, true) => Focus::Viewer,
             (Focus::FileTree, false) => Focus::BundleList,
             (Focus::Viewer, _) => Focus::BundleList,
-            (Focus::BundleList, _) => Focus::FileTree,
+            (Focus::BundleList, _) => Focus::Prompt,
+            (Focus::Prompt, _) => Focus::FileTree,
         };
         self.focus = next;
+        // Track the last *panel* focus so Esc from Prompt restores the
+        // previous panel rather than snapping to FileTree.
+        if !matches!(next, Focus::Prompt) {
+            self.last_panel_focus = next;
+        }
         let target = self.theme.focus_tint(next);
+        let ctx = self.anim_ctx();
+        self.focus_highlight.transition_to(target, &ctx);
+    }
+
+    /// Move focus to the prompt input surface. Records the current panel
+    /// focus so Esc can restore it.
+    pub fn focus_prompt(&mut self) {
+        if matches!(self.focus, Focus::Prompt) {
+            return;
+        }
+        self.last_panel_focus = self.focus;
+        self.focus = Focus::Prompt;
+        let target = self.theme.focus_tint(Focus::Prompt);
+        let ctx = self.anim_ctx();
+        self.focus_highlight.transition_to(target, &ctx);
+    }
+
+    /// Move focus back to the panel that had it before `focus_prompt`.
+    pub fn defocus_prompt(&mut self) {
+        if !matches!(self.focus, Focus::Prompt) {
+            return;
+        }
+        self.focus = self.last_panel_focus;
+        let target = self.theme.focus_tint(self.focus);
         let ctx = self.anim_ctx();
         self.focus_highlight.transition_to(target, &ctx);
     }
@@ -553,7 +590,13 @@ impl App {
                 crate::tui::theme::registry::by_name(&name)
                     .unwrap_or_else(|| crate::tui::theme::registry::default_theme())
             },
+            prompt_input: crate::tui::prompt_input::PromptInput::new(),
+            last_panel_focus: Focus::FileTree,
         };
+        // Seed the prompt input from any task text the bundle already carries.
+        if !app.bundle.task_text.is_empty() {
+            app.prompt_input.set_text(app.bundle.task_text.clone());
+        }
         app.rebuild_bundled_paths();
         app.recalculate_tokens();
         // Snap the gauge to current total so startup doesn't fade from 0.
@@ -1651,6 +1694,8 @@ mod viewer_integration_tests {
         app.toggle_focus();
         assert_eq!(app.focus, Focus::BundleList);
         app.toggle_focus();
+        assert_eq!(app.focus, Focus::Prompt);
+        app.toggle_focus();
         assert_eq!(app.focus, Focus::FileTree);
     }
 
@@ -1663,6 +1708,8 @@ mod viewer_integration_tests {
         assert_eq!(app.focus, Focus::Viewer);
         app.toggle_focus();
         assert_eq!(app.focus, Focus::BundleList);
+        app.toggle_focus();
+        assert_eq!(app.focus, Focus::Prompt);
         app.toggle_focus();
         assert_eq!(app.focus, Focus::FileTree);
     }

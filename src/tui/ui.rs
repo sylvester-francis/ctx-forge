@@ -11,12 +11,20 @@ use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, ListState, Paragra
 
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
+    // Auto-grow the prompt strip from 3 to 8 lines based on content height.
+    // Three lines = single input row plus top/bottom border; eight lines
+    // caps the growth so narrow terminals still keep panels usable.
+    let prompt_rows = {
+        let lines = app.prompt_input.line_count() as u16;
+        (lines + 2).clamp(3, 8)
+    };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // header + gauge
-            Constraint::Min(5),    // main panels
-            Constraint::Length(2), // status + keybindings
+            Constraint::Length(3),           // header + gauge
+            Constraint::Min(5),              // main panels
+            Constraint::Length(prompt_rows), // multi-line prompt input
+            Constraint::Length(2),           // status + keybindings
         ])
         .split(area);
 
@@ -82,7 +90,8 @@ pub fn draw(f: &mut Frame, app: &App) {
         }
     }
 
-    draw_footer(f, app, chunks[2]);
+    draw_prompt_input(f, app, chunks[2]);
+    draw_footer(f, app, chunks[3]);
 
     // Pass 2 — dim the Normal content when an overlay is visible.
     let dim = app.backdrop_dim.opacity(app.clock.now());
@@ -1081,6 +1090,47 @@ fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
     f.render_stateful_widget(list, tree_area, &mut state);
 }
 
+/// Render the multi-line prompt input at the bottom of the TUI. Cursor is
+/// only drawn when `Focus::Prompt` is active.
+fn draw_prompt_input(f: &mut Frame, app: &App, area: Rect) {
+    let focused = matches!(app.focus, Focus::Prompt);
+    let border_color = if focused {
+        app.focus_highlight.current(app.clock.now())
+    } else {
+        app.theme.border
+    };
+    let title = match app.bundle.scenario.as_deref() {
+        Some(s) => format!(" prompt · scenario: {s} "),
+        None => " prompt · (no scenario) ".to_string(),
+    };
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color));
+
+    let text = if app.prompt_input.is_empty() && !focused {
+        "(press i to edit)".to_string()
+    } else {
+        app.prompt_input.text().to_string()
+    };
+    let paragraph = Paragraph::new(text)
+        .block(block)
+        .wrap(ratatui::widgets::Wrap { trim: false });
+    f.render_widget(paragraph, area);
+
+    if focused {
+        let (col, row) = app.prompt_input.cursor_line_column();
+        // +1 on each axis to skip the top-left border cell.
+        let x = area.x.saturating_add(1).saturating_add(col);
+        let y = area.y.saturating_add(1).saturating_add(row);
+        // Clamp to the inside of the block so a very long line doesn't
+        // render the cursor off the edge.
+        let max_x = area.x.saturating_add(area.width.saturating_sub(2));
+        let max_y = area.y.saturating_add(area.height.saturating_sub(2));
+        f.set_cursor_position((x.min(max_x), y.min(max_y)));
+    }
+}
+
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     use crate::tui::mode::{InputField, Mode};
     let chunks = Layout::default()
@@ -1198,11 +1248,13 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         Focus::FileTree => "tree",
         Focus::Viewer => "viewer",
         Focus::BundleList => "bundle",
+        Focus::Prompt => "prompt",
     };
     let nav_keys = match app.focus {
         Focus::FileTree => "j/k PgUp/PgDn  Enter expand  space add  E/C expand-all",
         Focus::Viewer => "j/k scroll  drag=select  a add  Esc clear  v close",
         Focus::BundleList => "j/k PgUp/PgDn  Enter select",
+        Focus::Prompt => "type to edit  Esc defocus  Shift-Enter newline",
     };
     let keys_text = match app.mode() {
         Mode::Normal => {

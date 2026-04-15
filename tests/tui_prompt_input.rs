@@ -104,7 +104,11 @@ fn unicode_insert_and_backspace_preserve_boundaries() {
     assert_eq!(p.text(), "a日b");
     p.move_left();
     p.backspace();
-    assert_eq!(p.text(), "ab", "backspace should drop the full multibyte char");
+    assert_eq!(
+        p.text(),
+        "ab",
+        "backspace should drop the full multibyte char"
+    );
 }
 
 #[test]
@@ -117,4 +121,107 @@ fn set_text_and_take_text_round_trip() {
     assert_eq!(taken, "initial");
     assert_eq!(p.text(), "");
     assert_eq!(p.cursor(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Integration tests: focus + event routing.
+// ---------------------------------------------------------------------------
+
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ctxforge::paths::CtxforgeRoot;
+use ctxforge::tui::app::{App, Focus};
+use ctxforge::tui::motion::{MockClock, MotionLevel};
+
+fn test_app() -> (App, tempfile::TempDir) {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = CtxforgeRoot::find_or_create(tmp.path()).unwrap();
+    let mut app = App::new(root);
+    app.clock = Box::new(MockClock::new());
+    app.motion = MotionLevel::None;
+    app.startup_fade.snap(1.0);
+    (app, tmp)
+}
+
+#[test]
+fn i_key_focuses_prompt_input() {
+    let (mut app, _tmp) = test_app();
+    app.bundle.scenario = Some("bugfix".to_string());
+    assert_eq!(app.focus, Focus::FileTree);
+
+    ctxforge::tui::events::handle(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
+    );
+    assert_eq!(app.focus, Focus::Prompt);
+}
+
+#[test]
+fn typing_while_prompt_focused_builds_text() {
+    let (mut app, _tmp) = test_app();
+    app.bundle.scenario = Some("bugfix".to_string());
+    app.focus_prompt();
+
+    for c in "fix it".chars() {
+        ctxforge::tui::events::handle(
+            &mut app,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        );
+    }
+    assert_eq!(app.prompt_input.text(), "fix it");
+}
+
+#[test]
+fn esc_while_prompt_focused_returns_to_last_panel() {
+    let (mut app, _tmp) = test_app();
+    app.bundle.scenario = Some("bugfix".to_string());
+    app.focus = Focus::BundleList;
+    app.last_panel_focus = Focus::BundleList;
+
+    ctxforge::tui::events::handle(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
+    );
+    assert_eq!(app.focus, Focus::Prompt);
+
+    ctxforge::tui::events::handle(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert_eq!(app.focus, Focus::BundleList);
+}
+
+#[test]
+fn backspace_in_prompt_removes_char() {
+    let (mut app, _tmp) = test_app();
+    app.bundle.scenario = Some("bugfix".to_string());
+    app.focus_prompt();
+    app.prompt_input.set_text("hello".to_string());
+
+    ctxforge::tui::events::handle(
+        &mut app,
+        KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+    );
+    assert_eq!(app.prompt_input.text(), "hell");
+}
+
+#[test]
+fn ctrl_w_deletes_word_back_in_prompt() {
+    let (mut app, _tmp) = test_app();
+    app.bundle.scenario = Some("bugfix".to_string());
+    app.focus_prompt();
+    app.prompt_input.set_text("foo bar".to_string());
+
+    ctxforge::tui::events::handle(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL),
+    );
+    assert_eq!(app.prompt_input.text(), "foo ");
+}
+
+#[test]
+fn shift_enter_inserts_newline_when_prompt_focused() {
+    let (mut app, _tmp) = test_app();
+    app.bundle.scenario = Some("bugfix".to_string());
+    app.focus_prompt();
+    app.prompt_input.set_text("line1".to_string());
+
+    ctxforge::tui::events::handle(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT));
+    assert_eq!(app.prompt_input.text(), "line1\n");
 }

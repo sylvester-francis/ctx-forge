@@ -99,6 +99,46 @@ pub fn handle(app: &mut App, key: KeyEvent) {
     }
 }
 
+/// Route a keystroke into the multi-line prompt input. Only reached when
+/// `Focus::Prompt` is active. Esc defocuses back to the last panel; text
+/// keys insert; Backspace / arrows / Home / End / Ctrl-W / Ctrl-A / Ctrl-E
+/// have their standard meanings.
+fn handle_prompt_key(app: &mut App, key: KeyEvent) {
+    match (key.code, key.modifiers) {
+        (KeyCode::Esc, _) => app.defocus_prompt(),
+        (KeyCode::Tab, _) => app.toggle_focus(),
+        (KeyCode::Enter, mods) if mods.contains(KeyModifiers::SHIFT) => {
+            app.prompt_input.insert_newline();
+        }
+        (KeyCode::Enter, _) => {
+            // Plain Enter inside the prompt inserts a newline too — this
+            // is a multi-line surface. Ctrl-Enter / Alt-Enter (Task 23)
+            // will trigger delivery.
+            app.prompt_input.insert_newline();
+        }
+        (KeyCode::Backspace, _) => app.prompt_input.backspace(),
+        (KeyCode::Left, _) => app.prompt_input.move_left(),
+        (KeyCode::Right, _) => app.prompt_input.move_right(),
+        (KeyCode::Home, _) => app.prompt_input.move_home(),
+        (KeyCode::End, _) => app.prompt_input.move_end(),
+        (KeyCode::Char('w'), mods) if mods.contains(KeyModifiers::CONTROL) => {
+            app.prompt_input.delete_word_back();
+        }
+        (KeyCode::Char('a'), mods) if mods.contains(KeyModifiers::CONTROL) => {
+            app.prompt_input.move_home();
+        }
+        (KeyCode::Char('e'), mods) if mods.contains(KeyModifiers::CONTROL) => {
+            app.prompt_input.move_end();
+        }
+        (KeyCode::Char(c), mods)
+            if !mods.contains(KeyModifiers::CONTROL) && !mods.contains(KeyModifiers::ALT) =>
+        {
+            app.prompt_input.insert_char(c);
+        }
+        _ => {}
+    }
+}
+
 fn handle_full_preview(app: &mut App, key: KeyEvent) {
     let Mode::FullPromptPreview { scroll, .. } = app.mode_mut() else {
         return;
@@ -160,20 +200,33 @@ fn handle_scenario_pick(app: &mut App, key: KeyEvent) {
 }
 
 fn handle_normal(app: &mut App, key: KeyEvent) {
+    // Prompt focus short-circuits normal-mode handling: everything the user
+    // types goes into the multi-line input. Dedicated keys (Esc to defocus,
+    // Ctrl-C global quit above) remain available.
+    if matches!(app.focus, Focus::Prompt) {
+        handle_prompt_key(app, key);
+        return;
+    }
+
     match key.code {
         // Quit
         KeyCode::Char('q') => app.should_quit = true,
+
+        // Focus the prompt input (text surface at the bottom).
+        KeyCode::Char('i') => app.focus_prompt(),
 
         // Navigation (vim-style)
         KeyCode::Char('j') | KeyCode::Down => match app.focus {
             Focus::FileTree => app.move_tree_cursor(1),
             Focus::Viewer => app.move_viewer_scroll(1),
             Focus::BundleList => app.move_bundle_cursor(1),
+            Focus::Prompt => {}
         },
         KeyCode::Char('k') | KeyCode::Up => match app.focus {
             Focus::FileTree => app.move_tree_cursor(-1),
             Focus::Viewer => app.move_viewer_scroll(-1),
             Focus::BundleList => app.move_bundle_cursor(-1),
+            Focus::Prompt => {}
         },
 
         // Page scrolling — PageDown / PageUp jumps a full viewport.
@@ -184,6 +237,7 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
                 app.move_viewer_scroll(half);
             }
             Focus::BundleList => app.page_bundle_cursor(1),
+            Focus::Prompt => {}
         },
         KeyCode::PageUp => match app.focus {
             Focus::FileTree => app.page_tree_cursor(-1),
@@ -192,6 +246,7 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
                 app.move_viewer_scroll(-half);
             }
             Focus::BundleList => app.page_bundle_cursor(-1),
+            Focus::Prompt => {}
         },
 
         // Vim-style half-page: Ctrl-D / Ctrl-U.
@@ -202,6 +257,7 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
                 app.move_viewer_scroll(half);
             }
             Focus::BundleList => app.half_page_bundle_cursor(1),
+            Focus::Prompt => {}
         },
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => match app.focus {
             Focus::FileTree => app.half_page_tree_cursor(-1),
@@ -210,6 +266,7 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
                 app.move_viewer_scroll(-half);
             }
             Focus::BundleList => app.half_page_bundle_cursor(-1),
+            Focus::Prompt => {}
         },
 
         KeyCode::Char(' ') => {
@@ -239,6 +296,7 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
                     app.bundle_cursor = app.bundle.len() - 1;
                 }
             }
+            Focus::Prompt => {}
         },
         KeyCode::Char('g') => match app.focus {
             Focus::FileTree => {
@@ -247,6 +305,7 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
             }
             Focus::Viewer => app.scroll_viewer_to_top(),
             Focus::BundleList => app.bundle_cursor = 0,
+            Focus::Prompt => {}
         },
 
         // Viewer toggle
