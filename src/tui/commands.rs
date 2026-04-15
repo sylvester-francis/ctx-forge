@@ -201,6 +201,12 @@ pub static COMMANDS: &[CommandSpec] = &[
         action: |app, _| app.toggle_viewer(),
     },
     CommandSpec {
+        name: "add-selection",
+        description: "add the viewer's selected lines to the bundle",
+        takes_arg: false,
+        action: |app, _| app.add_viewer_selection_to_bundle(),
+    },
+    CommandSpec {
         name: "quit",
         description: "quit ctxforge",
         takes_arg: false,

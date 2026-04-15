@@ -155,6 +155,16 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
             app.toggle_viewer();
         }
 
+        // Add the current viewer selection to the bundle as a Range item.
+        KeyCode::Char('a') if app.focus == Focus::Viewer => {
+            app.add_viewer_selection_to_bundle();
+        }
+
+        // Clear an active viewer selection without adding it.
+        KeyCode::Esc if app.focus == Focus::Viewer && app.viewer.selection().is_some() => {
+            app.viewer.clear_selection();
+        }
+
         // Viewer scroll (only effective when Focus::Viewer)
         KeyCode::PageDown => {
             if app.focus == Focus::Viewer {

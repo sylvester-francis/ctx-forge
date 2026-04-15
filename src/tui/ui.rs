@@ -1138,7 +1138,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     };
     let nav_keys = match app.focus {
         Focus::FileTree => "j/k move  Enter expand  space add",
-        Focus::Viewer => "j/k scroll  g/G top/bot  v close",
+        Focus::Viewer => "j/k scroll  drag=select  a add  Esc clear  v close",
         Focus::BundleList => "j/k move  Enter select",
     };
     let keys_text = match app.mode() {
