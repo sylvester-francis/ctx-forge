@@ -1,0 +1,25 @@
+# Configuration for release-plz (https://release-plz.ieni.dev/).
+#
+# release-plz inspects commits since the last release and:
+#   1. Bumps the version in Cargo.toml (driven by conventional commits — feat
+#      → minor, fix → patch, `!` or BREAKING CHANGE footer → major)
+#   2. Updates CHANGELOG.md with a new section (release-plz auto-generates
+#      from the commit messages)
+#   3. Opens/updates a "Release PR" with those changes
+#   4. When that PR is merged, runs `cargo publish` + creates a GitHub
+#      Release tagged `v<version>`
+
+[workspace]
+# Release PR title — shows up in the GitHub PR list. `{{ version }}` is
+# expanded by release-plz.
+pr_name = "release: ctxforge v{{ version }}"
+
+[[package]]
+name = "ctxforge"
+# Publish this crate (explicit — matches Cargo.toml).
+publish = true
+# Tag and create a GitHub Release when the Release PR is merged.
+git_tag_enable = true
+git_release_enable = true
+# Where the CHANGELOG lives (repo root).
+changelog_path = "CHANGELOG.md"
