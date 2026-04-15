@@ -17,4 +17,7 @@ pub const CTXFORGE: AppTheme = AppTheme {
     border_focused: Color::Cyan,
     dir: Color::Rgb(121, 192, 255),
     hotspot: Color::Rgb(255, 165, 0),
+    selected_fg: Color::Black,
+    selected_bg: Color::White,
+    drag_selection_bg: Color::Rgb(60, 40, 80),
 };

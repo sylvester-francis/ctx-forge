@@ -26,6 +26,12 @@ pub struct AppTheme {
     pub border_focused: Color,
     pub dir: Color,
     pub hotspot: Color,
+    /// Foreground of a selected list row (command palette, model switch, etc.).
+    pub selected_fg: Color,
+    /// Background of a selected list row.
+    pub selected_bg: Color,
+    /// Background fill for viewer drag-selection.
+    pub drag_selection_bg: Color,
 }
 
 use registry::default_theme;
