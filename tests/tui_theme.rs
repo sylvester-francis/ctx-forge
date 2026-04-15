@@ -145,11 +145,9 @@ fn env_override_beats_config() {
     std::fs::write(&path, "[ui]\ntheme = \"gruvbox\"\n").unwrap();
 
     // temp_env ensures we don't leak env between tests that run in parallel.
-    let name = temp_env::with_var(
-        "CTXFORGE_THEME",
-        Some("zinc"),
-        || ctxforge::tui::theme::config::resolve_theme_name(&path),
-    );
+    let name = temp_env::with_var("CTXFORGE_THEME", Some("zinc"), || {
+        ctxforge::tui::theme::config::resolve_theme_name(&path)
+    });
     assert_eq!(name, "zinc");
 }
 

@@ -27,27 +27,47 @@ mod tests {
     }
 
     const VARIANTS: &[&str] = &[
-        "Cyan", "Rgb(", "White", "Black", "Red", "Green", "Yellow", "Blue", "Magenta",
-        "Gray", "DarkGray", "LightCyan", "LightRed", "LightGreen", "LightYellow",
-        "LightBlue", "LightMagenta",
+        "Cyan",
+        "Rgb(",
+        "White",
+        "Black",
+        "Red",
+        "Green",
+        "Yellow",
+        "Blue",
+        "Magenta",
+        "Gray",
+        "DarkGray",
+        "LightCyan",
+        "LightRed",
+        "LightGreen",
+        "LightYellow",
+        "LightBlue",
+        "LightMagenta",
     ];
 
     fn visit(dir: &Path, hits: &mut Vec<String>) {
-        let Ok(entries) = fs::read_dir(dir) else { return };
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
         for entry in entries.flatten() {
             let p = entry.path();
             if p.is_dir() {
                 visit(&p, hits);
                 continue;
             }
-            if p.extension().map_or(false, |e| e == "rs") && !is_allowlisted(&p) {
-                let Ok(contents) = fs::read_to_string(&p) else { continue };
+            if p.extension().is_some_and(|e| e == "rs") && !is_allowlisted(&p) {
+                let Ok(contents) = fs::read_to_string(&p) else {
+                    continue;
+                };
                 for (idx, raw) in contents.lines().enumerate() {
                     let line = raw.trim_start();
                     if line.starts_with("//") || line.starts_with("///") {
                         continue;
                     }
-                    let Some(pos) = raw.find("Color::") else { continue };
+                    let Some(pos) = raw.find("Color::") else {
+                        continue;
+                    };
                     let tail = &raw[pos + "Color::".len()..];
                     if VARIANTS.iter().any(|v| tail.starts_with(v)) {
                         hits.push(format!("{}:{} {}", p.display(), idx + 1, raw.trim()));

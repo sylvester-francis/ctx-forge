@@ -525,8 +525,7 @@ impl App {
             tree_list_state: std::cell::RefCell::new(ratatui::widgets::ListState::default()),
             bundle_list_state: std::cell::RefCell::new(ratatui::widgets::ListState::default()),
             focus_highlight: crate::tui::motion::Highlight::new(
-                crate::tui::theme::registry::default_theme()
-                    .focus_tint(Focus::FileTree),
+                crate::tui::theme::registry::default_theme().focus_tint(Focus::FileTree),
             ),
             startup_fade: crate::tui::motion::Fade::new_hidden(),
             bundle_row_fades: std::collections::HashMap::new(),

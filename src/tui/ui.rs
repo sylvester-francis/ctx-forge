@@ -390,9 +390,7 @@ fn draw_template_pick_overlay_buf(
             };
             let marker = if i == cursor { " > " } else { "   " };
             let style = if i == cursor {
-                Style::default()
-                    .fg(theme.selected_fg)
-                    .bg(theme.selected_bg)
+                Style::default().fg(theme.selected_fg).bg(theme.selected_bg)
             } else {
                 Style::default()
             };
@@ -681,9 +679,7 @@ fn draw_symbol_pick(
         .enumerate()
         .map(|(i, (name, path))| {
             let style = if i == cursor {
-                Style::default()
-                    .fg(theme.selected_fg)
-                    .bg(theme.selected_bg)
+                Style::default().fg(theme.selected_fg).bg(theme.selected_bg)
             } else {
                 Style::default()
             };
@@ -714,9 +710,7 @@ fn draw_diff_pick(
         .map(|(i, path)| {
             let marker = if selected.contains(&i) { "■" } else { "▫" };
             let style = if i == cursor {
-                Style::default()
-                    .fg(theme.selected_fg)
-                    .bg(theme.selected_bg)
+                Style::default().fg(theme.selected_fg).bg(theme.selected_bg)
             } else {
                 Style::default()
             };
@@ -800,9 +794,7 @@ fn draw_profile_list(
         .enumerate()
         .map(|(i, name)| {
             let style = if i == cursor {
-                Style::default()
-                    .fg(theme.selected_fg)
-                    .bg(theme.selected_bg)
+                Style::default().fg(theme.selected_fg).bg(theme.selected_bg)
             } else {
                 Style::default()
             };
@@ -1097,10 +1089,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         } => {
             let line = Line::from(vec![
                 Span::raw(" Diff branch: "),
-                Span::styled(
-                    branch.as_str(),
-                    Style::default().fg(app.theme.accent),
-                ),
+                Span::styled(branch.as_str(), Style::default().fg(app.theme.accent)),
                 Span::raw("  (Enter to load, Esc cancel)"),
             ]);
             f.render_widget(Paragraph::new(line), chunks[0]);

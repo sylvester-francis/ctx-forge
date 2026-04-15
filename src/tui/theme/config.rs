@@ -84,14 +84,8 @@ pub fn save_to(path: &Path, config: &Config) -> Result<(), String> {
     let body = toml::to_string_pretty(&file).map_err(|e| format!("encode: {e}"))?;
     let tmp = path.with_extension("toml.tmp");
     std::fs::write(&tmp, body).map_err(|e| format!("write {}: {}", tmp.display(), e))?;
-    std::fs::rename(&tmp, path).map_err(|e| {
-        format!(
-            "rename {} -> {}: {}",
-            tmp.display(),
-            path.display(),
-            e
-        )
-    })?;
+    std::fs::rename(&tmp, path)
+        .map_err(|e| format!("rename {} -> {}: {}", tmp.display(), path.display(), e))?;
     Ok(())
 }
 
@@ -102,5 +96,7 @@ pub fn resolve_theme_name(path: &Path) -> String {
             return name;
         }
     }
-    load_from(path).map(|c| c.theme).unwrap_or_else(|_| default_theme_name())
+    load_from(path)
+        .map(|c| c.theme)
+        .unwrap_or_else(|_| default_theme_name())
 }
