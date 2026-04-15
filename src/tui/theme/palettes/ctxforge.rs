@@ -20,4 +20,7 @@ pub const CTXFORGE: AppTheme = AppTheme {
     selected_fg: Color::Black,
     selected_bg: Color::White,
     drag_selection_bg: Color::Rgb(60, 40, 80),
+    focus_tree: Color::Rgb(88, 166, 255),
+    focus_viewer: Color::Rgb(163, 113, 247),
+    focus_bundle: Color::Rgb(255, 165, 0),
 };

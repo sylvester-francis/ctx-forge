@@ -9,6 +9,9 @@ use ratatui::style::Color;
 pub mod palettes;
 pub mod registry;
 
+#[cfg(test)]
+mod lint;
+
 /// A colour palette used by every TUI widget. Each field has exactly one
 /// semantic role; pick the field that matches your role, do not pick by colour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +35,25 @@ pub struct AppTheme {
     pub selected_bg: Color,
     /// Background fill for viewer drag-selection.
     pub drag_selection_bg: Color,
+    /// Animated focus-border tint for the file tree panel.
+    pub focus_tree: Color,
+    /// Animated focus-border tint for the viewer panel.
+    pub focus_viewer: Color,
+    /// Animated focus-border tint for the bundle list panel.
+    pub focus_bundle: Color,
+}
+
+impl AppTheme {
+    /// Pick the animated focus-border tint for a given panel. Panels added
+    /// in later tasks (preview, prompt) fall back to `border_focused`.
+    pub fn focus_tint(&self, focus: crate::tui::app::Focus) -> Color {
+        use crate::tui::app::Focus as F;
+        match focus {
+            F::FileTree => self.focus_tree,
+            F::Viewer => self.focus_viewer,
+            F::BundleList => self.focus_bundle,
+        }
+    }
 }
 
 use registry::default_theme;

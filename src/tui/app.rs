@@ -194,11 +194,7 @@ impl App {
             (Focus::BundleList, _) => Focus::FileTree,
         };
         self.focus = next;
-        let target = match next {
-            Focus::FileTree => ratatui::style::Color::Rgb(88, 166, 255), // soft blue
-            Focus::Viewer => ratatui::style::Color::Rgb(163, 113, 247),  // violet
-            Focus::BundleList => ratatui::style::Color::Rgb(255, 165, 0), // orange
-        };
+        let target = self.theme.focus_tint(next);
         let ctx = self.anim_ctx();
         self.focus_highlight.transition_to(target, &ctx);
     }
@@ -220,9 +216,9 @@ impl App {
             self.set_mouse_capture(false);
             if self.focus == Focus::Viewer {
                 self.focus = Focus::FileTree;
+                let target = self.theme.focus_tint(Focus::FileTree);
                 let ctx = self.anim_ctx();
-                self.focus_highlight
-                    .transition_to(ratatui::style::Color::Rgb(88, 166, 255), &ctx);
+                self.focus_highlight.transition_to(target, &ctx);
             }
         }
     }
@@ -528,7 +524,10 @@ impl App {
             status_set_at: None,
             tree_list_state: std::cell::RefCell::new(ratatui::widgets::ListState::default()),
             bundle_list_state: std::cell::RefCell::new(ratatui::widgets::ListState::default()),
-            focus_highlight: crate::tui::motion::Highlight::new(ratatui::style::Color::Cyan),
+            focus_highlight: crate::tui::motion::Highlight::new(
+                crate::tui::theme::registry::default_theme()
+                    .focus_tint(Focus::FileTree),
+            ),
             startup_fade: crate::tui::motion::Fade::new_hidden(),
             bundle_row_fades: std::collections::HashMap::new(),
             viewer: crate::tui::viewer::ViewerState::new(),
