@@ -23,14 +23,48 @@ pub fn draw(f: &mut Frame, app: &App) {
     // Pass 1 — Normal content into the frame buffer.
     draw_header(f, app, chunks[0]);
 
-    // Responsive layout: wide (≥120 cols) → 40/60 horizontal split;
-    // narrow → vertical stack (bundle on top, tree below).
-    if area.width >= 120 && area.height >= 30 {
+    // Layout selection. Viewer opt-in + width-adaptive:
+    //   width ≥ 140, height ≥ 30, viewer on  → three-column horizontal
+    //   width ≥ 100, viewer on                → vertical stack (bundle/viewer/tree)
+    //   width < 100 OR viewer off              → existing two-panel layouts
+    let want_viewer = app.viewer.enabled && area.width >= 100;
+    let wide_three_col = want_viewer && area.width >= 140 && area.height >= 30;
+
+    if wide_three_col {
+        let panel_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(25),
+                Constraint::Percentage(45),
+                Constraint::Percentage(30),
+            ])
+            .split(chunks[1]);
+        let left_handled = draw_left_panel(f, app, panel_chunks[0]);
+        if !left_handled {
+            draw_file_tree(f, app, panel_chunks[0]);
+        }
+        draw_viewer(f, app, panel_chunks[1]);
+        draw_right_panel(f, app, panel_chunks[2]);
+    } else if want_viewer {
+        let panel_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(34),
+                Constraint::Percentage(33),
+                Constraint::Percentage(33),
+            ])
+            .split(chunks[1]);
+        draw_right_panel(f, app, panel_chunks[0]);
+        draw_viewer(f, app, panel_chunks[1]);
+        let left_handled = draw_left_panel(f, app, panel_chunks[2]);
+        if !left_handled {
+            draw_file_tree(f, app, panel_chunks[2]);
+        }
+    } else if area.width >= 120 && area.height >= 30 {
         let panel_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
             .split(chunks[1]);
-
         let left_handled = draw_left_panel(f, app, panel_chunks[0]);
         if !left_handled {
             draw_file_tree(f, app, panel_chunks[0]);
@@ -41,7 +75,6 @@ pub fn draw(f: &mut Frame, app: &App) {
             .direction(Direction::Vertical)
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(chunks[1]);
-
         draw_right_panel(f, app, panel_chunks[0]);
         let left_handled = draw_left_panel(f, app, panel_chunks[1]);
         if !left_handled {
@@ -409,6 +442,101 @@ fn draw_right_panel(f: &mut Frame, app: &App, area: Rect) {
     }
 
     draw_bundle_list(f, app, area);
+}
+
+/// Render the code viewer pane.
+fn draw_viewer(f: &mut Frame, app: &App, area: Rect) {
+    let focused = app.focus == Focus::Viewer;
+    let border_color = if focused {
+        app.focus_highlight.current(app.clock.now())
+    } else {
+        ratatui::style::Color::DarkGray
+    };
+
+    // Compute body viewport (inside borders).
+    let inner_height = (area.height as usize).saturating_sub(2);
+    let truncated_footer = app.viewer.truncated();
+    let body_height = if truncated_footer {
+        inner_height.saturating_sub(1)
+    } else {
+        inner_height
+    };
+    // Remember for key-handler scroll clamping.
+    app.set_viewer_viewport_height(body_height);
+
+    let title = build_viewer_title(app, body_height, area.width);
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color));
+
+    // Error / empty states take precedence over content.
+    if let Some(err) = app.viewer.error() {
+        let msg = format!("  {err}");
+        let style = match err {
+            crate::tui::viewer::ViewerError::Directory
+            | crate::tui::viewer::ViewerError::Binary(_) => {
+                Style::default().add_modifier(Modifier::DIM)
+            }
+            _ => Style::default().fg(ratatui::style::Color::Red),
+        };
+        let p = Paragraph::new(Line::styled(msg, style)).block(block);
+        f.render_widget(p, area);
+        return;
+    }
+    if app.viewer.lines().is_empty() {
+        f.render_widget(block, area);
+        return;
+    }
+
+    let top = app.viewer.scroll;
+    let bottom = (top + body_height).min(app.viewer.lines().len());
+    let slice: Vec<Line<'static>> = app.viewer.lines()[top..bottom].to_vec();
+    let p = Paragraph::new(slice).block(block);
+    f.render_widget(p, area);
+
+    if truncated_footer && area.height >= 3 {
+        let footer_area = Rect {
+            x: area.x + 1,
+            y: area.y + area.height.saturating_sub(2),
+            width: area.width.saturating_sub(2),
+            height: 1,
+        };
+        let footer = Paragraph::new(Line::styled(
+            "  … truncated at 2 MB",
+            Style::default().add_modifier(Modifier::DIM),
+        ));
+        f.render_widget(footer, footer_area);
+    }
+}
+
+/// Build the viewer title: `" preview — path  [line N-M / total] "`.
+fn build_viewer_title(app: &App, body_height: usize, width: u16) -> String {
+    let path_display = app
+        .viewer
+        .cached_path
+        .as_ref()
+        .map(|p| {
+            p.strip_prefix(&app.project_root)
+                .unwrap_or(p)
+                .display()
+                .to_string()
+        })
+        .unwrap_or_else(|| "—".into());
+    let total = app.viewer.lines().len();
+    let top = app.viewer.scroll;
+    let bottom = (top + body_height).min(total);
+    let indicator = if total > 0 {
+        format!(" [line {}-{} / {}] ", top + 1, bottom, total)
+    } else {
+        String::new()
+    };
+    let prefix = format!(" preview — {path_display}{indicator}");
+    if prefix.len() > width as usize {
+        " preview ".into()
+    } else {
+        prefix
+    }
 }
 
 /// Helper to create a centered rect of given width/height inside `area`,
