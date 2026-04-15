@@ -28,7 +28,10 @@ fn wide_layout_renders_tree_and_preview_and_prompt() {
     let s = screen(150, 40);
     assert!(s.contains("files"), "tree column missing:\n{s}");
     assert!(s.contains("prompt preview"), "preview missing:\n{s}");
-    assert!(s.contains("prompt · scenario"), "prompt strip missing:\n{s}");
+    assert!(
+        s.contains("prompt · scenario"),
+        "prompt strip missing:\n{s}"
+    );
 }
 
 #[test]
@@ -42,6 +45,12 @@ fn medium_layout_still_shows_preview_and_prompt() {
 #[test]
 fn narrow_layout_stacks_vertically_and_keeps_prompt() {
     let s = screen(100, 50);
-    assert!(s.contains("prompt preview"), "preview missing at narrow:\n{s}");
-    assert!(s.contains("prompt · scenario"), "prompt strip missing:\n{s}");
+    assert!(
+        s.contains("prompt preview"),
+        "preview missing at narrow:\n{s}"
+    );
+    assert!(
+        s.contains("prompt · scenario"),
+        "prompt strip missing:\n{s}"
+    );
 }

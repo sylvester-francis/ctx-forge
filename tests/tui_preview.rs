@@ -27,16 +27,16 @@ fn preview_renders_sections_when_scenario_set() {
     let preview = PromptPreview::from_app(&app);
     let text = preview.to_text();
     assert!(
-        text.contains("template: bugfix · prefix"),
+        text.contains("template: bugfix (prefix)"),
         "prefix marker missing:\n{text}"
     );
-    assert!(text.contains("## Task"), "task section missing:\n{text}");
+    assert!(text.contains("── task ──"), "task section missing:\n{text}");
     assert!(
         text.contains("fix jwt validation"),
         "task text missing:\n{text}"
     );
     assert!(
-        text.contains("## Context"),
+        text.contains("── context"),
         "context section missing:\n{text}"
     );
     assert!(
@@ -44,7 +44,7 @@ fn preview_renders_sections_when_scenario_set() {
         "context item missing:\n{text}"
     );
     assert!(
-        text.contains("template: bugfix · suffix"),
+        text.contains("template: bugfix (suffix)"),
         "suffix marker missing:\n{text}"
     );
 }
@@ -67,7 +67,7 @@ fn preview_empty_task_hints_at_input() {
     // task_text left empty
     let preview = PromptPreview::from_app(&app);
     let text = preview.to_text();
-    assert!(text.contains("empty — type in the prompt input"));
+    assert!(text.contains("press i to focus the prompt input"));
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn preview_unknown_scenario_shows_error_section() {
     let preview = PromptPreview::from_app(&app);
     let text = preview.to_text();
     assert!(
-        text.contains("scenario ghost"),
+        text.contains("scenario 'ghost'"),
         "expected error marker; got:\n{text}"
     );
 }
@@ -145,8 +145,8 @@ fn wide_layout_renders_preview_in_right_column() {
         s.contains("prompt preview"),
         "preview block title missing:\n{s}"
     );
-    assert!(s.contains("## Task"), "Task section missing:\n{s}");
-    assert!(s.contains("## Context"), "Context section missing:\n{s}");
+    assert!(s.contains("── task"), "Task section missing:\n{s}");
+    assert!(s.contains("── context"), "Context section missing:\n{s}");
     // Bundle summary still visible in lower-left
     assert!(
         s.contains("bundle (1)") || s.contains("bundle (1) "),

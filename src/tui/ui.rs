@@ -638,12 +638,19 @@ fn draw_left_column(f: &mut Frame, app: &App, area: Rect) {
 /// Compact bundle view for the lower-left slot. Same path + token info as
 /// the full list, with percentage column dropped to fit narrower space.
 fn draw_bundle_summary(f: &mut Frame, app: &App, area: Rect) {
-    let title = format!(" bundle ({}) ", app.bundle.len());
+    let total_tokens = app.total_tokens;
+    let title = if app.bundle.is_empty() {
+        " bundle (0) ".to_string()
+    } else {
+        format!(
+            " bundle ({}) · {} tokens ",
+            app.bundle.len(),
+            format_tokens_compact(total_tokens)
+        )
+    };
     let border_style = if app.focus == Focus::BundleList {
         Style::default().fg(app.focus_highlight.current(app.clock.now()))
     } else {
-        // Default terminal fg for unfocused borders — DarkGray from
-        // theme.border disappeared under the backdrop dim.
         Style::default()
     };
     let block = Block::default()
@@ -652,12 +659,17 @@ fn draw_bundle_summary(f: &mut Frame, app: &App, area: Rect) {
         .border_style(border_style);
 
     if app.bundle.is_empty() {
-        let msg = Paragraph::new("  (empty)")
+        let msg = Paragraph::new(" (empty — space in tree, or @ in prompt)")
             .style(Style::default().add_modifier(Modifier::DIM))
             .block(block);
         f.render_widget(msg, area);
         return;
     }
+
+    // Compute path column width dynamically based on the area.
+    // Reserve: 2 index + 1 space + 2 leading + token column (6) + 2 trailing = ~13.
+    let inner_width = area.width.saturating_sub(2) as usize;
+    let path_width = inner_width.saturating_sub(15).max(10);
 
     let items: Vec<ListItem> = app
         .bundle
@@ -667,12 +679,19 @@ fn draw_bundle_summary(f: &mut Frame, app: &App, area: Rect) {
         .map(|(i, item)| {
             let tokens = app.item_tokens.get(i).copied().unwrap_or(0);
             let display = item.display();
-            let truncated = if display.len() > 20 {
-                format!("{}…", &display[..19])
+            let truncated = if display.len() > path_width {
+                let keep = path_width.saturating_sub(1);
+                format!("…{}", &display[display.len() - keep..])
             } else {
                 display
             };
-            let text = format!("{:>2} {:<20} {:>6}", i + 1, truncated, tokens);
+            let text = format!(
+                " {:>2} {:<width$} {:>6}",
+                i + 1,
+                truncated,
+                format_tokens_compact(tokens),
+                width = path_width,
+            );
             let style = if i == app.bundle_cursor && app.focus == Focus::BundleList {
                 Style::default()
                     .fg(app.theme.selected_fg)
@@ -686,6 +705,16 @@ fn draw_bundle_summary(f: &mut Frame, app: &App, area: Rect) {
 
     let list = List::new(items).block(block);
     f.render_widget(list, area);
+}
+
+fn format_tokens_compact(n: usize) -> String {
+    if n >= 10_000 {
+        format!("{}k", n / 1000)
+    } else if n >= 1_000 {
+        format!("{:.1}k", n as f64 / 1000.0)
+    } else {
+        n.to_string()
+    }
 }
 
 /// Render the code viewer pane.
