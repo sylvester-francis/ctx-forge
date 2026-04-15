@@ -94,5 +94,19 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, root: CtxforgeRoot) -> Resu
         }
     }
 
+    // Before ratatui::run()'s drop-time restore runs, explicitly disable
+    // anything we enabled outside ratatui's knowledge. Currently that is
+    // SGR mouse capture (toggled on by the code viewer via
+    // App::set_mouse_capture). If left enabled, the terminal keeps
+    // emitting mouse-tracking bytes to the shell after the TUI exits —
+    // classic garbage like `0;96;38M` at the prompt.
+    //
+    // DisableMouseCapture is idempotent: safe to call even if capture
+    // was never enabled during this session.
+    let _ = crossterm::execute!(
+        std::io::stdout(),
+        crossterm::event::DisableMouseCapture
+    );
+
     Ok(())
 }
