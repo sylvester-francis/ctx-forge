@@ -606,9 +606,14 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         .map(|n| format!("profile: {n} │ "))
         .unwrap_or_default();
 
+    let scenario_str = match app.bundle.scenario.as_deref() {
+        Some(name) => format!("scenario: {name} │ "),
+        None => "scenario: (none) │ ".to_string(),
+    };
+
     let label = format!(
-        " ctxforge │ {}{} │ {} / {} ({:.1}%)",
-        profile_str, app.model_name, token_str, app.model_window, pct
+        " ctxforge │ {}{}{} │ {} / {} ({:.1}%)",
+        scenario_str, profile_str, app.model_name, token_str, app.model_window, pct
     );
 
     // The bar fill tweens smoothly via `token_gauge`.
