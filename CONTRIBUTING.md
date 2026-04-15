@@ -92,7 +92,31 @@ Follow the existing file structure:
   `format`, `memory`, `profile`), not in `commands/`
 - `commands/` handlers are thin — they call into core modules
 
-## 6. Questions?
+## 6. Commit messages & releases
+
+Commit messages should follow [Conventional Commits](https://www.conventionalcommits.org/)
+so [release-plz](https://release-plz.ieni.dev/) can auto-bump the version:
+
+- `feat: …` → **minor** version bump (new feature)
+- `fix: …` → **patch** version bump
+- `chore: …`, `docs: …`, `test: …`, `refactor: …`, `style: …` → no bump (shown in CHANGELOG only)
+- Any commit with `!` after the type (e.g. `feat!: …`) or a `BREAKING CHANGE:`
+  footer → **major** version bump
+
+Scopes are optional (e.g. `feat(tui): …`). When a PR merges to `main`:
+
+1. The `Release-plz` workflow opens (or updates) a "Release PR" that
+   bumps the version in `Cargo.toml` and prepends a new section to
+   `CHANGELOG.md` based on the commits since the last release.
+2. Review that Release PR and merge it when you're ready to ship.
+3. Merging it triggers the `release` job, which runs `cargo publish`
+   and cuts a GitHub Release.
+
+Maintainers only: the `CARGO_REGISTRY_TOKEN` secret must be set in
+GitHub repo settings (`Settings → Secrets and variables → Actions`)
+for the publish step to work.
+
+## 7. Questions?
 
 Open an issue. Please mention that you have read this CONTRIBUTING.md
 and the CLA so the maintainer knows you are aware of the terms.
