@@ -490,9 +490,32 @@ fn draw_viewer(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
+    let total = app.viewer.lines().len();
     let top = app.viewer.scroll;
-    let bottom = (top + body_height).min(app.viewer.lines().len());
-    let slice: Vec<Line<'static>> = app.viewer.lines()[top..bottom].to_vec();
+    let bottom = (top + body_height).min(total);
+
+    // Gutter width: enough digits for the largest visible line number + 1
+    // padding space. `nnn │ ` — the vertical bar is the divider.
+    let max_line_no = bottom.max(1);
+    let digits = max_line_no.to_string().len();
+    let gutter_style = Style::default()
+        .fg(ratatui::style::Color::DarkGray)
+        .add_modifier(Modifier::DIM);
+    let divider_style = Style::default().fg(ratatui::style::Color::DarkGray);
+
+    let slice: Vec<Line<'static>> = app.viewer.lines()[top..bottom]
+        .iter()
+        .enumerate()
+        .map(|(i, line)| {
+            let line_no = top + i + 1;
+            let gutter = format!("{line_no:>width$} ", width = digits);
+            let divider = "│ ".to_string();
+            let mut spans: Vec<Span<'static>> =
+                vec![Span::styled(gutter, gutter_style), Span::styled(divider, divider_style)];
+            spans.extend(line.spans.iter().cloned());
+            Line::from(spans)
+        })
+        .collect();
     let p = Paragraph::new(slice).block(block);
     f.render_widget(p, area);
 
