@@ -221,3 +221,42 @@ fn viewer_load_for_directory_sets_directory_error() {
 // Silence unused warnings from the imports we'll need in later tasks.
 #[allow(dead_code)]
 fn _unused(_: ViewerLoad) {}
+
+#[test]
+fn viewer_renders_highlighted_lines_against_test_backend() {
+    use ctxforge::paths::CtxforgeRoot;
+    use ctxforge::tui::app::App;
+    use ctxforge::tui::motion::{Clock, MockClock, MotionLevel};
+    use ctxforge::tui::ui;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    let tmp = TempDir::new().unwrap();
+    // 80-line file — guarantees the viewport can't show everything at once,
+    // so scroll has somewhere to go.
+    let lines: Vec<String> = (1..=80).map(|i| format!("fn f{i}() {{}}")).collect();
+    std::fs::write(tmp.path().join("big.rs"), lines.join("\n") + "\n").unwrap();
+
+    let root = CtxforgeRoot::find_or_create(tmp.path()).unwrap();
+    let clock = MockClock::new();
+    let mut app = App::new(root);
+    app.clock = Box::new(clock.clone());
+    app.motion = MotionLevel::Full;
+    app.startup_fade.snap(1.0);
+
+    app.toggle_viewer();
+
+    let cached = app.viewer.cached_path.clone();
+    assert!(cached.is_some(), "expected viewer to load on toggle");
+    assert!(cached.unwrap().ends_with("big.rs"));
+    assert_eq!(app.viewer.lines().len(), 80);
+
+    // Render at 140x40 to hit the three-column layout; this records a
+    // non-zero viewport_height on the app so scroll_by clamps meaningfully.
+    let backend = TestBackend::new(140, 40);
+    let mut term = Terminal::new(backend).unwrap();
+    term.draw(|f| ui::draw(f, &app)).unwrap();
+
+    app.move_viewer_scroll(2);
+    assert_eq!(app.viewer.scroll, 2);
+}
