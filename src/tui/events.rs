@@ -111,6 +111,37 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
             Focus::BundleList => app.bundle_cursor = 0,
         },
 
+        // Viewer toggle
+        KeyCode::Char('v') => {
+            app.toggle_viewer();
+        }
+
+        // Viewer scroll (only effective when Focus::Viewer)
+        KeyCode::PageDown => {
+            if app.focus == Focus::Viewer {
+                let half = (app.viewer_last_viewport_height.get() / 2).max(1) as i32;
+                app.move_viewer_scroll(half);
+            }
+        }
+        KeyCode::PageUp => {
+            if app.focus == Focus::Viewer {
+                let half = (app.viewer_last_viewport_height.get() / 2).max(1) as i32;
+                app.move_viewer_scroll(-half);
+            }
+        }
+        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            if app.focus == Focus::Viewer {
+                let half = (app.viewer_last_viewport_height.get() / 2).max(1) as i32;
+                app.move_viewer_scroll(half);
+            }
+        }
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            if app.focus == Focus::Viewer {
+                let half = (app.viewer_last_viewport_height.get() / 2).max(1) as i32;
+                app.move_viewer_scroll(-half);
+            }
+        }
+
         // Slash command palette
         KeyCode::Char('/') => {
             app.set_mode(Mode::CommandPalette {
