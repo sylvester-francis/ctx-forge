@@ -1,38 +1,18 @@
-mod bundle;
-mod cli;
-mod clipboard;
-mod commands;
-mod error;
-#[cfg(feature = "extract")]
-mod extract;
-mod format;
-mod git;
-mod lang;
-#[cfg(feature = "mcp")]
-mod mcp;
-mod memory;
-mod models;
-mod output;
-mod paths;
-mod profile;
-mod resolve;
-mod template;
-mod tokens;
-#[cfg(feature = "tui")]
-mod tui;
-mod walk;
+use ctxforge::cli::Cli;
+use ctxforge::error::{CtxforgeError, Result};
+use ctxforge::{commands, output, paths};
 
+#[cfg(feature = "tui")]
+use ctxforge::tui;
 #[cfg(feature = "tui")]
 use std::io::IsTerminal;
 
 use clap::Parser;
-use cli::Cli;
-use error::Result;
 
 fn main() {
     if let Err(err) = run() {
         match &err {
-            error::CtxforgeError::NotFound { path, suggestions } => {
+            CtxforgeError::NotFound { path, suggestions } => {
                 let cwd = std::env::current_dir().unwrap_or_default();
                 let resolved = cwd.join(path);
                 output::error_with_suggestion(

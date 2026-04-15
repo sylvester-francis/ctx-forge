@@ -91,4 +91,41 @@ impl Mode {
     pub fn is_normal(&self) -> bool {
         matches!(self, Mode::Normal)
     }
+
+    /// Whether this mode renders an overlay on top of Normal content.
+    /// Everything except `Normal` is an overlay.
+    pub fn is_overlay(&self) -> bool {
+        !matches!(self, Mode::Normal)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normal_is_not_overlay() {
+        assert!(!Mode::Normal.is_overlay());
+    }
+
+    #[test]
+    fn help_is_overlay() {
+        assert!(Mode::Help.is_overlay());
+    }
+
+    #[test]
+    fn pipe_menu_is_overlay() {
+        assert!(Mode::PipeMenu.is_overlay());
+    }
+
+    #[test]
+    fn command_palette_is_overlay() {
+        assert!(
+            Mode::CommandPalette {
+                query: String::new(),
+                cursor: 0
+            }
+            .is_overlay()
+        );
+    }
 }

@@ -3,12 +3,13 @@
 use crate::tui::app::{App, Focus};
 use crate::tui::theme;
 use ratatui::Frame;
+use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, ListState, Paragraph, Widget};
 
-pub fn draw(f: &mut Frame, app: &mut App) {
+pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -19,16 +20,51 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         ])
         .split(area);
 
+    // Pass 1 — Normal content into the frame buffer.
     draw_header(f, app, chunks[0]);
 
-    // Responsive layout: wide (≥120 cols) → 40/60 horizontal split;
-    // narrow → vertical stack (bundle on top, tree below).
-    if area.width >= 120 && area.height >= 30 {
+    // Layout selection. Viewer opt-in + width-adaptive:
+    //   width ≥ 140, height ≥ 30, viewer on  → three-column horizontal
+    //   width ≥ 100, viewer on                → vertical stack (bundle/viewer/tree)
+    //   width < 100 OR viewer off              → existing two-panel layouts
+    let want_viewer = app.viewer.enabled && area.width >= 100;
+    let wide_three_col = want_viewer && area.width >= 140 && area.height >= 30;
+
+    if wide_three_col {
+        let panel_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(25),
+                Constraint::Percentage(45),
+                Constraint::Percentage(30),
+            ])
+            .split(chunks[1]);
+        let left_handled = draw_left_panel(f, app, panel_chunks[0]);
+        if !left_handled {
+            draw_file_tree(f, app, panel_chunks[0]);
+        }
+        draw_viewer(f, app, panel_chunks[1]);
+        draw_right_panel(f, app, panel_chunks[2]);
+    } else if want_viewer {
+        let panel_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(34),
+                Constraint::Percentage(33),
+                Constraint::Percentage(33),
+            ])
+            .split(chunks[1]);
+        draw_right_panel(f, app, panel_chunks[0]);
+        draw_viewer(f, app, panel_chunks[1]);
+        let left_handled = draw_left_panel(f, app, panel_chunks[2]);
+        if !left_handled {
+            draw_file_tree(f, app, panel_chunks[2]);
+        }
+    } else if area.width >= 120 && area.height >= 30 {
         let panel_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
             .split(chunks[1]);
-
         let left_handled = draw_left_panel(f, app, panel_chunks[0]);
         if !left_handled {
             draw_file_tree(f, app, panel_chunks[0]);
@@ -39,7 +75,6 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             .direction(Direction::Vertical)
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(chunks[1]);
-
         draw_right_panel(f, app, panel_chunks[0]);
         let left_handled = draw_left_panel(f, app, panel_chunks[1]);
         if !left_handled {
@@ -49,28 +84,118 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     draw_footer(f, app, chunks[2]);
 
-    // Render overlays on top of the main layout.
-    draw_overlays(f, app);
+    // Pass 2 — dim the Normal content when an overlay is visible.
+    let dim = app.backdrop_dim.opacity(app.clock.now());
+    if dim > 0.001 {
+        apply_dim_to_buffer(f.buffer_mut(), dim);
+    }
+
+    // Pass 3a — outgoing overlay (during cross-fade).
+    let outgoing_opacity = app.outgoing_overlay_opacity();
+    if outgoing_opacity > 0.01 {
+        if let Some(prev_mode) = app.outgoing_overlay_mode() {
+            let prev = prev_mode.clone();
+            render_overlay_blended(f, app, &prev, outgoing_opacity);
+        }
+    }
+
+    // Pass 3b — incoming (or currently-visible) overlay.
+    if app.mode().is_overlay() || app.show_help {
+        let opacity = if app.show_help && matches!(app.mode(), crate::tui::mode::Mode::Normal) {
+            1.0 // Legacy show_help flag without mode transition — full opacity.
+        } else {
+            app.incoming_overlay_opacity()
+        };
+        if opacity > 0.01 {
+            let current = app.mode().clone();
+            render_overlay_blended(f, app, &current, opacity);
+        }
+    }
+
+    // Pass 4 — startup fade. Applied to the entire frame buffer so the whole
+    // TUI eases in on launch.
+    let startup_opacity = app.startup_fade.opacity(app.clock.now());
+    if startup_opacity < 0.999 {
+        apply_opacity_to_buffer(f.buffer_mut(), startup_opacity);
+    }
 }
 
-fn draw_overlays(f: &mut Frame, app: &App) {
+/// Fade every cell toward the theme bg by `1 - opacity`. Used by the
+/// startup fade-in to ease the whole TUI into view.
+fn apply_opacity_to_buffer(buf: &mut Buffer, opacity: f32) {
+    use crate::tui::motion::blend;
+    use ratatui::style::Color;
+    const BG: Color = Color::Rgb(10, 14, 22);
+    let area = buf.area;
+    for y in area.top()..area.bottom() {
+        for x in area.left()..area.right() {
+            let cell = &mut buf[(x, y)];
+            cell.fg = blend(opacity, cell.fg, BG);
+            cell.bg = blend(opacity, cell.bg, BG);
+        }
+    }
+}
+
+/// Render an overlay for `mode` into a scratch buffer, then blend it onto the
+/// frame's buffer with `opacity`. At 0.0 the overlay is invisible (frame
+/// untouched); at 1.0 cells are written as-is. Empty (unset) scratch cells
+/// are skipped so only the overlay's own rect is affected.
+fn render_overlay_blended(f: &mut Frame, app: &App, mode: &crate::tui::mode::Mode, opacity: f32) {
+    use crate::tui::motion::blend;
+    use ratatui::style::Color;
+
+    let area = f.area();
+    let mut scratch = Buffer::empty(area);
+    draw_overlay_into_buffer(&mut scratch, area, app, mode);
+
+    let dst = f.buffer_mut();
+    for y in area.top()..area.bottom() {
+        for x in area.left()..area.right() {
+            let s = scratch[(x, y)].clone();
+            // Treat cells the overlay never touched as "transparent": they keep
+            // the default symbol (" ") and default style. A cell with a
+            // non-default bg was explicitly written (Clear or a widget fill).
+            let wrote_symbol = s.symbol() != " ";
+            let wrote_bg = !matches!(s.bg, Color::Reset);
+            let wrote_fg = !matches!(s.fg, Color::Reset);
+            if !(wrote_symbol || wrote_bg || wrote_fg) {
+                continue;
+            }
+            let d = &mut dst[(x, y)];
+            let new_fg = blend(opacity, s.fg, d.fg);
+            let new_bg = blend(opacity, s.bg, d.bg);
+            if opacity >= 0.5 {
+                d.set_symbol(s.symbol());
+            }
+            d.fg = new_fg;
+            d.bg = new_bg;
+        }
+    }
+}
+
+/// Dispatch: render the given mode's overlay into `buf`. Mirrors the legacy
+/// `draw_overlays` function but writes to a caller-supplied buffer so we can
+/// blend the result during cross-fades.
+fn draw_overlay_into_buffer(
+    buf: &mut Buffer,
+    frame_area: Rect,
+    app: &App,
+    mode: &crate::tui::mode::Mode,
+) {
     use crate::tui::mode::Mode;
 
-    // Command palette overlay
-    if matches!(app.mode, Mode::CommandPalette { .. }) {
-        draw_command_palette(f, app);
+    if matches!(mode, Mode::CommandPalette { .. }) {
+        draw_command_palette_buf(buf, frame_area, app, mode);
     }
 
-    // Help overlay
-    if app.show_help || matches!(app.mode, Mode::Help) {
-        draw_help_overlay(f);
+    if matches!(mode, Mode::Help) {
+        draw_help_overlay_buf(buf, frame_area);
     }
 
-    // Legacy mode overlays
-    match &app.mode {
+    match mode {
         Mode::PipeMenu => {
-            let area = centered_rect(30, 7, f.area());
-            f.render_widget(ratatui::widgets::Clear, area);
+            let area = centered_rect(30, 7, frame_area);
+            ratatui::widgets::Clear.render(area, buf);
             let block = Block::default()
                 .title(" Pipe to Agent ")
                 .borders(Borders::ALL)
@@ -82,13 +207,13 @@ fn draw_overlays(f: &mut Frame, app: &App) {
                 Line::from(""),
                 Line::from("  Esc cancel"),
             ];
-            f.render_widget(Paragraph::new(text).block(block), area);
+            Paragraph::new(text).block(block).render(area, buf);
         }
         Mode::ModelSwitch { cursor } => {
             let models = crate::models::all_models();
             let height = (models.len() + 2).min(20) as u16;
-            let area = centered_rect(45, height, f.area());
-            f.render_widget(ratatui::widgets::Clear, area);
+            let area = centered_rect(45, height, frame_area);
+            ratatui::widgets::Clear.render(area, buf);
             let block = Block::default()
                 .title(" Switch Model ")
                 .borders(Borders::ALL)
@@ -110,49 +235,73 @@ fn draw_overlays(f: &mut Frame, app: &App) {
                     ))
                 })
                 .collect();
-            f.render_widget(List::new(items).block(block), area);
+            List::new(items).block(block).render(area, buf);
         }
         Mode::TemplatePick { cursor, templates } => {
-            draw_template_pick_overlay(f, *cursor, templates);
+            draw_template_pick_overlay_buf(buf, frame_area, *cursor, templates);
         }
         Mode::TemplateTask {
             template_name,
             task,
         } => {
-            draw_template_task_overlay(f, template_name, task);
+            draw_template_task_overlay_buf(buf, frame_area, template_name, task);
         }
         _ => {}
     }
 }
 
-fn draw_command_palette(f: &mut Frame, app: &App) {
+/// Blend every cell's fg and bg toward `BG` by `dim`, leaving symbols intact.
+/// Used to darken Normal content behind an overlay.
+fn apply_dim_to_buffer(buf: &mut ratatui::buffer::Buffer, dim: f32) {
+    use crate::tui::motion::blend;
+    use ratatui::style::Color;
+    const BG: Color = Color::Rgb(10, 14, 22);
+    let area = buf.area;
+    for y in area.top()..area.bottom() {
+        for x in area.left()..area.right() {
+            let cell = &mut buf[(x, y)];
+            cell.fg = blend(1.0 - dim, cell.fg, BG);
+            cell.bg = blend(1.0 - dim, cell.bg, BG);
+        }
+    }
+}
+
+// Legacy dispatcher kept only as a compile-time no-op placeholder — the real
+// rendering now goes through `draw_overlay_into_buffer`. Left here so other
+// callers inside this file (none currently) don't break silently.
+
+fn draw_command_palette_buf(
+    buf: &mut Buffer,
+    frame_area: Rect,
+    _app: &App,
+    mode: &crate::tui::mode::Mode,
+) {
     use crate::tui::mode::Mode;
-    let (query, cursor) = match &app.mode {
-        Mode::CommandPalette { query, cursor } => (query, *cursor),
+    let (query, cursor) = match mode {
+        Mode::CommandPalette { query, cursor } => (query.as_str(), *cursor),
         _ => return,
     };
     let results = crate::tui::commands::fuzzy_filter(query);
-    let area = centered_rect(70, 16, f.area());
-    f.render_widget(ratatui::widgets::Clear, area);
+    let area = centered_rect(70, 16, frame_area);
+    ratatui::widgets::Clear.render(area, buf);
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // input
-            Constraint::Min(5),    // results list
-            Constraint::Length(3), // footer
+            Constraint::Length(3),
+            Constraint::Min(5),
+            Constraint::Length(3),
         ])
         .split(area);
 
-    // Input row
     let input_block = Block::default()
         .title(" / command palette ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(ratatui::style::Color::Cyan));
-    let input = Paragraph::new(format!(" /{query}")).block(input_block);
-    f.render_widget(input, chunks[0]);
+    Paragraph::new(format!(" /{query}"))
+        .block(input_block)
+        .render(chunks[0], buf);
 
-    // Results list
     let items: Vec<ListItem> = results
         .iter()
         .enumerate()
@@ -171,25 +320,24 @@ fn draw_command_palette(f: &mut Frame, app: &App) {
             ))
         })
         .collect();
-    let list_block = Block::default().borders(Borders::ALL);
-    let list = List::new(items).block(list_block);
-    f.render_widget(list, chunks[1]);
+    List::new(items)
+        .block(Block::default().borders(Borders::ALL))
+        .render(chunks[1], buf);
 
-    // Footer row
     let footer_text = format!(
         " {} of {} matches  |  Enter run  |  Esc cancel ",
         results.len(),
         crate::tui::commands::COMMANDS.len()
     );
-    let footer = Paragraph::new(footer_text)
+    Paragraph::new(footer_text)
         .block(Block::default().borders(Borders::ALL))
-        .style(Style::default().add_modifier(Modifier::DIM));
-    f.render_widget(footer, chunks[2]);
+        .style(Style::default().add_modifier(Modifier::DIM))
+        .render(chunks[2], buf);
 }
 
-fn draw_help_overlay(f: &mut Frame) {
-    let area = centered_rect(80, 22, f.area());
-    f.render_widget(ratatui::widgets::Clear, area);
+fn draw_help_overlay_buf(buf: &mut Buffer, frame_area: Rect) {
+    let area = centered_rect(80, 22, frame_area);
+    ratatui::widgets::Clear.render(area, buf);
     let block = Block::default()
         .title(" ctxforge -- navigation keys ")
         .borders(Borders::ALL)
@@ -205,6 +353,7 @@ fn draw_help_overlay(f: &mut Frame) {
         Line::from("  Discoverable input"),
         Line::from("    /         open command palette  (every feature lives here)"),
         Line::from("    Ctrl+F    file fuzzy search     (alias for /find)"),
+        Line::from("    v         toggle code viewer"),
         Line::from("    ?         this help overlay"),
         Line::from("    q         quit"),
         Line::from(""),
@@ -218,18 +367,18 @@ fn draw_help_overlay(f: &mut Frame) {
         Line::from(""),
         Line::from("                          Esc or ? to close"),
     ];
-    let p = Paragraph::new(lines).block(block);
-    f.render_widget(p, area);
+    Paragraph::new(lines).block(block).render(area, buf);
 }
 
-fn draw_template_pick_overlay(
-    f: &mut Frame,
+fn draw_template_pick_overlay_buf(
+    buf: &mut Buffer,
+    frame_area: Rect,
     cursor: usize,
     templates: &[(String, crate::tui::mode::TemplateSource)],
 ) {
     use crate::tui::mode::TemplateSource;
-    let area = centered_rect(60, (templates.len() + 4).min(20) as u16, f.area());
-    f.render_widget(ratatui::widgets::Clear, area);
+    let area = centered_rect(60, (templates.len() + 4).min(20) as u16, frame_area);
+    ratatui::widgets::Clear.render(area, buf);
     let block = Block::default()
         .title(" / template -- pick a template ")
         .borders(Borders::ALL)
@@ -256,12 +405,17 @@ fn draw_template_pick_overlay(
             ))
         })
         .collect();
-    f.render_widget(List::new(items).block(block), area);
+    List::new(items).block(block).render(area, buf);
 }
 
-fn draw_template_task_overlay(f: &mut Frame, template_name: &str, task: &str) {
-    let area = centered_rect(70, 7, f.area());
-    f.render_widget(ratatui::widgets::Clear, area);
+fn draw_template_task_overlay_buf(
+    buf: &mut Buffer,
+    frame_area: Rect,
+    template_name: &str,
+    task: &str,
+) {
+    let area = centered_rect(70, 7, frame_area);
+    ratatui::widgets::Clear.render(area, buf);
     let block = Block::default()
         .title(format!(" task for template '{template_name}' "))
         .borders(Borders::ALL)
@@ -272,25 +426,163 @@ fn draw_template_task_overlay(f: &mut Frame, template_name: &str, task: &str) {
         Line::from(""),
         Line::from("  Enter to copy with template  |  Esc to cancel"),
     ];
-    let p = Paragraph::new(text).block(block);
-    f.render_widget(p, area);
+    Paragraph::new(text).block(block).render(area, buf);
 }
 
 /// Render the right panel (bundle list, profile list, or memory panel).
-fn draw_right_panel(f: &mut Frame, app: &mut App, area: Rect) {
+fn draw_right_panel(f: &mut Frame, app: &App, area: Rect) {
     // LoadProfile mode replaces the right panel with the profile picker.
-    if let crate::tui::mode::Mode::LoadProfile { cursor, profiles } = &app.mode {
+    if let crate::tui::mode::Mode::LoadProfile { cursor, profiles } = app.mode() {
         draw_profile_list(f, *cursor, profiles, area);
         return;
     }
 
     // MemoryPanel mode replaces the right panel with the recall view.
-    if matches!(app.mode, crate::tui::mode::Mode::MemoryPanel { .. }) {
+    if matches!(app.mode(), crate::tui::mode::Mode::MemoryPanel { .. }) {
         draw_memory_panel(f, app, area);
         return;
     }
 
     draw_bundle_list(f, app, area);
+}
+
+/// Render the code viewer pane.
+fn draw_viewer(f: &mut Frame, app: &App, area: Rect) {
+    let focused = app.focus == Focus::Viewer;
+    let border_color = if focused {
+        app.focus_highlight.current(app.clock.now())
+    } else {
+        ratatui::style::Color::DarkGray
+    };
+
+    // Compute body viewport (inside borders).
+    let inner_height = (area.height as usize).saturating_sub(2);
+    let truncated_footer = app.viewer.truncated();
+    let body_height = if truncated_footer {
+        inner_height.saturating_sub(1)
+    } else {
+        inner_height
+    };
+    // Remember for key-handler scroll clamping and mouse hit-testing.
+    app.set_viewer_viewport_height(body_height);
+    app.set_viewer_pane_rect(area);
+
+    let title = build_viewer_title(app, body_height, area.width);
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color));
+
+    // Error / empty states take precedence over content.
+    if let Some(err) = app.viewer.error() {
+        let msg = format!("  {err}");
+        let style = match err {
+            crate::tui::viewer::ViewerError::Directory
+            | crate::tui::viewer::ViewerError::Binary(_) => {
+                Style::default().add_modifier(Modifier::DIM)
+            }
+            _ => Style::default().fg(ratatui::style::Color::Red),
+        };
+        let p = Paragraph::new(Line::styled(msg, style)).block(block);
+        f.render_widget(p, area);
+        return;
+    }
+    if app.viewer.lines().is_empty() {
+        f.render_widget(block, area);
+        return;
+    }
+
+    let total = app.viewer.lines().len();
+    let top = app.viewer.scroll;
+    let bottom = (top + body_height).min(total);
+
+    // Gutter width: enough digits for the largest visible line number + 1
+    // padding space. `nnn │ ` — the vertical bar is the divider.
+    let max_line_no = bottom.max(1);
+    let digits = max_line_no.to_string().len();
+    let gutter_style = Style::default()
+        .fg(ratatui::style::Color::DarkGray)
+        .add_modifier(Modifier::DIM);
+    let divider_style = Style::default().fg(ratatui::style::Color::DarkGray);
+
+    let selection = app.viewer.selection();
+    let selection_bg = ratatui::style::Color::Rgb(60, 40, 80); // dim violet
+    let slice: Vec<Line<'static>> = app.viewer.lines()[top..bottom]
+        .iter()
+        .enumerate()
+        .map(|(i, line)| {
+            let line_no = top + i + 1;
+            let absolute = top + i;
+            let selected = selection
+                .map(|(a, b)| absolute >= a && absolute <= b)
+                .unwrap_or(false);
+
+            let gutter = format!("{line_no:>width$} ", width = digits);
+            let divider = "│ ".to_string();
+            let row_bg = if selected { Some(selection_bg) } else { None };
+            let apply_bg = |style: Style| -> Style {
+                if let Some(bg) = row_bg {
+                    style.bg(bg)
+                } else {
+                    style
+                }
+            };
+            let mut spans: Vec<Span<'static>> = vec![
+                Span::styled(gutter, apply_bg(gutter_style)),
+                Span::styled(divider, apply_bg(divider_style)),
+            ];
+            for span in &line.spans {
+                let styled = apply_bg(span.style);
+                spans.push(Span::styled(span.content.clone().into_owned(), styled));
+            }
+            Line::from(spans)
+        })
+        .collect();
+    let p = Paragraph::new(slice).block(block);
+    f.render_widget(p, area);
+
+    if truncated_footer && area.height >= 3 {
+        let footer_area = Rect {
+            x: area.x + 1,
+            y: area.y + area.height.saturating_sub(2),
+            width: area.width.saturating_sub(2),
+            height: 1,
+        };
+        let footer = Paragraph::new(Line::styled(
+            "  … truncated at 2 MB",
+            Style::default().add_modifier(Modifier::DIM),
+        ));
+        f.render_widget(footer, footer_area);
+    }
+}
+
+/// Build the viewer title: `" preview — path  [line N-M / total] "`.
+fn build_viewer_title(app: &App, body_height: usize, width: u16) -> String {
+    let path_display = app
+        .viewer
+        .cached_path
+        .as_ref()
+        .map(|p| {
+            p.strip_prefix(&app.project_root)
+                .unwrap_or(p)
+                .display()
+                .to_string()
+        })
+        .unwrap_or_else(|| "—".into());
+    let total = app.viewer.lines().len();
+    let top = app.viewer.scroll;
+    let bottom = (top + body_height).min(total);
+    let indicator = if total > 0 {
+        format!(" [line {}-{} / {}] ", top + 1, bottom, total)
+    } else {
+        String::new()
+    };
+    let prefix = format!(" preview — {path_display}{indicator}");
+    if prefix.len() > width as usize {
+        " preview ".into()
+    } else {
+        prefix
+    }
 }
 
 /// Helper to create a centered rect of given width/height inside `area`,
@@ -302,6 +594,7 @@ fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
 }
 
 fn draw_header(f: &mut Frame, app: &App, area: Rect) {
+    // Text values use the real total (numbers update instantly).
     let pct = app.window_pct();
     let color = theme::gauge_color(pct);
 
@@ -322,13 +615,19 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         profile_str, app.model_name, token_str, app.model_window, pct
     );
 
-    let ratio = (pct / 100.0).min(1.0);
+    // The bar fill tweens smoothly via `token_gauge`.
+    let animated_tokens = app.token_gauge.current(app.clock.now()) as f64;
+    let animated_ratio = if app.model_window == 0 {
+        0.0
+    } else {
+        (animated_tokens / app.model_window as f64).clamp(0.0, 1.0)
+    };
 
     let gauge = Gauge::default()
         .block(Block::default().borders(Borders::ALL))
         .gauge_style(Style::default().fg(color))
         .label(label)
-        .ratio(ratio);
+        .ratio(animated_ratio);
 
     f.render_widget(gauge, area);
 }
@@ -339,11 +638,11 @@ fn draw_left_panel(f: &mut Frame, app: &App, area: Rect) -> bool {
     use crate::tui::mode::Mode;
     #[cfg(feature = "extract")]
     {
-        if let Mode::FunctionPick { cursor, items } = &app.mode {
+        if let Mode::FunctionPick { cursor, items } = app.mode() {
             draw_symbol_pick(f, "Functions", "λ", *cursor, items, area);
             return true;
         }
-        if let Mode::TypePick { cursor, items } = &app.mode {
+        if let Mode::TypePick { cursor, items } = app.mode() {
             draw_symbol_pick(f, "Types", "τ", *cursor, items, area);
             return true;
         }
@@ -354,7 +653,7 @@ fn draw_left_panel(f: &mut Frame, app: &App, area: Rect) -> bool {
         cursor,
         entering_branch,
         ..
-    } = &app.mode
+    } = app.mode()
     {
         if !*entering_branch {
             draw_diff_pick(f, *cursor, files, selected, area);
@@ -440,8 +739,8 @@ fn draw_memory_panel(f: &mut Frame, app: &App, area: Rect) {
     // Show newest first to match recall semantics.
     notes.reverse();
 
-    let cursor = if let crate::tui::mode::Mode::MemoryPanel { cursor, .. } = app.mode {
-        cursor
+    let cursor = if let crate::tui::mode::Mode::MemoryPanel { cursor, .. } = app.mode() {
+        *cursor
     } else {
         0
     };
@@ -476,7 +775,11 @@ fn draw_memory_panel(f: &mut Frame, app: &App, area: Rect) {
             .block(block);
         f.render_widget(msg, area);
     } else {
-        f.render_widget(List::new(items).block(block), area);
+        let list = List::new(items).block(block);
+        let mut state = ListState::default();
+        let len = notes.len();
+        state.select(Some(cursor.min(len.saturating_sub(1))));
+        f.render_stateful_widget(list, area, &mut state);
     }
 }
 
@@ -501,11 +804,16 @@ fn draw_profile_list(f: &mut Frame, cursor: usize, profiles: &[String], area: Re
         })
         .collect();
 
-    f.render_widget(List::new(items).block(block), area);
+    let list = List::new(items).block(block);
+    let mut state = ListState::default();
+    if !profiles.is_empty() {
+        state.select(Some(cursor.min(profiles.len() - 1)));
+    }
+    f.render_stateful_widget(list, area, &mut state);
 }
 
-fn draw_file_tree(f: &mut Frame, app: &mut App, area: Rect) {
-    let in_search = matches!(app.mode, crate::tui::mode::Mode::Search { .. });
+fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
+    let in_search = matches!(app.mode(), crate::tui::mode::Mode::Search { .. });
 
     // Split off a 3-row search input pane when in search mode.
     let (search_area, tree_area) = if in_search {
@@ -519,7 +827,7 @@ fn draw_file_tree(f: &mut Frame, app: &mut App, area: Rect) {
     };
 
     if let Some(sa) = search_area {
-        if let crate::tui::mode::Mode::Search { ref query } = app.mode {
+        if let crate::tui::mode::Mode::Search { query } = app.mode() {
             let input = Paragraph::new(format!(" /{query}▏"))
                 .block(Block::default().borders(Borders::ALL).title(" search "));
             f.render_widget(input, sa);
@@ -548,7 +856,7 @@ fn draw_file_tree(f: &mut Frame, app: &mut App, area: Rect) {
     };
 
     let border_style = if app.focus == Focus::FileTree {
-        Style::default().fg(ratatui::style::Color::Cyan)
+        Style::default().fg(app.focus_highlight.current(app.clock.now()))
     } else {
         Style::default()
     };
@@ -599,26 +907,34 @@ fn draw_file_tree(f: &mut Frame, app: &mut App, area: Rect) {
 
     // Capture viewport height for PageUp/PageDown/half-page movement. Subtract 2
     // for the top + bottom borders; clamp to 0 if the area is tiny.
-    app.tree_viewport_height = tree_area.height.saturating_sub(2);
+    app.tree_viewport_height
+        .set(tree_area.height.saturating_sub(2));
 
+    let list = List::new(items)
+        .block(block)
+        .highlight_symbol("▶ ")
+        .highlight_style(
+            Style::default()
+                .fg(ratatui::style::Color::Black)
+                .bg(ratatui::style::Color::White),
+        );
+    let mut state = app.tree_list_state.borrow_mut();
     let selected = if entries_to_show.is_empty() {
         None
     } else if in_search {
         // In search mode the cursor is implicit — always highlight the top result.
         Some(0usize)
     } else {
-        Some(app.tree_cursor.min(entries_to_show.len().saturating_sub(1)))
+        Some(app.tree_cursor.min(entries_to_show.len() - 1))
     };
-    app.tree_list_state.select(selected);
-
-    let list = List::new(items).block(block);
-    f.render_stateful_widget(list, tree_area, &mut app.tree_list_state);
+    state.select(selected);
+    f.render_stateful_widget(list, tree_area, &mut state);
 }
 
-fn draw_bundle_list(f: &mut Frame, app: &mut App, area: Rect) {
+fn draw_bundle_list(f: &mut Frame, app: &App, area: Rect) {
     let title = format!(" bundle ({} items) ", app.bundle.len());
     let border_style = if app.focus == Focus::BundleList {
-        Style::default().fg(ratatui::style::Color::Cyan)
+        Style::default().fg(app.focus_highlight.current(app.clock.now()))
     } else {
         Style::default()
     };
@@ -670,7 +986,7 @@ fn draw_bundle_list(f: &mut Frame, app: &mut App, area: Rect) {
                 pct
             );
 
-            let style = if i == app.bundle_cursor && app.focus == Focus::BundleList {
+            let mut style = if i == app.bundle_cursor && app.focus == Focus::BundleList {
                 Style::default()
                     .fg(ratatui::style::Color::Black)
                     .bg(ratatui::style::Color::White)
@@ -680,22 +996,40 @@ fn draw_bundle_list(f: &mut Frame, app: &mut App, area: Rect) {
                 Style::default()
             };
 
+            // Apply per-row fade-in if this path was just added.
+            if let Some(fade) = app.bundle_row_fades.get(&item.path) {
+                use crate::tui::motion::blend;
+                use ratatui::style::Color;
+                const BG: Color = Color::Rgb(10, 14, 22);
+                let opacity = fade.opacity(app.clock.now());
+                if opacity < 0.999 {
+                    let fg = style.fg.unwrap_or(Color::Gray);
+                    style = style.fg(blend(opacity, fg, BG));
+                }
+            }
+
             ListItem::new(Line::from(vec![Span::styled(text, style)]))
         })
         .collect();
 
+    let list = List::new(items)
+        .block(block)
+        .highlight_symbol("▶ ")
+        .highlight_style(
+            Style::default()
+                .fg(ratatui::style::Color::Black)
+                .bg(ratatui::style::Color::White),
+        );
     // Capture viewport height for PageUp/PageDown on the bundle list.
-    app.bundle_viewport_height = area.height.saturating_sub(2);
-
-    let selected = if app.bundle.items.is_empty() {
-        None
+    app.bundle_viewport_height
+        .set(area.height.saturating_sub(2));
+    let mut state = app.bundle_list_state.borrow_mut();
+    if app.bundle.is_empty() {
+        state.select(None);
     } else {
-        Some(app.bundle_cursor.min(app.bundle.items.len() - 1))
-    };
-    app.bundle_list_state.select(selected);
-
-    let list = List::new(items).block(block);
-    f.render_stateful_widget(list, area, &mut app.bundle_list_state);
+        state.select(Some(app.bundle_cursor.min(app.bundle.len() - 1)));
+    }
+    f.render_stateful_widget(list, area, &mut state);
 }
 
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
@@ -707,7 +1041,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
 
     // Status / input area — when in an input mode, render the inline prompt
     // instead of the regular status message.
-    match &app.mode {
+    match app.mode() {
         Mode::Narrow { start, end, field } => {
             let start_style = if *field == InputField::First {
                 Style::default().fg(ratatui::style::Color::Cyan)
@@ -800,8 +1134,15 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
             f.render_widget(Paragraph::new(line), chunks[0]);
         }
         _ => {
-            let status = Paragraph::new(format!(" {}", app.status_message))
-                .style(Style::default().add_modifier(Modifier::DIM));
+            use crate::tui::motion::blend;
+            use ratatui::style::Color;
+            const BG: Color = Color::Rgb(10, 14, 22);
+            let opacity = app.status_fade.opacity(app.clock.now());
+            // Default dim gray for the status bar; faded toward bg based on
+            // the status-fade timeline (fade-in / hold / fade-out).
+            let fg = blend(opacity, Color::Gray, BG);
+            let status =
+                Paragraph::new(format!(" {}", app.status_message)).style(Style::default().fg(fg));
             f.render_widget(status, chunks[0]);
         }
     }
@@ -809,13 +1150,15 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     // Hint row.
     let focus_label = match app.focus {
         Focus::FileTree => "tree",
+        Focus::Viewer => "viewer",
         Focus::BundleList => "bundle",
     };
     let nav_keys = match app.focus {
-        Focus::FileTree => "j/k PgUp/PgDn  Enter expand  space add  E/C expand-all/collapse-all",
+        Focus::FileTree => "j/k PgUp/PgDn  Enter expand  space add  E/C expand-all",
+        Focus::Viewer => "j/k scroll  drag=select  a add  Esc clear  v close",
         Focus::BundleList => "j/k PgUp/PgDn  Enter select",
     };
-    let keys_text = match &app.mode {
+    let keys_text = match app.mode() {
         Mode::Normal => {
             format!("  > {focus_label}  |  {nav_keys}  |  / commands  Ctrl+F find  ? help  q quit")
         }

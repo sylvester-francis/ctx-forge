@@ -6,6 +6,9 @@ docs/superpowers/specs/
 # Claude Code workspace
 .claude/
 
+# Git worktrees
+.worktrees/
+
 # Rust
 /target
 **/*.rs.bk

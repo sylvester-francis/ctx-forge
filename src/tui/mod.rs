@@ -8,9 +8,11 @@ pub mod app;
 pub mod commands;
 pub mod events;
 pub mod mode;
+pub mod motion;
 pub mod theme;
 pub mod tree;
 pub mod ui;
+pub mod viewer;
 
 use crate::error::Result;
 use crate::paths::CtxforgeRoot;
@@ -28,7 +30,9 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, root: CtxforgeRoot) -> Resu
     let mut app = App::new(root);
 
     loop {
-        terminal.draw(|f| ui::draw(f, &mut app))?;
+        terminal.draw(|f| ui::draw(f, &app))?;
+        app.cleanup_finished_animations();
+        app.tick_status_fade();
 
         // Drain any pending stdout export (e.g. `x` key). We restore the
         // terminal, print, wait for a keypress, then re-init a fresh terminal
@@ -56,7 +60,7 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, root: CtxforgeRoot) -> Resu
                         let _ = stdin.write_all(content.as_bytes());
                     }
                     let _ = child.wait();
-                    app.status_message = format!("Piped to {target}");
+                    app.set_status(format!("Piped to {target}"));
                 }
                 Err(e) => {
                     eprintln!("Failed to start `{target}`: {e}");
@@ -68,8 +72,18 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, root: CtxforgeRoot) -> Resu
             continue;
         }
 
-        if let Some(key) = events::poll() {
-            events::handle(&mut app, key);
+        // Animation-aware timeout: ~60fps while animating, block on input
+        // when idle, or the time until the next scheduled event (e.g.
+        // status fade-out trigger) otherwise.
+        let timeout = app.next_wake_delay();
+
+        if let Some(ev) = events::poll_event_with_timeout(timeout) {
+            use crossterm::event::Event;
+            match ev {
+                Event::Key(k) => events::handle(&mut app, k),
+                Event::Mouse(m) => events::handle_mouse(&mut app, m),
+                _ => {}
+            }
         }
 
         if app.should_quit {
