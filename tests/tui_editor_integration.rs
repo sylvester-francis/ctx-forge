@@ -44,3 +44,28 @@ fn spawn_editor_errors_when_editor_fails() {
     let result = ctxforge::tui::editor::spawn_editor_with("x", script.to_str().unwrap());
     assert!(result.is_err());
 }
+
+#[test]
+fn ctrl_e_marks_pending_editor_with_current_task() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ctxforge::paths::CtxforgeRoot;
+    use ctxforge::tui::app::{App, PendingEditor};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let root = CtxforgeRoot::find_or_create(tmp.path()).unwrap();
+    let mut app = App::new(root);
+    app.bundle.scenario = Some("bugfix".to_string());
+    app.focus_prompt();
+    app.prompt_input.set_text("work in progress".to_string());
+    app.bundle.task_text = "work in progress".to_string();
+
+    ctxforge::tui::events::handle(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL),
+    );
+
+    match app.pending_editor.as_ref() {
+        Some(PendingEditor::TaskText(s)) => assert_eq!(s, "work in progress"),
+        _ => panic!("expected PendingEditor::TaskText, got {:?}", app.pending_editor),
+    }
+}

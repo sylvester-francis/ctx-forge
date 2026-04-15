@@ -341,7 +341,13 @@ fn handle_prompt_key(app: &mut App, key: KeyEvent) {
             return;
         }
         (KeyCode::Char('e'), mods) if mods.contains(KeyModifiers::CONTROL) => {
-            app.prompt_input.move_end();
+            // Open the task prompt in $EDITOR for long-form editing.
+            // (The emacs-style "move to end" binding is reachable via
+            // End; we reserve Ctrl-E for the editor spawn per the
+            // v1.3 spec.)
+            app.pending_editor = Some(crate::tui::app::PendingEditor::TaskText(
+                app.prompt_input.text().to_string(),
+            ));
             return;
         }
         (KeyCode::Char('@'), mods)

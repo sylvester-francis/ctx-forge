@@ -59,6 +59,51 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, root: CtxforgeRoot) -> Resu
             continue;
         }
 
+        // Drain any pending $EDITOR spawn (Ctrl-E on the prompt input, or
+        // E / /edit-prompt on the preview). The editor takes over the
+        // terminal, so we restore before spawning and re-init afterwards.
+        if let Some(req) = app.pending_editor.take() {
+            use app::PendingEditor;
+            ratatui::restore();
+            let _ = crossterm::execute!(
+                std::io::stdout(),
+                crossterm::event::DisableMouseCapture,
+                crossterm::event::DisableBracketedPaste,
+            );
+            let starting = match &req {
+                PendingEditor::TaskText(t) => t.clone(),
+                PendingEditor::FullPrompt(p) => p.clone(),
+            };
+            match editor::spawn_editor(&starting) {
+                Ok(updated) => match req {
+                    PendingEditor::TaskText(_) => {
+                        let trimmed = updated.trim_end_matches('\n').to_string();
+                        app.prompt_input.set_text(trimmed.clone());
+                        app.bundle.task_text = trimmed;
+                        let _ = app.bundle.save(&app.root);
+                        app.set_status("task updated via $EDITOR".to_string());
+                    }
+                    PendingEditor::FullPrompt(_) => {
+                        app.prompt_override = Some(updated);
+                        app.set_status(
+                            "prompt override active - sent on next deliver".to_string(),
+                        );
+                    }
+                },
+                Err(e) => {
+                    eprintln!("editor spawn failed: {e}");
+                    eprintln!("Press any key to return...");
+                    let _ = crossterm::event::read();
+                }
+            }
+            *terminal = ratatui::init();
+            let _ = crossterm::execute!(
+                std::io::stdout(),
+                crossterm::event::EnableBracketedPaste
+            );
+            continue;
+        }
+
         // Drain any pending pipe (e.g. `p` menu choice). Same dance, but
         // spawn the target binary and pipe content into its stdin.
         if let Some((target, content)) = app.pending_pipe.take() {

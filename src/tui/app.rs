@@ -23,6 +23,18 @@ pub enum Focus {
     Prompt,
 }
 
+/// Pending editor spawn, drained by the run loop. Keeping the content
+/// on the App (rather than spawning inline) lets the loop leave the
+/// alternate screen, run the editor cleanly, then re-enter ratatui.
+#[derive(Debug, Clone)]
+pub enum PendingEditor {
+    /// Edit just the prompt's task text. On save, replaces prompt_input.
+    TaskText(String),
+    /// Edit the full composed prompt. On save, stored as prompt_override
+    /// for the next deliver (one-shot override).
+    FullPrompt(String),
+}
+
 /// In-flight mode transition — both the outgoing and incoming modes render
 /// simultaneously during this window.
 pub struct ModeTransition {
@@ -130,6 +142,10 @@ pub struct App {
     /// `Some`, the next `deliver::run_choice` call uses this content
     /// verbatim instead of rebuilding from the template + bundle.
     pub prompt_override: Option<String>,
+    /// Pending $EDITOR spawn. Drained by `run_loop` (leaves alt-screen
+    /// -> spawn editor -> reads back -> re-enters alt-screen) so the
+    /// editor takes full control of the terminal.
+    pub pending_editor: Option<PendingEditor>,
 }
 
 impl App {
@@ -605,6 +621,7 @@ impl App {
             last_panel_focus: Focus::FileTree,
             deliver_last: None,
             prompt_override: None,
+            pending_editor: None,
         };
         // Seed the prompt input from any task text the bundle already carries.
         if !app.bundle.task_text.is_empty() {
