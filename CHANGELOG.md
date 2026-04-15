@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.1](https://github.com/sylvester-francis/ctx-forge/compare/v1.2.0...v1.2.1) - 2026-04-15
+
+### Other
+
+- automate cargo publish + GitHub release via release-plz
+
 ## 1.2.0 — 2026-04-14
 
 ### Added
