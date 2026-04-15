@@ -41,7 +41,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             .split(chunks[1]);
         let left_handled = draw_left_panel(f, app, panel_chunks[0]);
         if !left_handled {
-            draw_file_tree(f, app, panel_chunks[0]);
+            draw_left_column(f, app, panel_chunks[0]);
         }
         draw_viewer(f, app, panel_chunks[1]);
         draw_right_panel(f, app, panel_chunks[2]);
@@ -58,7 +58,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         draw_viewer(f, app, panel_chunks[1]);
         let left_handled = draw_left_panel(f, app, panel_chunks[2]);
         if !left_handled {
-            draw_file_tree(f, app, panel_chunks[2]);
+            draw_left_column(f, app, panel_chunks[2]);
         }
     } else if area.width >= 120 && area.height >= 30 {
         let panel_chunks = Layout::default()
@@ -67,7 +67,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             .split(chunks[1]);
         let left_handled = draw_left_panel(f, app, panel_chunks[0]);
         if !left_handled {
-            draw_file_tree(f, app, panel_chunks[0]);
+            draw_left_column(f, app, panel_chunks[0]);
         }
         draw_right_panel(f, app, panel_chunks[1]);
     } else {
@@ -78,7 +78,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         draw_right_panel(f, app, panel_chunks[0]);
         let left_handled = draw_left_panel(f, app, panel_chunks[1]);
         if !left_handled {
-            draw_file_tree(f, app, panel_chunks[1]);
+            draw_left_column(f, app, panel_chunks[1]);
         }
     }
 
@@ -466,21 +466,102 @@ fn draw_template_task_overlay_buf(
     Paragraph::new(text).block(block).render(area, buf);
 }
 
-/// Render the right panel (bundle list, profile list, or memory panel).
+/// Render the right panel. Profile and memory overlays still claim the
+/// whole right column when active; otherwise defaults to the prompt
+/// preview (the scenario-aware artifact view).
 fn draw_right_panel(f: &mut Frame, app: &App, area: Rect) {
-    // LoadProfile mode replaces the right panel with the profile picker.
     if let crate::tui::mode::Mode::LoadProfile { cursor, profiles } = app.mode() {
         draw_profile_list(f, *cursor, profiles, area, app.theme);
         return;
     }
 
-    // MemoryPanel mode replaces the right panel with the recall view.
     if matches!(app.mode(), crate::tui::mode::Mode::MemoryPanel { .. }) {
         draw_memory_panel(f, app, area);
         return;
     }
 
-    draw_bundle_list(f, app, area);
+    draw_preview(f, app, area);
+}
+
+/// Render the prompt preview — the crafted prompt structure. Replaces the
+/// bundle list as the default right-column surface.
+fn draw_preview(f: &mut Frame, app: &App, area: Rect) {
+    let border_color = app.theme.border;
+    let preview = crate::tui::preview::PromptPreview::from_app(app);
+    let text = preview.to_text();
+    let block = Block::default()
+        .title(" prompt preview ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color));
+    let paragraph = Paragraph::new(text)
+        .block(block)
+        .wrap(ratatui::widgets::Wrap { trim: false });
+    f.render_widget(paragraph, area);
+}
+
+/// Render the left column: file tree on top, compact bundle summary below.
+/// `LoadProfile` and `MemoryPanel` modes keep their claim on the right
+/// column (they don't affect the left column); picker overlays in the left
+/// column (FunctionPick, TypePick, DiffPick) go through the existing
+/// `draw_left_panel` dispatcher.
+fn draw_left_column(f: &mut Frame, app: &App, area: Rect) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+        .split(area);
+    draw_file_tree(f, app, chunks[0]);
+    draw_bundle_summary(f, app, chunks[1]);
+}
+
+/// Compact bundle view for the lower-left slot. Same path + token info as
+/// the full list, with percentage column dropped to fit narrower space.
+fn draw_bundle_summary(f: &mut Frame, app: &App, area: Rect) {
+    let title = format!(" bundle ({}) ", app.bundle.len());
+    let border_style = if app.focus == Focus::BundleList {
+        Style::default().fg(app.focus_highlight.current(app.clock.now()))
+    } else {
+        Style::default().fg(app.theme.border)
+    };
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(border_style);
+
+    if app.bundle.is_empty() {
+        let msg = Paragraph::new("  (empty)")
+            .style(Style::default().add_modifier(Modifier::DIM))
+            .block(block);
+        f.render_widget(msg, area);
+        return;
+    }
+
+    let items: Vec<ListItem> = app
+        .bundle
+        .items
+        .iter()
+        .enumerate()
+        .map(|(i, item)| {
+            let tokens = app.item_tokens.get(i).copied().unwrap_or(0);
+            let display = item.display();
+            let truncated = if display.len() > 20 {
+                format!("{}…", &display[..19])
+            } else {
+                display
+            };
+            let text = format!("{:>2} {:<20} {:>6}", i + 1, truncated, tokens);
+            let style = if i == app.bundle_cursor && app.focus == Focus::BundleList {
+                Style::default()
+                    .fg(app.theme.selected_fg)
+                    .bg(app.theme.selected_bg)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Line::from(vec![Span::styled(text, style)]))
+        })
+        .collect();
+
+    let list = List::new(items).block(block);
+    f.render_widget(list, area);
 }
 
 /// Render the code viewer pane.
@@ -973,107 +1054,6 @@ fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
     };
     state.select(selected);
     f.render_stateful_widget(list, tree_area, &mut state);
-}
-
-fn draw_bundle_list(f: &mut Frame, app: &App, area: Rect) {
-    let title = format!(" bundle ({} items) ", app.bundle.len());
-    let border_style = if app.focus == Focus::BundleList {
-        Style::default().fg(app.focus_highlight.current(app.clock.now()))
-    } else {
-        Style::default()
-    };
-    let block = Block::default()
-        .title(title)
-        .borders(Borders::ALL)
-        .border_style(border_style);
-
-    if app.bundle.is_empty() {
-        let msg = Paragraph::new("  (empty — press space to add files)")
-            .style(Style::default().add_modifier(Modifier::DIM))
-            .block(block);
-        f.render_widget(msg, area);
-        return;
-    }
-
-    let items: Vec<ListItem> = app
-        .bundle
-        .items
-        .iter()
-        .enumerate()
-        .map(|(i, item)| {
-            let tokens = app.item_tokens.get(i).copied().unwrap_or(0);
-            let pct = if app.total_tokens > 0 {
-                (tokens as f64 / app.total_tokens as f64) * 100.0
-            } else {
-                0.0
-            };
-
-            let display = item.display();
-            let truncated = if display.len() > 28 {
-                format!("{}…", &display[..27])
-            } else {
-                display
-            };
-
-            let icon = match &item.kind {
-                crate::bundle::ItemKind::Function { .. } => "λ",
-                crate::bundle::ItemKind::Type { .. } => "τ",
-                _ => "■",
-            };
-
-            let text = format!(
-                "{:>2} {} {:<28} {:>6} {:>5.1}%",
-                i + 1,
-                icon,
-                truncated,
-                tokens,
-                pct
-            );
-
-            let mut style = if i == app.bundle_cursor && app.focus == Focus::BundleList {
-                Style::default()
-                    .fg(app.theme.selected_fg)
-                    .bg(app.theme.selected_bg)
-            } else if pct > 25.0 {
-                Style::default().fg(app.theme.hotspot)
-            } else {
-                Style::default()
-            };
-
-            // Apply per-row fade-in if this path was just added.
-            if let Some(fade) = app.bundle_row_fades.get(&item.path) {
-                use crate::tui::motion::blend;
-                use ratatui::style::Color;
-                let bg = app.theme.bg;
-                let opacity = fade.opacity(app.clock.now());
-                if opacity < 0.999 {
-                    let fg = style.fg.unwrap_or(Color::Gray);
-                    style = style.fg(blend(opacity, fg, bg));
-                }
-            }
-
-            ListItem::new(Line::from(vec![Span::styled(text, style)]))
-        })
-        .collect();
-
-    let list = List::new(items)
-        .block(block)
-        .highlight_symbol("▶ ")
-        .highlight_style(
-            Style::default()
-                .fg(app.theme.selected_fg)
-                .bg(app.theme.selected_bg),
-        );
-    // Capture viewport height for PageUp/PageDown on the bundle list.
-    app.bundle_viewport_height
-        .set(area.height.saturating_sub(2));
-    let mut state = app.bundle_list_state.borrow_mut();
-    if app.bundle.is_empty() {
-        state.select(None);
-    } else {
-        state.select(Some(app.bundle_cursor.min(app.bundle.len() - 1)));
-    }
-    f.render_stateful_widget(list, area, &mut state);
 }
 
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {

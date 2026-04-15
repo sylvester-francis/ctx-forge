@@ -28,7 +28,6 @@ fn split(body: &str) -> Wrapped {
         .iter()
         .copied()
         .flatten()
-        .map(|(start, end)| (start, end))
         .max_by_key(|(_, end)| *end);
 
     let prefix = match first {

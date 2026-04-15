@@ -81,3 +81,27 @@ fn preview_unknown_scenario_shows_error_section() {
         "expected error marker; got:\n{text}"
     );
 }
+
+#[test]
+fn wide_layout_renders_preview_in_right_column() {
+    let (mut app, _tmp) = test_app();
+    app.bundle.scenario = Some("bugfix".to_string());
+    ctxforge::test_helpers::seed_fixture(&mut app, &["src/main.rs"]);
+
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(150, 40)).unwrap();
+    terminal.draw(|f| ctxforge::tui::ui::draw(f, &app)).unwrap();
+    let s = ctxforge::test_helpers::buffer_to_ansi_string(terminal.backend().buffer());
+
+    assert!(
+        s.contains("prompt preview"),
+        "preview block title missing:\n{s}"
+    );
+    assert!(s.contains("## Task"), "Task section missing:\n{s}");
+    assert!(s.contains("## Context"), "Context section missing:\n{s}");
+    // Bundle summary still visible in lower-left
+    assert!(
+        s.contains("bundle (1)") || s.contains("bundle (1) "),
+        "bundle summary label missing:\n{s}"
+    );
+    assert!(s.contains("src/main.rs"), "bundle item missing:\n{s}");
+}
