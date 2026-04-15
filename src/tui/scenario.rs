@@ -28,6 +28,34 @@ pub enum Source {
 /// into the CLI command implementations).
 const BUILT_IN: &[&str] = &["bugfix", "code-review", "explain", "refactor", "migrate"];
 
+/// Template bodies for built-in starters, embedded at compile time.
+/// Same source files `src/commands/template.rs` pulls in.
+const BUILT_IN_BODIES: &[(&str, &str)] = &[
+    ("bugfix", include_str!("../../templates/starters/bugfix.md")),
+    (
+        "code-review",
+        include_str!("../../templates/starters/code-review.md"),
+    ),
+    ("explain", include_str!("../../templates/starters/explain.md")),
+    ("refactor", include_str!("../../templates/starters/refactor.md")),
+    ("migrate", include_str!("../../templates/starters/migrate.md")),
+];
+
+/// Load the template body for a scenario. Handles built-in starters (baked
+/// into the binary), project-local templates, and user-global templates.
+/// Returns an error if the name is not recognised or the file cannot be
+/// read.
+pub fn load_body(root: &CtxforgeRoot, name: &str) -> Result<String, String> {
+    // Built-in?
+    if let Some((_, body)) = BUILT_IN_BODIES.iter().find(|(n, _)| *n == name) {
+        return Ok((*body).to_string());
+    }
+    // File-backed (project or global)?
+    let path = crate::template::resolve_template_path(root, name)
+        .map_err(|e| format!("resolve template: {e}"))?;
+    std::fs::read_to_string(&path).map_err(|e| format!("read {}: {}", path.display(), e))
+}
+
 /// Every scenario the user can select, sorted: built-ins first, then
 /// project-local alphabetical, then global alphabetical (global entries
 /// shadowed by a project template of the same name are dropped).
