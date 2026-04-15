@@ -54,7 +54,11 @@ pub fn rank(all: &[PathBuf], query: &str, limit: usize) -> Vec<PathBuf> {
         })
         .collect();
     scored.sort_by(|a, b| b.0.cmp(&a.0));
-    scored.into_iter().take(limit).map(|(_, p)| p.clone()).collect()
+    scored
+        .into_iter()
+        .take(limit)
+        .map(|(_, p)| p.clone())
+        .collect()
 }
 
 #[cfg(test)]
@@ -83,7 +87,10 @@ mod tests {
     fn query_filters_to_matches() {
         let all = sample();
         let got = rank(&all, "auth", 50);
-        let names: Vec<_> = got.iter().map(|p| p.to_string_lossy().to_string()).collect();
+        let names: Vec<_> = got
+            .iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect();
         assert!(names.iter().all(|n| n.contains("auth")));
         assert!(!names.iter().any(|n| n.contains("unrelated")));
     }

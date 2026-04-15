@@ -106,11 +106,17 @@ pub fn handle(app: &mut App, key: KeyEvent) {
 /// literally in the prompt as a degenerate no-op). Enter is handled in
 /// Task 21; Esc always closes cleanly.
 fn handle_at_picker(app: &mut App, key: KeyEvent) {
-    // Borrow-split: we need `app.set_mode` later but can't hold a mutable
-    // borrow of the variant fields across it. Pull out what we need.
-    let (close, extend, rerank): (bool, Option<char>, bool);
-    let mut new_cursor_delta: i32 = 0;
-    {
+    // Plan what to do without holding a mutable borrow across set_mode /
+    // prompt mutations. The borrow-split keeps the logic linear.
+    enum Action {
+        None,
+        Close,
+        Extend(char),
+        MoveCursor(i32),
+        Confirm(std::path::PathBuf),
+    }
+
+    let action = {
         let Mode::AtPicker {
             query,
             results,
@@ -121,84 +127,120 @@ fn handle_at_picker(app: &mut App, key: KeyEvent) {
             return;
         };
         match (key.code, key.modifiers) {
-            (KeyCode::Esc, _) => {
-                close = true;
-                extend = None;
-                rerank = false;
-            }
-            (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
-                new_cursor_delta = 1;
-                let max = results.len().saturating_sub(1);
-                *cursor = (*cursor + 1).min(max);
-                close = false;
-                extend = None;
-                rerank = false;
-            }
-            (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
-                new_cursor_delta = -1;
-                *cursor = cursor.saturating_sub(1);
-                close = false;
-                extend = None;
-                rerank = false;
-            }
+            (KeyCode::Esc, _) => Action::Close,
+            (KeyCode::Enter, _) => results
+                .get(*cursor)
+                .cloned()
+                .map(Action::Confirm)
+                .unwrap_or(Action::Close),
+            (KeyCode::Char('j'), _) | (KeyCode::Down, _) => Action::MoveCursor(1),
+            (KeyCode::Char('k'), _) | (KeyCode::Up, _) => Action::MoveCursor(-1),
             (KeyCode::Backspace, _) => {
                 if query.is_empty() {
-                    close = true;
+                    Action::Close
                 } else {
                     query.pop();
-                    close = false;
+                    Action::Extend('\0') // sentinel: rerank-only, no typing
                 }
-                extend = None;
-                rerank = !close;
             }
             (KeyCode::Char(c), mods)
-                if !mods.contains(KeyModifiers::CONTROL)
-                    && !mods.contains(KeyModifiers::ALT) =>
+                if !mods.contains(KeyModifiers::CONTROL) && !mods.contains(KeyModifiers::ALT) =>
             {
                 query.push(c);
-                close = false;
-                extend = Some(c);
-                rerank = true;
+                Action::Extend(c)
             }
-            _ => {
-                close = false;
-                extend = None;
-                rerank = false;
+            _ => Action::None,
+        }
+    };
+
+    match action {
+        Action::None => {}
+        Action::Close => app.set_mode(Mode::Normal),
+        Action::MoveCursor(delta) => {
+            if let Mode::AtPicker {
+                results, cursor, ..
+            } = app.mode_mut()
+            {
+                let len = results.len();
+                if len == 0 {
+                    *cursor = 0;
+                } else if delta > 0 {
+                    *cursor = (*cursor + 1).min(len - 1);
+                } else {
+                    *cursor = cursor.saturating_sub(1);
+                }
             }
         }
-    }
-
-    // Re-rank after mutating `query` (borrow of `app.mode_mut()` released).
-    if rerank {
-        if let Mode::AtPicker {
-            all,
-            query,
-            results,
-            cursor,
-        } = app.mode_mut()
-        {
-            *results = crate::tui::prompt_input::at_picker::rank(
+        Action::Extend(c) => {
+            // Rerank with the now-updated query.
+            if let Mode::AtPicker {
                 all,
                 query,
-                crate::tui::prompt_input::at_picker::RESULT_LIMIT,
-            );
-            *cursor = 0;
+                results,
+                cursor,
+            } = app.mode_mut()
+            {
+                *results = crate::tui::prompt_input::at_picker::rank(
+                    all,
+                    query,
+                    crate::tui::prompt_input::at_picker::RESULT_LIMIT,
+                );
+                *cursor = 0;
+            }
+            // Real char: also type it into the prompt buffer. '\0'
+            // sentinel means this came from Backspace and we already
+            // handled the prompt side below.
+            if c != '\0' {
+                app.prompt_input.insert_char(c);
+                sync_task_text(app);
+            } else {
+                // Backspace path: remove the matching char from the prompt
+                // buffer too so the in-place @query stays in sync.
+                app.prompt_input.backspace();
+                sync_task_text(app);
+            }
+        }
+        Action::Confirm(path) => {
+            confirm_at_mention(app, path);
         }
     }
+}
 
-    // Extending the query also types the char into the prompt so the `@`
-    // token grows in-place — users can see what they're filtering on.
-    if let Some(c) = extend {
-        app.prompt_input.insert_char(c);
-        sync_task_text(app);
+/// Replace the `@<query>` token at the cursor with `@<full path>` and
+/// auto-add the file to the bundle if it's not already there. Closes the
+/// picker on the way out.
+fn confirm_at_mention(app: &mut App, path: std::path::PathBuf) {
+    // Find the '@' preceding the cursor. Everything between that '@' and
+    // the cursor is the query we typed, which we replace with the full
+    // path.
+    let cursor = app.prompt_input.cursor();
+    let text = app.prompt_input.text().to_string();
+    let at_idx = text[..cursor].rfind('@').unwrap_or(cursor);
+    let path_str = path.display().to_string();
+
+    let mut new_text = text;
+    new_text.replace_range(at_idx..cursor, &format!("@{path_str}"));
+    app.prompt_input.set_text(new_text);
+    let new_cursor = at_idx + 1 + path_str.len();
+    app.prompt_input.set_cursor(new_cursor);
+    sync_task_text(app);
+
+    // Add to bundle if missing.
+    if !app.bundled_paths.contains(&path) {
+        app.bundle.items.push(crate::bundle::Item {
+            path: path.clone(),
+            kind: crate::bundle::ItemKind::File,
+            label: None,
+        });
+        app.bundled_paths.insert(path.clone());
+        app.recalculate_tokens();
+        let _ = app.bundle.save(&app.root);
+        app.set_status(format!("@{path_str} added to bundle"));
+    } else {
+        app.set_status(format!("@{path_str} (already in bundle)"));
     }
 
-    if close {
-        app.set_mode(Mode::Normal);
-    }
-
-    // new_cursor_delta is a debug hook for future tests; suppress unused.
-    let _ = new_cursor_delta;
+    app.set_mode(Mode::Normal);
 }
 
 /// Route a keystroke into the multi-line prompt input. Only reached when

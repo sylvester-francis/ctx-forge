@@ -98,7 +98,10 @@ fn backspace_on_empty_query_closes_picker() {
         KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE),
     );
     // Empty query + Backspace: should close cleanly.
-    ctxforge::tui::events::handle(&mut app, KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    ctxforge::tui::events::handle(
+        &mut app,
+        KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+    );
     assert!(matches!(app.mode(), Mode::Normal));
 }
 
@@ -117,7 +120,10 @@ fn backspace_trims_query_and_reranks() {
             KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
         );
     }
-    ctxforge::tui::events::handle(&mut app, KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    ctxforge::tui::events::handle(
+        &mut app,
+        KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+    );
 
     if let Mode::AtPicker { query, .. } = app.mode() {
         assert_eq!(query, "a");
@@ -142,6 +148,92 @@ fn down_key_advances_cursor() {
     } else {
         panic!("expected AtPicker mode");
     }
+}
+
+#[test]
+fn enter_inserts_path_and_adds_to_bundle() {
+    let (mut app, _tmp) = setup(&["auth.rs", "other.rs"]);
+    app.focus_prompt();
+
+    ctxforge::tui::events::handle(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE),
+    );
+    for c in "au".chars() {
+        ctxforge::tui::events::handle(
+            &mut app,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        );
+    }
+    ctxforge::tui::events::handle(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert!(matches!(app.mode(), Mode::Normal));
+    // `@au` replaced with `@auth.rs` (the top-ranked match).
+    assert_eq!(app.prompt_input.text(), "@auth.rs");
+    assert_eq!(app.bundle.task_text, "@auth.rs");
+    // File added to the bundle.
+    let paths: Vec<_> = app.bundle.items.iter().map(|i| i.path.clone()).collect();
+    assert!(paths.contains(&std::path::PathBuf::from("auth.rs")));
+}
+
+#[test]
+fn enter_with_no_results_closes_cleanly() {
+    let (mut app, _tmp) = setup(&["auth.rs"]);
+    app.focus_prompt();
+
+    ctxforge::tui::events::handle(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE),
+    );
+    for c in "zzzzzz".chars() {
+        ctxforge::tui::events::handle(
+            &mut app,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        );
+    }
+    assert!(matches!(app.mode(), Mode::AtPicker { .. }));
+
+    ctxforge::tui::events::handle(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(app.mode(), Mode::Normal));
+    // No items added; prompt left as typed.
+    assert!(app.bundle.items.is_empty());
+}
+
+#[test]
+fn confirming_same_file_twice_does_not_duplicate() {
+    let (mut app, _tmp) = setup(&["auth.rs", "other.rs"]);
+    app.focus_prompt();
+
+    // First mention
+    ctxforge::tui::events::handle(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE),
+    );
+    ctxforge::tui::events::handle(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+    );
+    ctxforge::tui::events::handle(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(app.bundle.items.len(), 1);
+
+    // Second mention of the same file
+    ctxforge::tui::events::handle(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE),
+    );
+    ctxforge::tui::events::handle(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+    );
+    ctxforge::tui::events::handle(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(
+        app.bundle.items.len(),
+        1,
+        "bundle should not gain a duplicate row"
+    );
+    // Status reflects dedupe.
+    assert!(app.status_message.contains("already in bundle"));
 }
 
 #[test]
