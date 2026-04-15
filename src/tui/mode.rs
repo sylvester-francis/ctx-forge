@@ -88,6 +88,9 @@ pub enum Mode {
         cursor: usize,
         scenarios: Vec<crate::tui::scenario::Scenario>,
     },
+    /// Full-text preview of the composed prompt that would be delivered
+    /// right now. Scrollable. Opened via `P` from Normal mode.
+    FullPromptPreview { content: String, scroll: u16 },
 }
 
 impl Mode {

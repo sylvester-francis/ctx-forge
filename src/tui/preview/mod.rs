@@ -14,6 +14,7 @@
 //!   - No scenario  → `NoScenarioPlaceholder` single line
 //!   - Template read fails → `TemplateError` block with the reason
 
+pub mod full;
 pub mod render;
 
 use crate::tui::app::App;

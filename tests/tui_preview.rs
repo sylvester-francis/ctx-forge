@@ -83,6 +83,55 @@ fn preview_unknown_scenario_shows_error_section() {
 }
 
 #[test]
+fn capital_p_opens_full_preview_overlay() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let (mut app, _tmp) = test_app();
+    app.bundle.scenario = Some("bugfix".to_string());
+
+    ctxforge::tui::events::handle(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('P'), KeyModifiers::NONE),
+    );
+    assert!(matches!(
+        app.mode(),
+        ctxforge::tui::mode::Mode::FullPromptPreview { .. }
+    ));
+}
+
+#[test]
+fn esc_closes_full_preview() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let (mut app, _tmp) = test_app();
+    app.bundle.scenario = Some("bugfix".to_string());
+    ctxforge::tui::events::handle(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('P'), KeyModifiers::NONE),
+    );
+    ctxforge::tui::events::handle(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(matches!(app.mode(), ctxforge::tui::mode::Mode::Normal));
+}
+
+#[test]
+fn full_preview_scrolls_down_with_j() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let (mut app, _tmp) = test_app();
+    app.bundle.scenario = Some("bugfix".to_string());
+    ctxforge::tui::events::handle(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('P'), KeyModifiers::NONE),
+    );
+    ctxforge::tui::events::handle(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+    );
+    if let ctxforge::tui::mode::Mode::FullPromptPreview { scroll, .. } = app.mode() {
+        assert_eq!(*scroll, 1);
+    } else {
+        panic!("expected FullPromptPreview mode");
+    }
+}
+
+#[test]
 fn wide_layout_renders_preview_in_right_column() {
     let (mut app, _tmp) = test_app();
     app.bundle.scenario = Some("bugfix".to_string());

@@ -247,8 +247,33 @@ fn draw_overlay_into_buffer(
         Mode::ScenarioPick { cursor, scenarios } => {
             draw_scenario_pick_overlay_buf(buf, frame_area, *cursor, scenarios, app.theme);
         }
+        Mode::FullPromptPreview { content, scroll } => {
+            draw_full_preview_overlay_buf(buf, frame_area, content, *scroll, app.theme);
+        }
         _ => {}
     }
+}
+
+fn draw_full_preview_overlay_buf(
+    buf: &mut Buffer,
+    frame_area: Rect,
+    content: &str,
+    scroll: u16,
+    theme: &crate::tui::theme::AppTheme,
+) {
+    let width = frame_area.width.saturating_mul(9) / 10;
+    let height = frame_area.height.saturating_mul(9) / 10;
+    let area = centered_rect(width, height, frame_area);
+    ratatui::widgets::Clear.render(area, buf);
+    let block = Block::default()
+        .title(" full prompt preview · j/k or PgUp/PgDn scroll · g top · Esc close ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.border_focused));
+    Paragraph::new(content)
+        .block(block)
+        .wrap(ratatui::widgets::Wrap { trim: false })
+        .scroll((scroll, 0))
+        .render(area, buf);
 }
 
 fn draw_scenario_pick_overlay_buf(

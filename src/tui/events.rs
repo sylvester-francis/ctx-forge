@@ -95,6 +95,40 @@ pub fn handle(app: &mut App, key: KeyEvent) {
         Mode::TemplatePick { .. } => handle_template_pick(app, key),
         Mode::TemplateTask { .. } => handle_template_task(app, key),
         Mode::ScenarioPick { .. } => handle_scenario_pick(app, key),
+        Mode::FullPromptPreview { .. } => handle_full_preview(app, key),
+    }
+}
+
+fn handle_full_preview(app: &mut App, key: KeyEvent) {
+    let Mode::FullPromptPreview { scroll, .. } = app.mode_mut() else {
+        return;
+    };
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('P') => {
+            app.set_mode(Mode::Normal);
+        }
+        KeyCode::PageDown | KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            *scroll = scroll.saturating_add(10);
+        }
+        KeyCode::PageDown => {
+            *scroll = scroll.saturating_add(10);
+        }
+        KeyCode::PageUp | KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            *scroll = scroll.saturating_sub(10);
+        }
+        KeyCode::PageUp => {
+            *scroll = scroll.saturating_sub(10);
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            *scroll = scroll.saturating_add(1);
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            *scroll = scroll.saturating_sub(1);
+        }
+        KeyCode::Char('g') => {
+            *scroll = 0;
+        }
+        _ => {}
     }
 }
 
@@ -254,6 +288,12 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
         KeyCode::Char('?') => {
             app.set_mode(Mode::Help);
             app.show_help = true;
+        }
+
+        // Full-text composed-prompt preview.
+        KeyCode::Char('P') => {
+            let content = crate::tui::preview::full::render_full(app);
+            app.set_mode(Mode::FullPromptPreview { content, scroll: 0 });
         }
 
         // Ctrl+F = direct search shortcut
