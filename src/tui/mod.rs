@@ -29,6 +29,7 @@ pub fn run(root: CtxforgeRoot) -> Result<()> {
 
 fn run_loop(terminal: &mut ratatui::DefaultTerminal, root: CtxforgeRoot) -> Result<()> {
     let mut app = App::new(root);
+    app.auto_open_scenario_picker_if_needed();
 
     loop {
         terminal.draw(|f| ui::draw(f, &app))?;

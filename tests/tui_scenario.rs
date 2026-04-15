@@ -119,3 +119,24 @@ fn picker_esc_cancels_without_setting() {
     assert!(matches!(app.mode(), ctxforge::tui::mode::Mode::Normal));
     assert_eq!(app.bundle.scenario, None);
 }
+
+#[test]
+fn fresh_bundle_opens_scenario_picker() {
+    let (mut app, _tmp) = test_app();
+    assert!(app.bundle.scenario.is_none());
+
+    app.auto_open_scenario_picker_if_needed();
+    assert!(matches!(
+        app.mode(),
+        ctxforge::tui::mode::Mode::ScenarioPick { .. }
+    ));
+}
+
+#[test]
+fn bundle_with_scenario_skips_auto_picker() {
+    let (mut app, _tmp) = test_app();
+    app.bundle.scenario = Some("bugfix".to_string());
+
+    app.auto_open_scenario_picker_if_needed();
+    assert!(matches!(app.mode(), ctxforge::tui::mode::Mode::Normal));
+}

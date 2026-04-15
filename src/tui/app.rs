@@ -1189,6 +1189,16 @@ impl App {
         Ok(())
     }
 
+    /// Open the scenario picker exactly once, if the bundle has no scenario
+    /// recorded. Called by the run loop before the first draw so new users
+    /// are prompted to pick a scenario; returning users with a saved
+    /// scenario see a no-op.
+    pub fn auto_open_scenario_picker_if_needed(&mut self) {
+        if self.bundle.scenario.is_none() {
+            self.open_scenario_picker();
+        }
+    }
+
     /// Open the scenario picker overlay. If a scenario is already set, the
     /// cursor starts on it; otherwise on the first built-in starter.
     pub fn open_scenario_picker(&mut self) {
