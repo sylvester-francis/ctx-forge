@@ -10,6 +10,7 @@ pub mod events;
 pub mod mode;
 pub mod motion;
 pub mod preview;
+pub mod prompt_input;
 pub mod scenario;
 pub mod theme;
 pub mod tree;
@@ -103,10 +104,7 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, root: CtxforgeRoot) -> Resu
     //
     // DisableMouseCapture is idempotent: safe to call even if capture
     // was never enabled during this session.
-    let _ = crossterm::execute!(
-        std::io::stdout(),
-        crossterm::event::DisableMouseCapture
-    );
+    let _ = crossterm::execute!(std::io::stdout(), crossterm::event::DisableMouseCapture);
 
     Ok(())
 }
