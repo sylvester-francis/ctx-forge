@@ -257,6 +257,53 @@ fn backspace_syncs_task_text_after_removal() {
 }
 
 #[test]
+fn paste_event_inserts_text_without_triggering_handlers() {
+    let (mut app, _tmp) = test_app();
+    app.bundle.scenario = Some("bugfix".to_string());
+    app.focus_prompt();
+
+    // Pasted text contains `@` — once Phase 5 lands, typing '@' will open
+    // the picker. Paste must insert verbatim without triggering that.
+    ctxforge::tui::events::handle_paste(&mut app, "me@example.com".to_string());
+    assert_eq!(app.prompt_input.text(), "me@example.com");
+    assert!(matches!(app.mode(), ctxforge::tui::mode::Mode::Normal));
+    assert_eq!(app.bundle.task_text, "me@example.com");
+}
+
+#[test]
+fn paste_outside_prompt_is_ignored() {
+    let (mut app, _tmp) = test_app();
+    app.bundle.scenario = Some("bugfix".to_string());
+    assert_eq!(app.focus, Focus::FileTree);
+
+    ctxforge::tui::events::handle_paste(&mut app, "irrelevant".to_string());
+    assert_eq!(app.prompt_input.text(), "");
+    assert_eq!(app.bundle.task_text, "");
+}
+
+#[test]
+fn task_text_survives_app_restart() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().to_path_buf();
+    {
+        let root = CtxforgeRoot::find_or_create(&path).unwrap();
+        let mut app = App::new(root);
+        app.clock = Box::new(MockClock::new());
+        app.motion = MotionLevel::None;
+        app.bundle.scenario = Some("bugfix".to_string());
+        app.focus_prompt();
+        app.prompt_input.set_text("remember me".to_string());
+        ctxforge::tui::events::sync_task_text(&mut app);
+        app.defocus_prompt(); // saves
+    }
+    // Fresh App at same root picks up the task text.
+    let root2 = CtxforgeRoot::find_or_create(&path).unwrap();
+    let app2 = App::new(root2);
+    assert_eq!(app2.bundle.task_text, "remember me");
+    assert_eq!(app2.prompt_input.text(), "remember me");
+}
+
+#[test]
 fn preview_reflects_live_task_text() {
     let (mut app, _tmp) = test_app();
     app.bundle.scenario = Some("bugfix".to_string());

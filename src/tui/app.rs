@@ -226,6 +226,9 @@ impl App {
     }
 
     /// Move focus back to the panel that had it before `focus_prompt`.
+    /// Persists the task text to disk at the same time so the prompt
+    /// content survives a TUI restart even if the user never runs an
+    /// explicit save command.
     pub fn defocus_prompt(&mut self) {
         if !matches!(self.focus, Focus::Prompt) {
             return;
@@ -234,6 +237,7 @@ impl App {
         let target = self.theme.focus_tint(self.focus);
         let ctx = self.anim_ctx();
         self.focus_highlight.transition_to(target, &ctx);
+        let _ = self.bundle.save(&self.root);
     }
 
     /// Toggle the file viewer pane on/off. On transition to `on`, kicks a

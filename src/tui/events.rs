@@ -169,6 +169,18 @@ pub fn sync_task_text(app: &mut App) {
     app.bundle.task_text = app.prompt_input.text().to_string();
 }
 
+/// Handle a bracketed-paste event. Inserts the pasted string verbatim
+/// into the prompt when `Focus::Prompt` is active; ignored otherwise.
+/// The atomic insert avoids per-char side effects (e.g. a `@` in the
+/// paste triggering the file picker once that lands in Phase 5).
+pub fn handle_paste(app: &mut App, content: String) {
+    if !matches!(app.focus, Focus::Prompt) {
+        return;
+    }
+    app.prompt_input.insert_str(&content);
+    sync_task_text(app);
+}
+
 fn handle_full_preview(app: &mut App, key: KeyEvent) {
     let Mode::FullPromptPreview { scroll, .. } = app.mode_mut() else {
         return;

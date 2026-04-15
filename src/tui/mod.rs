@@ -33,6 +33,13 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, root: CtxforgeRoot) -> Resu
     let mut app = App::new(root);
     app.auto_open_scenario_picker_if_needed();
 
+    // Opt into bracketed paste so pasted content arrives as a single
+    // Event::Paste(String) rather than as a burst of key events. The
+    // prompt input inserts the whole string atomically without, for
+    // example, triggering slash-command or @-picker handlers on
+    // characters that happen to appear inside the paste.
+    let _ = crossterm::execute!(std::io::stdout(), crossterm::event::EnableBracketedPaste);
+
     loop {
         terminal.draw(|f| ui::draw(f, &app))?;
         app.cleanup_finished_animations();
@@ -86,6 +93,7 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, root: CtxforgeRoot) -> Resu
             match ev {
                 Event::Key(k) => events::handle(&mut app, k),
                 Event::Mouse(m) => events::handle_mouse(&mut app, m),
+                Event::Paste(s) => events::handle_paste(&mut app, s),
                 _ => {}
             }
         }
@@ -95,16 +103,29 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, root: CtxforgeRoot) -> Resu
         }
     }
 
+    // Persist any in-flight task text / scenario changes before returning.
+    // Mutations to the bundle already save on their own; this is the
+    // last-chance save for task text (which only syncs in memory during
+    // typing) so a Ctrl-C quit doesn't drop the user's work.
+    let _ = app.bundle.save(&app.root);
+
     // Before ratatui::run()'s drop-time restore runs, explicitly disable
-    // anything we enabled outside ratatui's knowledge. Currently that is
-    // SGR mouse capture (toggled on by the code viewer via
-    // App::set_mouse_capture). If left enabled, the terminal keeps
-    // emitting mouse-tracking bytes to the shell after the TUI exits —
-    // classic garbage like `0;96;38M` at the prompt.
+    // anything we enabled outside ratatui's knowledge:
     //
-    // DisableMouseCapture is idempotent: safe to call even if capture
-    // was never enabled during this session.
-    let _ = crossterm::execute!(std::io::stdout(), crossterm::event::DisableMouseCapture);
+    // - SGR mouse capture (toggled on by the code viewer). If left on,
+    //   terminals keep emitting `0;96;38M` style bytes to the shell
+    //   after the TUI exits.
+    // - Bracketed paste. Leaving it on would cause the shell to receive
+    //   `[200~...[201~` framing around pastes, which most shells don't
+    //   interpret.
+    //
+    // Both calls are idempotent; safe regardless of what was enabled
+    // during the session.
+    let _ = crossterm::execute!(
+        std::io::stdout(),
+        crossterm::event::DisableMouseCapture,
+        crossterm::event::DisableBracketedPaste,
+    );
 
     Ok(())
 }
