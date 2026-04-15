@@ -38,3 +38,11 @@ fn gauge_color_buckets_are_stable() {
     assert_eq!(gauge_color(80.0), Color::Rgb(255, 165, 0));
     assert_eq!(gauge_color(95.0), Color::Red);
 }
+
+#[test]
+fn app_has_default_theme() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = ctxforge::paths::CtxforgeRoot::find_or_create(tmp.path()).unwrap();
+    let app = ctxforge::tui::app::App::new(root);
+    assert_eq!(app.theme.name, "ctxforge");
+}

@@ -113,6 +113,9 @@ pub struct App {
     pub tree_viewport_height: std::cell::Cell<u16>,
     /// Last known height of the bundle list viewport, minus borders.
     pub bundle_viewport_height: std::cell::Cell<u16>,
+    /// Active colour theme. Read from `~/.config/ctxforge/config.toml` at
+    /// startup (Task 7); defaults to the built-in `ctxforge` palette.
+    pub theme: &'static crate::tui::theme::AppTheme,
 }
 
 impl App {
@@ -545,6 +548,7 @@ impl App {
             show_help: false,
             tree_viewport_height: std::cell::Cell::new(0),
             bundle_viewport_height: std::cell::Cell::new(0),
+            theme: crate::tui::theme::registry::default_theme(),
         };
         app.rebuild_bundled_paths();
         app.recalculate_tokens();
