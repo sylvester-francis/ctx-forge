@@ -113,6 +113,43 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
             Focus::Viewer => app.move_viewer_scroll(-1),
             Focus::BundleList => app.move_bundle_cursor(-1),
         },
+
+        // Page scrolling — PageDown / PageUp jumps a full viewport.
+        KeyCode::PageDown => match app.focus {
+            Focus::FileTree => app.page_tree_cursor(1),
+            Focus::Viewer => {
+                let half = (app.viewer_last_viewport_height.get() / 2).max(1) as i32;
+                app.move_viewer_scroll(half);
+            }
+            Focus::BundleList => app.page_bundle_cursor(1),
+        },
+        KeyCode::PageUp => match app.focus {
+            Focus::FileTree => app.page_tree_cursor(-1),
+            Focus::Viewer => {
+                let half = (app.viewer_last_viewport_height.get() / 2).max(1) as i32;
+                app.move_viewer_scroll(-half);
+            }
+            Focus::BundleList => app.page_bundle_cursor(-1),
+        },
+
+        // Vim-style half-page: Ctrl-D / Ctrl-U.
+        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => match app.focus {
+            Focus::FileTree => app.half_page_tree_cursor(1),
+            Focus::Viewer => {
+                let half = (app.viewer_last_viewport_height.get() / 2).max(1) as i32;
+                app.move_viewer_scroll(half);
+            }
+            Focus::BundleList => app.half_page_bundle_cursor(1),
+        },
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => match app.focus {
+            Focus::FileTree => app.half_page_tree_cursor(-1),
+            Focus::Viewer => {
+                let half = (app.viewer_last_viewport_height.get() / 2).max(1) as i32;
+                app.move_viewer_scroll(-half);
+            }
+            Focus::BundleList => app.half_page_bundle_cursor(-1),
+        },
+
         KeyCode::Char(' ') => {
             if app.focus == Focus::FileTree {
                 app.toggle_current();
@@ -165,29 +202,15 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
             app.viewer.clear_selection();
         }
 
-        // Viewer scroll (only effective when Focus::Viewer)
-        KeyCode::PageDown => {
-            if app.focus == Focus::Viewer {
-                let half = (app.viewer_last_viewport_height.get() / 2).max(1) as i32;
-                app.move_viewer_scroll(half);
+        // Expand / collapse all directories in the tree.
+        KeyCode::Char('E') => {
+            if app.focus == Focus::FileTree {
+                app.expand_all_dirs();
             }
         }
-        KeyCode::PageUp => {
-            if app.focus == Focus::Viewer {
-                let half = (app.viewer_last_viewport_height.get() / 2).max(1) as i32;
-                app.move_viewer_scroll(-half);
-            }
-        }
-        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            if app.focus == Focus::Viewer {
-                let half = (app.viewer_last_viewport_height.get() / 2).max(1) as i32;
-                app.move_viewer_scroll(half);
-            }
-        }
-        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            if app.focus == Focus::Viewer {
-                let half = (app.viewer_last_viewport_height.get() / 2).max(1) as i32;
-                app.move_viewer_scroll(-half);
+        KeyCode::Char('C') => {
+            if app.focus == Focus::FileTree {
+                app.collapse_all_dirs();
             }
         }
 

@@ -345,9 +345,10 @@ fn draw_help_overlay_buf(buf: &mut Buffer, frame_area: Rect) {
     let lines = vec![
         Line::from(""),
         Line::from("  Movement                          Selection"),
-        Line::from("    j / k     down / up               space  toggle file (in tree)"),
-        Line::from("    g / G     top / bottom            Enter  expand directory"),
-        Line::from("    Tab       switch panel"),
+        Line::from("    j / k       down / up             space  toggle file (in tree)"),
+        Line::from("    g / G       top / bottom          Enter  expand directory"),
+        Line::from("    PgDn / PgUp page down / up        E / C  expand / collapse all"),
+        Line::from("    Ctrl+D/U    half-page down / up   Tab    switch panel"),
         Line::from(""),
         Line::from("  Discoverable input"),
         Line::from("    /         open command palette  (every feature lives here)"),
@@ -900,6 +901,10 @@ fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
+    // Capture viewport height for PageUp/PageDown/half-page movement. Subtract 2
+    // for the top + bottom borders; clamp to 0 if the area is tiny.
+    app.tree_viewport_height.set(tree_area.height.saturating_sub(2));
+
     let list = List::new(items)
         .block(block)
         .highlight_symbol("▶ ")
@@ -909,11 +914,15 @@ fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
                 .bg(ratatui::style::Color::White),
         );
     let mut state = app.tree_list_state.borrow_mut();
-    if entries_to_show.is_empty() {
-        state.select(None);
+    let selected = if entries_to_show.is_empty() {
+        None
+    } else if in_search {
+        // In search mode the cursor is implicit — always highlight the top result.
+        Some(0usize)
     } else {
-        state.select(Some(app.tree_cursor.min(entries_to_show.len() - 1)));
-    }
+        Some(app.tree_cursor.min(entries_to_show.len() - 1))
+    };
+    state.select(selected);
     f.render_stateful_widget(list, tree_area, &mut state);
 }
 
@@ -1006,6 +1015,8 @@ fn draw_bundle_list(f: &mut Frame, app: &App, area: Rect) {
                 .fg(ratatui::style::Color::Black)
                 .bg(ratatui::style::Color::White),
         );
+    // Capture viewport height for PageUp/PageDown on the bundle list.
+    app.bundle_viewport_height.set(area.height.saturating_sub(2));
     let mut state = app.bundle_list_state.borrow_mut();
     if app.bundle.is_empty() {
         state.select(None);
@@ -1137,9 +1148,9 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         Focus::BundleList => "bundle",
     };
     let nav_keys = match app.focus {
-        Focus::FileTree => "j/k move  Enter expand  space add",
+        Focus::FileTree => "j/k PgUp/PgDn  Enter expand  space add  E/C expand-all",
         Focus::Viewer => "j/k scroll  drag=select  a add  Esc clear  v close",
-        Focus::BundleList => "j/k move  Enter select",
+        Focus::BundleList => "j/k PgUp/PgDn  Enter select",
     };
     let keys_text = match app.mode() {
         Mode::Normal => {

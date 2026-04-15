@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **Fluid TUI animations.** New `src/tui/motion/` module with `Animated<T>` + semantic wrappers (`Fade`, `Gauge`, `Highlight`, `Slide`), easings, truecolor blending, and a `Clock` abstraction. The render loop is event-driven while idle and ticks at 16ms only when animations are active. Applied to: smooth token gauge fill, modal overlay fade-in with cross-fade between overlays, animated backdrop dim, status message fade-in / hold / fade-out, animated focus border on Tab, bundle-row fade on add, startup fade.
+- **Reduce-motion escape hatches.** Honors `NO_ANIMATIONS=1` / `PROMPT_NO_ANIMATIONS=1`; auto-disables on non-truecolor terminals.
+- **Code viewer pane.** Press `v` (or `/view`) to toggle a syntect-highlighted preview of the file under the tree cursor. Width-adaptive: three-column (25/45/30) on ≥140 cols; vertical stack on 100-139 cols; suppressed on <100. Line numbers. Binary detection and 2 MB truncation. Three-way Tab cycle (tree → viewer → bundle). Syntect `base16-ocean.dark` theme.
+- **Mouse drag-select → bundle range.** With the viewer on, click-and-drag across lines, press `a` (or `/add-selection`) to append that range as a `Range` bundle item. Mouse capture is scoped to viewer-on only so normal terminal text-selection still works when the viewer is off. Scroll-wheel scrolls the viewer (3 lines per tick).
+- **Viewer keybindings.** `j/k`/Up/Down to scroll when focused, `g`/`G` to jump top/bottom, `PgUp`/`PgDn` and `Ctrl+U`/`Ctrl+D` for half-page, `Esc` to clear an active selection.
+- **Readable directory color.** `Color::Blue` → `Rgb(121, 192, 255)` (GitHub-style link blue) so directories are actually visible on dark terminals.
+
+### Changed
+- **`App::mode` is now private.** All call sites migrated to `set_mode()`, which records a `ModeTransition` used by the cross-fade renderer. `mode_mut()` is available for in-place variant-field edits.
+- **Three-pass render pipeline.** Normal layer → backdrop dim → outgoing overlay (at `1-t`) → incoming overlay (at `t`) → startup fade. Overlays render into a scratch buffer and blend per-cell so cross-fade is genuinely transparent.
+- **New `Focus::Viewer` variant.** `toggle_focus` adapts the cycle based on `viewer.enabled`.
+
+## 1.1.6 — 2026-04-14
+
+### Fixed
+- **TUI file tree and bundle list now scroll.** Both lists were rendered with ratatui's `List` widget stateless, so rendering always started from index 0 and the highlighted cursor scrolled off-screen as the user moved past the viewport — large projects looked truncated (e.g. only ~7 of 89 files visible). Both lists are now rendered as stateful widgets with `ListState::select(Some(cursor))`, so ratatui auto-scrolls to keep the cursor visible.
+
+### Added
+- **TUI navigation keys for long trees**:
+  - `PgDn` / `PgUp` — full-viewport scroll.
+  - `Ctrl-D` / `Ctrl-U` — half-page scroll (vim-style).
+  - `E` / `C` — expand-all / collapse-all directories. The cursor is preserved on its current file (by relative path) when possible, and clamped to the last visible row otherwise.
+- Footer hint row and `?` help overlay updated with the new keys.
+
 ## 1.1.4 — 2026-04-12
 
 ### Fixed
