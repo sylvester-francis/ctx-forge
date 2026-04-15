@@ -225,3 +225,54 @@ fn shift_enter_inserts_newline_when_prompt_focused() {
     ctxforge::tui::events::handle(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT));
     assert_eq!(app.prompt_input.text(), "line1\n");
 }
+
+#[test]
+fn typing_syncs_to_bundle_task_text() {
+    let (mut app, _tmp) = test_app();
+    app.bundle.scenario = Some("bugfix".to_string());
+    app.focus_prompt();
+
+    for c in "fix".chars() {
+        ctxforge::tui::events::handle(
+            &mut app,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        );
+    }
+    assert_eq!(app.bundle.task_text, "fix");
+}
+
+#[test]
+fn backspace_syncs_task_text_after_removal() {
+    let (mut app, _tmp) = test_app();
+    app.bundle.scenario = Some("bugfix".to_string());
+    app.focus_prompt();
+    app.prompt_input.set_text("hello".to_string());
+    app.bundle.task_text = "hello".to_string();
+
+    ctxforge::tui::events::handle(
+        &mut app,
+        KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+    );
+    assert_eq!(app.bundle.task_text, "hell");
+}
+
+#[test]
+fn preview_reflects_live_task_text() {
+    let (mut app, _tmp) = test_app();
+    app.bundle.scenario = Some("bugfix".to_string());
+    app.focus_prompt();
+
+    for c in "fix jwt".chars() {
+        ctxforge::tui::events::handle(
+            &mut app,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        );
+    }
+
+    let preview = ctxforge::tui::preview::PromptPreview::from_app(&app);
+    let text = preview.to_text();
+    assert!(
+        text.contains("fix jwt"),
+        "preview should mirror typed task text; got:\n{text}"
+    );
+}

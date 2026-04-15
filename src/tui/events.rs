@@ -105,8 +105,14 @@ pub fn handle(app: &mut App, key: KeyEvent) {
 /// have their standard meanings.
 fn handle_prompt_key(app: &mut App, key: KeyEvent) {
     match (key.code, key.modifiers) {
-        (KeyCode::Esc, _) => app.defocus_prompt(),
-        (KeyCode::Tab, _) => app.toggle_focus(),
+        (KeyCode::Esc, _) => {
+            app.defocus_prompt();
+            return;
+        }
+        (KeyCode::Tab, _) => {
+            app.toggle_focus();
+            return;
+        }
         (KeyCode::Enter, mods) if mods.contains(KeyModifiers::SHIFT) => {
             app.prompt_input.insert_newline();
         }
@@ -117,26 +123,50 @@ fn handle_prompt_key(app: &mut App, key: KeyEvent) {
             app.prompt_input.insert_newline();
         }
         (KeyCode::Backspace, _) => app.prompt_input.backspace(),
-        (KeyCode::Left, _) => app.prompt_input.move_left(),
-        (KeyCode::Right, _) => app.prompt_input.move_right(),
-        (KeyCode::Home, _) => app.prompt_input.move_home(),
-        (KeyCode::End, _) => app.prompt_input.move_end(),
+        (KeyCode::Left, _) => {
+            app.prompt_input.move_left();
+            return;
+        }
+        (KeyCode::Right, _) => {
+            app.prompt_input.move_right();
+            return;
+        }
+        (KeyCode::Home, _) => {
+            app.prompt_input.move_home();
+            return;
+        }
+        (KeyCode::End, _) => {
+            app.prompt_input.move_end();
+            return;
+        }
         (KeyCode::Char('w'), mods) if mods.contains(KeyModifiers::CONTROL) => {
             app.prompt_input.delete_word_back();
         }
         (KeyCode::Char('a'), mods) if mods.contains(KeyModifiers::CONTROL) => {
             app.prompt_input.move_home();
+            return;
         }
         (KeyCode::Char('e'), mods) if mods.contains(KeyModifiers::CONTROL) => {
             app.prompt_input.move_end();
+            return;
         }
         (KeyCode::Char(c), mods)
             if !mods.contains(KeyModifiers::CONTROL) && !mods.contains(KeyModifiers::ALT) =>
         {
             app.prompt_input.insert_char(c);
         }
-        _ => {}
+        _ => return,
     }
+    // Reached only for mutation branches — keep bundle.task_text in lockstep
+    // with the prompt buffer so the preview updates on the next frame.
+    sync_task_text(app);
+}
+
+/// Copy the current prompt input text into `bundle.task_text`. Called
+/// after any mutation so the preview's `## Task` section reflects the
+/// latest edit without a manual save.
+pub fn sync_task_text(app: &mut App) {
+    app.bundle.task_text = app.prompt_input.text().to_string();
 }
 
 fn handle_full_preview(app: &mut App, key: KeyEvent) {
