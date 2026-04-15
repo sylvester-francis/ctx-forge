@@ -499,6 +499,7 @@ impl App {
         if !self.visible_tree.is_empty() && self.tree_cursor >= self.visible_tree.len() {
             self.tree_cursor = self.visible_tree.len() - 1;
         }
+        self.reload_viewer_for_cursor();
     }
 
     /// Toggle selection of the file at the current tree cursor.
@@ -576,6 +577,7 @@ impl App {
         }
         let new = self.tree_cursor as i32 + delta;
         self.tree_cursor = new.clamp(0, self.visible_tree.len() as i32 - 1) as usize;
+        self.reload_viewer_for_cursor();
     }
 
     pub fn move_bundle_cursor(&mut self, delta: i32) {
@@ -1296,5 +1298,101 @@ mod mode_transition_tests {
         app.cleanup_finished_animations();
         assert!(!app.has_active_animations());
         assert!(app.mode_transition.is_none());
+    }
+}
+
+#[cfg(test)]
+mod viewer_integration_tests {
+    use super::*;
+    use crate::paths::CtxforgeRoot;
+    use crate::tui::motion::MockClock;
+    use tempfile::TempDir;
+
+    fn test_app_with_files(files: &[(&str, &[u8])]) -> (App, TempDir) {
+        let tmp = TempDir::new().unwrap();
+        for (name, content) in files {
+            std::fs::write(tmp.path().join(name), content).unwrap();
+        }
+        let root = CtxforgeRoot::find_or_create(tmp.path()).unwrap();
+        let clock = MockClock::new();
+        let app = App::with_clock(root, Box::new(clock));
+        (app, tmp)
+    }
+
+    #[test]
+    fn toggle_viewer_flips_enabled() {
+        let (mut app, _tmp) = test_app_with_files(&[]);
+        assert!(!app.viewer.enabled);
+        app.toggle_viewer();
+        assert!(app.viewer.enabled);
+        app.toggle_viewer();
+        assert!(!app.viewer.enabled);
+    }
+
+    #[test]
+    fn toggle_viewer_on_triggers_load_for_current_cursor() {
+        let (mut app, _tmp) = test_app_with_files(&[
+            ("a.rs", b"fn a() {}\n"),
+            ("b.rs", b"fn b() {}\n"),
+        ]);
+        assert!(!app.visible_tree.is_empty());
+        app.toggle_viewer();
+        assert!(app.viewer.cached_path.is_some());
+    }
+
+    #[test]
+    fn move_tree_cursor_reloads_viewer_when_enabled() {
+        let (mut app, _tmp) = test_app_with_files(&[
+            ("a.rs", b"fn a() {}\n"),
+            ("b.rs", b"fn b() {}\n"),
+        ]);
+        app.toggle_viewer();
+        let first_path = app.viewer.cached_path.clone();
+        app.move_tree_cursor(1);
+        let second_path = app.viewer.cached_path.clone();
+        assert_ne!(first_path, second_path);
+    }
+
+    #[test]
+    fn move_tree_cursor_when_viewer_disabled_does_not_load() {
+        let (mut app, _tmp) = test_app_with_files(&[
+            ("a.rs", b"fn a() {}\n"),
+            ("b.rs", b"fn b() {}\n"),
+        ]);
+        assert!(!app.viewer.enabled);
+        app.move_tree_cursor(1);
+        assert!(app.viewer.cached_path.is_none());
+    }
+
+    #[test]
+    fn disable_viewer_while_focused_snaps_focus_to_tree() {
+        let (mut app, _tmp) = test_app_with_files(&[("a.rs", b"fn a() {}\n")]);
+        app.toggle_viewer();
+        app.focus = Focus::Viewer;
+        app.toggle_viewer();
+        assert_eq!(app.focus, Focus::FileTree);
+    }
+
+    #[test]
+    fn tab_cycle_with_viewer_off_skips_viewer() {
+        let (mut app, _tmp) = test_app_with_files(&[]);
+        assert_eq!(app.focus, Focus::FileTree);
+        app.toggle_focus();
+        assert_eq!(app.focus, Focus::BundleList);
+        app.toggle_focus();
+        assert_eq!(app.focus, Focus::FileTree);
+    }
+
+    #[test]
+    fn tab_cycle_with_viewer_on_includes_viewer() {
+        let (mut app, _tmp) = test_app_with_files(&[]);
+        app.toggle_viewer();
+        assert_eq!(app.focus, Focus::FileTree);
+        app.toggle_focus();
+        assert_eq!(app.focus, Focus::Viewer);
+        app.toggle_focus();
+        assert_eq!(app.focus, Focus::BundleList);
+        app.toggle_focus();
+        assert_eq!(app.focus, Focus::FileTree);
     }
 }
