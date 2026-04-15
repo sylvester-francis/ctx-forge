@@ -55,12 +55,15 @@ impl DeliverChoice {
 }
 
 /// Execute a deliver choice. Returns the payload (useful for tests).
+///
 /// Side effects:
-///   - Copy choices write to the system clipboard.
-///   - Pipe choices stash the payload + target in `app.pending_pipe`;
-///     the run loop picks it up, spawns the target binary, and writes
-///     to its stdin.
-///   - Export stashes the payload in `app.pending_stdout`.
+///
+/// - Copy choices write to the system clipboard.
+/// - Pipe choices stash the payload + target in `app.pending_pipe`;
+///   the run loop picks it up, spawns the target binary, and writes
+///   to its stdin.
+/// - Export stashes the payload in `app.pending_stdout`.
+///
 /// `app.deliver_last` is updated to the chosen variant.
 /// `app.prompt_override`, if set, replaces the template-rendered payload
 /// (used by Task 27's full-prompt editor).
