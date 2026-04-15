@@ -29,8 +29,7 @@ fn spawn_editor_round_trips_content() {
 
 #[test]
 fn spawn_editor_errors_on_missing_editor() {
-    let result =
-        ctxforge::tui::editor::spawn_editor_with("x", "/definitely/does/not/exist/editor");
+    let result = ctxforge::tui::editor::spawn_editor_with("x", "/definitely/does/not/exist/editor");
     assert!(result.is_err());
 }
 
@@ -66,6 +65,31 @@ fn ctrl_e_marks_pending_editor_with_current_task() {
 
     match app.pending_editor.as_ref() {
         Some(PendingEditor::TaskText(s)) => assert_eq!(s, "work in progress"),
-        _ => panic!("expected PendingEditor::TaskText, got {:?}", app.pending_editor),
+        _ => panic!(
+            "expected PendingEditor::TaskText, got {:?}",
+            app.pending_editor
+        ),
     }
+}
+
+#[test]
+fn slash_edit_prompt_command_marks_pending_full_prompt() {
+    use ctxforge::paths::CtxforgeRoot;
+    use ctxforge::tui::app::{App, PendingEditor};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let root = CtxforgeRoot::find_or_create(tmp.path()).unwrap();
+    let mut app = App::new(root);
+    app.bundle.scenario = Some("bugfix".to_string());
+
+    let spec = ctxforge::tui::commands::COMMANDS
+        .iter()
+        .find(|c| c.name == "edit-prompt")
+        .expect("/edit-prompt command should exist");
+    (spec.action)(&mut app, None);
+
+    assert!(matches!(
+        app.pending_editor,
+        Some(PendingEditor::FullPrompt(_))
+    ));
 }

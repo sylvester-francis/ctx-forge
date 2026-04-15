@@ -606,16 +606,12 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
             app.viewer.clear_selection();
         }
 
-        // Expand / collapse all directories in the tree.
-        KeyCode::Char('E') => {
-            if app.focus == Focus::FileTree {
-                app.expand_all_dirs();
-            }
+        // Expand / collapse all directories in the tree (tree focus only).
+        KeyCode::Char('E') if app.focus == Focus::FileTree => {
+            app.expand_all_dirs();
         }
-        KeyCode::Char('C') => {
-            if app.focus == Focus::FileTree {
-                app.collapse_all_dirs();
-            }
+        KeyCode::Char('C') if app.focus == Focus::FileTree => {
+            app.collapse_all_dirs();
         }
 
         // Slash command palette
@@ -637,6 +633,10 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
             let content = crate::tui::preview::full::render_full(app);
             app.set_mode(Mode::FullPromptPreview { content, scroll: 0 });
         }
+        // Note: 'E' remains the FileTree 'expand all' shortcut. The
+        // full-composed-prompt editor is reachable via /edit-prompt
+        // (command palette) — chose that over a dedicated key to
+        // avoid the collision + to keep muscle memory stable.
 
         // Ctrl+F = direct search shortcut
         KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {

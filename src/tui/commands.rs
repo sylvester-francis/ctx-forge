@@ -255,6 +255,15 @@ pub static COMMANDS: &[CommandSpec] = &[
         },
     },
     CommandSpec {
+        name: "edit-prompt",
+        description: "edit the full composed prompt in $EDITOR (one-shot override)",
+        takes_arg: false,
+        action: |app, _| {
+            let content = crate::tui::preview::full::render_full(app);
+            app.pending_editor = Some(crate::tui::app::PendingEditor::FullPrompt(content));
+        },
+    },
+    CommandSpec {
         name: "quit",
         description: "quit ctxforge",
         takes_arg: false,
