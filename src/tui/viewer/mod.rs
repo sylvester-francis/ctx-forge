@@ -23,6 +23,12 @@ pub struct ViewerState {
     error: Option<ViewerError>,
     truncated: bool,
     highlighter: Highlighter,
+    /// Active mouse-drag selection, stored as 0-based line indices. Always
+    /// normalized so `start <= end`. `None` means no selection.
+    selection: Option<(usize, usize)>,
+    /// Anchor line for an in-progress drag. `Some(n)` between MouseDown and
+    /// MouseUp; used to compute the selection range as the mouse moves.
+    drag_anchor: Option<usize>,
 }
 
 impl ViewerState {
@@ -35,6 +41,8 @@ impl ViewerState {
             error: None,
             truncated: false,
             highlighter: Highlighter::new(),
+            selection: None,
+            drag_anchor: None,
         }
     }
 
@@ -56,7 +64,7 @@ impl ViewerState {
 
     /// Load and highlight the given file into the cache. Idempotent when
     /// called with the same path — preserves scroll position. Resets
-    /// scroll when called with a different path.
+    /// scroll + selection when called with a different path.
     pub fn load_for_path(&mut self, path: &Path) {
         if self
             .cached_path
@@ -72,6 +80,8 @@ impl ViewerState {
         self.error = load.error;
         self.cached_path = Some(path.to_path_buf());
         self.scroll = 0;
+        self.selection = None;
+        self.drag_anchor = None;
     }
 
     /// Clear the cache — used when no file is under the cursor.
@@ -81,6 +91,54 @@ impl ViewerState {
         self.truncated = false;
         self.cached_path = None;
         self.scroll = 0;
+        self.selection = None;
+        self.drag_anchor = None;
+    }
+
+    /// Current selection as `(start_line, end_line)`, 0-based inclusive.
+    pub fn selection(&self) -> Option<(usize, usize)> {
+        self.selection
+    }
+
+    /// Begin a new drag selection anchored at `line` (0-based index into
+    /// `lines`). Clamps to the valid range.
+    pub fn begin_selection(&mut self, line: usize) {
+        if self.lines.is_empty() {
+            return;
+        }
+        let line = line.min(self.lines.len() - 1);
+        self.drag_anchor = Some(line);
+        self.selection = Some((line, line));
+    }
+
+    /// Extend the active drag selection to `line`. No-op if no drag is in
+    /// progress.
+    pub fn extend_selection(&mut self, line: usize) {
+        let Some(anchor) = self.drag_anchor else {
+            return;
+        };
+        if self.lines.is_empty() {
+            return;
+        }
+        let line = line.min(self.lines.len() - 1);
+        let (a, b) = if anchor <= line {
+            (anchor, line)
+        } else {
+            (line, anchor)
+        };
+        self.selection = Some((a, b));
+    }
+
+    /// End the active drag. The selection itself persists until the user
+    /// commits it or navigates away.
+    pub fn end_drag(&mut self) {
+        self.drag_anchor = None;
+    }
+
+    /// Clear any selection (used by Esc and after adding to bundle).
+    pub fn clear_selection(&mut self) {
+        self.selection = None;
+        self.drag_anchor = None;
     }
 
     /// Advance or rewind `scroll` by `delta`, clamped to `[0, max_scroll]`.

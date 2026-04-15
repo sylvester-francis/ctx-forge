@@ -503,16 +503,32 @@ fn draw_viewer(f: &mut Frame, app: &App, area: Rect) {
         .add_modifier(Modifier::DIM);
     let divider_style = Style::default().fg(ratatui::style::Color::DarkGray);
 
+    let selection = app.viewer.selection();
+    let selection_bg = ratatui::style::Color::Rgb(60, 40, 80); // dim violet
     let slice: Vec<Line<'static>> = app.viewer.lines()[top..bottom]
         .iter()
         .enumerate()
         .map(|(i, line)| {
             let line_no = top + i + 1;
+            let absolute = top + i;
+            let selected = selection
+                .map(|(a, b)| absolute >= a && absolute <= b)
+                .unwrap_or(false);
+
             let gutter = format!("{line_no:>width$} ", width = digits);
             let divider = "│ ".to_string();
-            let mut spans: Vec<Span<'static>> =
-                vec![Span::styled(gutter, gutter_style), Span::styled(divider, divider_style)];
-            spans.extend(line.spans.iter().cloned());
+            let row_bg = if selected { Some(selection_bg) } else { None };
+            let apply_bg = |style: Style| -> Style {
+                if let Some(bg) = row_bg { style.bg(bg) } else { style }
+            };
+            let mut spans: Vec<Span<'static>> = vec![
+                Span::styled(gutter, apply_bg(gutter_style)),
+                Span::styled(divider, apply_bg(divider_style)),
+            ];
+            for span in &line.spans {
+                let styled = apply_bg(span.style);
+                spans.push(Span::styled(span.content.clone().into_owned(), styled));
+            }
             Line::from(spans)
         })
         .collect();
