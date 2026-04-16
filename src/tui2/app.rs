@@ -215,20 +215,22 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 match k.code {
                     KeyCode::Char('q') => *should_quit.write() = true,
                     KeyCode::Tab => {
+                        // Phase 1 cycle: files → bundle → prompt → files.
+                        // Viewer re-enters the cycle in Phase 2 when it ships.
                         let next = match *focus.read() {
-                            Focus::FileTree => Focus::Viewer,
-                            Focus::Viewer => Focus::BundleList,
+                            Focus::FileTree => Focus::BundleList,
                             Focus::BundleList => Focus::Prompt,
                             Focus::Prompt => Focus::FileTree,
+                            Focus::Viewer => Focus::FileTree,
                         };
                         *focus.write() = next;
                     }
                     KeyCode::BackTab => {
                         let prev = match *focus.read() {
                             Focus::FileTree => Focus::Prompt,
-                            Focus::Viewer => Focus::FileTree,
-                            Focus::BundleList => Focus::Viewer,
+                            Focus::BundleList => Focus::FileTree,
                             Focus::Prompt => Focus::BundleList,
+                            Focus::Viewer => Focus::FileTree,
                         };
                         *focus.write() = prev;
                     }
@@ -376,12 +378,12 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
 
     // Section-marker titles — left bar + uppercase label for consistent hierarchy
     let tree_title_styled = format!("FILES  {}", visible_count);
-    let viewer_title_styled = "VIEWER".to_string();
     let preview_title_styled = "PREVIEW".to_string();
 
-    // Width-adaptive layout breakpoints
-    let wide = term_w >= 140;
-    let medium = (100..140).contains(&term_w);
+    // Width-adaptive layout breakpoints.
+    // Phase 1 does not ship the code viewer, so two-column is the default.
+    // Three-column layout (with viewer) will come in Phase 2 when opt-in via `v`.
+    let wide = term_w >= 100; // two-column for anything ≥ 100
     let _narrow = term_w < 100; // handled by the else branch below
 
     // Use explicit terminal dimensions instead of 100pct so the root View
@@ -417,17 +419,19 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
             }
 
             // ─── MAIN CONTENT ROW ────────────────────────────────
+            // Phase 1 default: two-column. Viewer is opt-in (Phase 2).
             #(if wide {
+                // Two-column: tree+bundle | preview (35/65 split favoring the preview)
                 element! {
                     View(
                         flex_direction: FlexDirection::Row,
                         width: 100pct,
                         flex_grow: 1.0,
                     ) {
-                        // Left: tree + bundle
+                        // Left: tree + bundle (narrow, list-focused)
                         View(
                             flex_direction: FlexDirection::Column,
-                            width: 28pct,
+                            width: 35pct,
                             height: 100pct,
                         ) {
                             View(
@@ -465,109 +469,16 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                 #(render_bundle_rows(&s.bundle, &s.item_tokens, &theme).1)
                             }
                         }
-                        // Center: viewer placeholder
+                        // Right: preview (primary — the crafted prompt output)
                         View(
                             flex_direction: FlexDirection::Column,
                             border_style: BorderStyle::Round,
-                            border_color: viewer_border,
+                            border_color: preview_border,
                             background_color: theme.bg,
-                            width: 42pct,
+                            width: 65pct,
                             height: 100pct,
                             padding_left: 2,
                             padding_right: 2,
-                            padding_top: 1,
-                        ) {
-                            MixedText(contents: vec![
-                                MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
-                                MixedTextContent::new(viewer_title_styled.clone()).color(theme.accent).weight(Weight::Bold),
-                            ])
-                            Text(content: "")
-                            Text(content: "  ∘ code viewer arrives in Phase 2", color: theme.muted)
-                            Text(content: "")
-                            Text(content: "  ▸ v  toggle viewer pane", color: theme.muted, weight: Weight::Light)
-                            Text(content: "  ▸ drag-select a range", color: theme.muted, weight: Weight::Light)
-                            Text(content: "  ▸ a  add selection to bundle", color: theme.muted, weight: Weight::Light)
-                        }
-                        // Right: preview
-                        View(
-                            flex_direction: FlexDirection::Column,
-                            border_style: BorderStyle::Round,
-                            border_color: preview_border,
-                            background_color: theme.bg,
-                            width: 30pct,
-                            height: 100pct,
-                            padding_left: 1,
-                            padding_right: 1,
-                            padding_top: 1,
-                        ) {
-                            MixedText(contents: vec![
-                                MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
-                                MixedTextContent::new(preview_title_styled.clone()).color(theme.accent).weight(Weight::Bold),
-                            ])
-                            Text(content: "")
-                            #(render_preview(&s.preview, &theme))
-                        }
-                    }
-                }.into_any()
-            } else if medium {
-                // Medium: 2-column, hide viewer placeholder
-                element! {
-                    View(
-                        flex_direction: FlexDirection::Row,
-                        width: 100pct,
-                        flex_grow: 1.0,
-                    ) {
-                        // Left: tree + bundle (wider than in 3-col mode)
-                        View(
-                            flex_direction: FlexDirection::Column,
-                            width: 50pct,
-                            height: 100pct,
-                        ) {
-                            View(
-                                flex_direction: FlexDirection::Column,
-                                border_style: BorderStyle::Round,
-                                border_color: tree_border,
-                                background_color: theme.bg,
-                                width: 100pct,
-                                height: 60pct,
-                                padding_left: 1,
-                                padding_right: 1,
-                            ) {
-                                MixedText(contents: vec![
-                                    MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
-                                    MixedTextContent::new(tree_title_styled.clone()).color(theme.accent).weight(Weight::Bold),
-                                ])
-                                Text(content: "")
-                                #(render_tree_rows(&visible, cur, cur_focus == Focus::FileTree, &s.bundled_paths, &theme))
-                            }
-                            View(
-                                flex_direction: FlexDirection::Column,
-                                border_style: BorderStyle::Round,
-                                border_color: bundle_border,
-                                background_color: theme.bg,
-                                width: 100pct,
-                                height: 40pct,
-                                padding_left: 1,
-                                padding_right: 1,
-                            ) {
-                                MixedText(contents: vec![
-                                    MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
-                                    MixedTextContent::new(bundle_title.clone()).color(theme.accent).weight(Weight::Bold),
-                                ])
-                                Text(content: "")
-                                #(render_bundle_rows(&s.bundle, &s.item_tokens, &theme).1)
-                            }
-                        }
-                        // Right: preview
-                        View(
-                            flex_direction: FlexDirection::Column,
-                            border_style: BorderStyle::Round,
-                            border_color: preview_border,
-                            background_color: theme.bg,
-                            width: 50pct,
-                            height: 100pct,
-                            padding_left: 1,
-                            padding_right: 1,
                             padding_top: 1,
                         ) {
                             MixedText(contents: vec![
