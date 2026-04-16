@@ -653,20 +653,26 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         }
                     }
                     KeyCode::Tab => {
+                        let viewer_on = app_data.read().viewer.enabled;
                         let next = match *focus.read() {
-                            Focus::FileTree => Focus::BundleList,
+                            Focus::FileTree => {
+                                if viewer_on { Focus::Viewer } else { Focus::BundleList }
+                            }
+                            Focus::Viewer => Focus::BundleList,
                             Focus::BundleList => Focus::Prompt,
                             Focus::Prompt => Focus::FileTree,
-                            Focus::Viewer => Focus::FileTree,
                         };
                         *focus.write() = next;
                     }
                     KeyCode::BackTab => {
+                        let viewer_on = app_data.read().viewer.enabled;
                         let prev = match *focus.read() {
                             Focus::FileTree => Focus::Prompt,
-                            Focus::BundleList => Focus::FileTree,
-                            Focus::Prompt => Focus::BundleList,
                             Focus::Viewer => Focus::FileTree,
+                            Focus::BundleList => {
+                                if viewer_on { Focus::Viewer } else { Focus::FileTree }
+                            }
+                            Focus::Prompt => Focus::BundleList,
                         };
                         *focus.write() = prev;
                     }
