@@ -230,6 +230,23 @@ impl AppData {
     }
 }
 
+/// Reload the viewer with the file at `new_cursor` in the visible tree.
+/// No-op when the viewer is disabled or the cursor lands on a directory.
+fn reload_viewer(data: &mut AppData, new_cursor: usize) {
+    if !data.viewer.enabled {
+        return;
+    }
+    let visible = tree::visible_indices(&data.tree_entries);
+    if let Some(&idx) = visible.get(new_cursor) {
+        if let Some(entry) = data.tree_entries.get(idx).cloned() {
+            if !entry.is_dir {
+                let abs = data.project_root.join(&entry.rel_path);
+                data.viewer.load_for_path(&abs);
+            }
+        }
+    }
+}
+
 fn build_preview(root: &CtxforgeRoot, bundle: &Bundle, item_tokens: &[usize]) -> PromptPreview {
     use crate::tui::preview::{ContextItem, Section};
     let mut sections = Vec::new();
@@ -332,6 +349,7 @@ pub async fn run(root: CtxforgeRoot) -> Result<()> {
 // a reasonable viewport so the layout doesn't overflow. Phase 2 adds
 // proper viewport tracking + scrolling.
 const TREE_VIEWPORT: usize = 24;
+const VIEWER_VIEWPORT: usize = 24;
 
 // ─── App component ───────────────────────────────────────────────────
 
@@ -611,6 +629,29 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     KeyCode::Char('i') if *focus.read() != Focus::Prompt => {
                         *focus.write() = Focus::Prompt;
                     }
+                    KeyCode::Char('v') => {
+                        let mut d = app_data.write();
+                        d.viewer.toggle();
+                        let enabled = d.viewer.enabled;
+                        if enabled {
+                            let visible = tree::visible_indices(&d.tree_entries);
+                            if let Some(&idx) = visible.get(*cursor.read()) {
+                                if let Some(entry) = d.tree_entries.get(idx).cloned() {
+                                    if !entry.is_dir {
+                                        let abs = d.project_root.join(&entry.rel_path);
+                                        d.viewer.load_for_path(&abs);
+                                    }
+                                }
+                            }
+                            d.set_status("viewer on".to_string());
+                        } else {
+                            drop(d);
+                            if *focus.read() == Focus::Viewer {
+                                *focus.write() = Focus::FileTree;
+                            }
+                            app_data.write().set_status("viewer off".to_string());
+                        }
+                    }
                     KeyCode::Tab => {
                         let next = match *focus.read() {
                             Focus::FileTree => Focus::BundleList,
@@ -630,15 +671,33 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         *focus.write() = prev;
                     }
                     KeyCode::Up | KeyCode::Char('k') => {
-                        let c = *cursor.read();
-                        if c > 0 {
-                            *cursor.write() = c - 1;
+                        match *focus.read() {
+                            Focus::Viewer => {
+                                app_data.write().viewer.scroll_by(-1, VIEWER_VIEWPORT);
+                            }
+                            _ => {
+                                let c = *cursor.read();
+                                if c > 0 {
+                                    let new = c - 1;
+                                    cursor.set(new);
+                                    reload_viewer(&mut app_data.write(), new);
+                                }
+                            }
                         }
                     }
                     KeyCode::Down | KeyCode::Char('j') => {
-                        let c = *cursor.read();
-                        if c < max_cursor {
-                            *cursor.write() = c + 1;
+                        match *focus.read() {
+                            Focus::Viewer => {
+                                app_data.write().viewer.scroll_by(1, VIEWER_VIEWPORT);
+                            }
+                            _ => {
+                                let c = *cursor.read();
+                                if c < max_cursor {
+                                    let new = c + 1;
+                                    cursor.set(new);
+                                    reload_viewer(&mut app_data.write(), new);
+                                }
+                            }
                         }
                     }
                     // Space: toggle bundle (on file) or expand/collapse (on dir).
@@ -685,13 +744,23 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     // Navigation: g/G top/bottom, Ctrl-U/D half-page
                     KeyCode::Char('g') if *focus.read() == Focus::FileTree => {
                         cursor.set(0);
+                        reload_viewer(&mut app_data.write(), 0);
+                    }
+                    KeyCode::Char('g') if *focus.read() == Focus::Viewer => {
+                        app_data.write().viewer.scroll_to_top();
                     }
                     KeyCode::Char('G') if *focus.read() == Focus::FileTree => {
                         let d = app_data.read();
                         let visible = tree::visible_indices(&d.tree_entries);
                         if !visible.is_empty() {
-                            cursor.set(visible.len() - 1);
+                            let last = visible.len() - 1;
+                            drop(d);
+                            cursor.set(last);
+                            reload_viewer(&mut app_data.write(), last);
                         }
+                    }
+                    KeyCode::Char('G') if *focus.read() == Focus::Viewer => {
+                        app_data.write().viewer.scroll_to_bottom(VIEWER_VIEWPORT);
                     }
                     KeyCode::Char('u')
                         if k.modifiers.contains(KeyModifiers::CONTROL)
@@ -699,7 +768,15 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     {
                         let half = TREE_VIEWPORT / 2;
                         let c = *cursor.read();
-                        cursor.set(c.saturating_sub(half));
+                        let new = c.saturating_sub(half);
+                        cursor.set(new);
+                        reload_viewer(&mut app_data.write(), new);
+                    }
+                    KeyCode::Char('u')
+                        if k.modifiers.contains(KeyModifiers::CONTROL)
+                            && *focus.read() == Focus::Viewer =>
+                    {
+                        app_data.write().viewer.scroll_by(-(VIEWER_VIEWPORT as i32 / 2), VIEWER_VIEWPORT);
                     }
                     KeyCode::Char('d')
                         if k.modifiers.contains(KeyModifiers::CONTROL)
@@ -709,7 +786,16 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         let visible = tree::visible_indices(&d.tree_entries);
                         let half = TREE_VIEWPORT / 2;
                         let c = *cursor.read();
-                        cursor.set((c + half).min(visible.len().saturating_sub(1)));
+                        let new = (c + half).min(visible.len().saturating_sub(1));
+                        drop(d);
+                        cursor.set(new);
+                        reload_viewer(&mut app_data.write(), new);
+                    }
+                    KeyCode::Char('d')
+                        if k.modifiers.contains(KeyModifiers::CONTROL)
+                            && *focus.read() == Focus::Viewer =>
+                    {
+                        app_data.write().viewer.scroll_by(VIEWER_VIEWPORT as i32 / 2, VIEWER_VIEWPORT);
                     }
                     _ => {}
                 }
