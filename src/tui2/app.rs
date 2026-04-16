@@ -13,6 +13,7 @@ use crate::paths::{config_file_path, CtxforgeRoot};
 use crate::resolve;
 use crate::tokens;
 use crate::tui::preview::PromptPreview;
+use crate::tui::prompt_input::PromptInput;
 use crate::tui::theme::{config::resolve_theme_name, registry, AppTheme};
 use crate::tui::tree::{self, TreeEntry};
 use crate::tui2::components::{
@@ -123,6 +124,13 @@ impl AppData {
 
     fn collapse_all(&mut self) {
         tree::collapse_all(&mut self.tree_entries);
+    }
+
+    /// Write task_text into the bundle and rebuild the preview. Persists to disk.
+    fn sync_task_text(&mut self, text: String) {
+        self.bundle.task_text = text;
+        self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
+        let _ = self.bundle.save(&self.root);
     }
 
     /// Recompute `item_tokens` and `total_tokens` from the current bundle.
@@ -256,6 +264,10 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     let mut cursor: State<usize> = hooks.use_state(|| 0usize);
     let mut should_quit: State<bool> = hooks.use_state(|| false);
     let mut mode: State<crate::tui2::mode::Mode> = hooks.use_state(crate::tui2::mode::Mode::default);
+    let mut prompt_input: State<PromptInput> = hooks.use_state(|| {
+        let initial = app_data.read().bundle.task_text.clone();
+        PromptInput::with_text(initial)
+    });
 
     let (term_w, term_h) = hooks.use_terminal_size();
 
