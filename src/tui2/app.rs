@@ -198,7 +198,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     let mut cursor: State<usize> = hooks.use_state(|| 0usize);
     let mut should_quit: State<bool> = hooks.use_state(|| false);
 
-    let (term_w, _term_h) = hooks.use_terminal_size();
+    let (term_w, term_h) = hooks.use_terminal_size();
 
     let s = startup.read();
     // Only show entries that aren't inside a collapsed directory
@@ -384,12 +384,18 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     let medium = (100..140).contains(&term_w);
     let _narrow = term_w < 100; // handled by the else branch below
 
+    // Use explicit terminal dimensions instead of 100pct so the root View
+    // actually fills the whole terminal. iocraft's fullscreen mode doesn't
+    // force the root to match terminal size — we have to pin it ourselves.
+    let w = term_w as u32;
+    let h = term_h as u32;
+
     element! {
         View(
             flex_direction: FlexDirection::Column,
             background_color: theme.bg,
-            width: 100pct,
-            height: 100pct,
+            width: w,
+            height: h,
         ) {
             // ─── HEADER (height: 3) ──────────────────────────────
             View(
