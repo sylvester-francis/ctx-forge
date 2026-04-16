@@ -805,7 +805,23 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     MixedTextContent::new("● ").color(theme.success).weight(Weight::Bold),
                     MixedTextContent::new("ready").color(theme.muted),
                 ])
-                #(if matches!(*mode.read(), crate::tui2::mode::Mode::Search { .. }) {
+                #(if cur_focus == Focus::Prompt {
+                    // Prompt focus: text-editing hints
+                    element! {
+                        MixedText(contents: vec![
+                            MixedTextContent::new("type").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" text  ").color(theme.muted),
+                            MixedTextContent::new("enter").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" newline  ").color(theme.muted),
+                            MixedTextContent::new("ctrl-w").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" del word  ").color(theme.muted),
+                            MixedTextContent::new("tab").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" focus  ").color(theme.muted),
+                            MixedTextContent::new("esc").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" done").color(theme.muted),
+                        ])
+                    }
+                } else if matches!(*mode.read(), crate::tui2::mode::Mode::Search { .. }) {
                     // Search mode: typing into query
                     element! {
                         MixedText(contents: vec![
@@ -842,14 +858,12 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             MixedTextContent::new(" move  ").color(theme.muted),
                             MixedTextContent::new("space").color(theme.accent).weight(Weight::Bold),
                             MixedTextContent::new(" toggle  ").color(theme.muted),
-                            MixedTextContent::new("enter").color(theme.accent).weight(Weight::Bold),
-                            MixedTextContent::new(" expand  ").color(theme.muted),
+                            MixedTextContent::new("i").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" edit  ").color(theme.muted),
                             MixedTextContent::new("/").color(theme.accent).weight(Weight::Bold),
                             MixedTextContent::new(" find  ").color(theme.muted),
                             MixedTextContent::new("E/C").color(theme.accent).weight(Weight::Bold),
                             MixedTextContent::new(" all  ").color(theme.muted),
-                            MixedTextContent::new("?").color(theme.accent).weight(Weight::Bold),
-                            MixedTextContent::new(" help  ").color(theme.muted),
                             MixedTextContent::new("q").color(theme.accent).weight(Weight::Bold),
                             MixedTextContent::new(" quit").color(theme.muted),
                         ])
