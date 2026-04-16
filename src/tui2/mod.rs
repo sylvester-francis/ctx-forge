@@ -10,6 +10,7 @@ pub mod mode;
 pub mod motion;
 pub mod overlays;
 pub mod theme;
+pub mod viewer;
 
 use crate::error::Result;
 use crate::paths::CtxforgeRoot;
