@@ -10,8 +10,11 @@ pub fn render_card(
     term_w: u16,
     term_h: u16,
 ) -> AnyElement<'static> {
-    let card_w = ((term_w as u32 * 60) / 100).clamp(40, 120);
-    let card_h = ((term_h as u32 * 60) / 100).clamp(10, 32);
+    // Scale with terminal: aim for 90% × 85% with sensible min/max. On narrow
+    // terminals this uses most of the screen; on very wide terminals it's
+    // capped so the card stays visually centered without stretching.
+    let card_w = ((term_w as u32 * 90) / 100).clamp(30, 140);
+    let card_h = ((term_h as u32 * 85) / 100).clamp(8, 50);
     let offset_left = (term_w as u32).saturating_sub(card_w) / 2;
     let offset_top = (term_h as u32).saturating_sub(card_h) / 2;
 
@@ -43,6 +46,7 @@ pub fn render_card(
             padding_left: 2,
             padding_right: 2,
             padding_top: 1,
+            overflow: Overflow::Hidden,
         ) {
             MixedText(contents: vec![
                 MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
