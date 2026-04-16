@@ -869,6 +869,26 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     // clamp the cursor so it stays within the (possibly shrunken) visible
     // range — relevant after collapse-all.
     drop(data);
+
+    // Drain viewer mouse events batched since last render (wheel, drag,
+    // click). Apply them in order so a press+drag+release sequence
+    // produces the expected final selection.
+    let pending_mouse = viewer_events.read().drain();
+    if !pending_mouse.is_empty() {
+        let viewport = viewer_viewport(term_h);
+        let mut d = app_data.write();
+        for ev in pending_mouse {
+            use crate::tui2::components::viewer::ViewerMouseEvent as VE;
+            match ev {
+                VE::ScrollUp => d.viewer.scroll_by(-3, viewport),
+                VE::ScrollDown => d.viewer.scroll_by(3, viewport),
+                VE::Down { line } => d.viewer.drag_start(line),
+                VE::Drag { line } => d.viewer.drag_extend(line),
+                VE::Up => d.viewer.drag_end(),
+            }
+        }
+    }
+
     let data = app_data.read();
     let visible_indices = tree::visible_indices(&data.tree_entries);
     let visible_count = visible_indices.len();
