@@ -31,6 +31,7 @@ pub struct ViewerStateSnapshot {
     pub error_msg: Option<String>,
     pub truncated: bool,
     pub selection: Option<(usize, usize)>,
+    pub loading: bool,
 }
 
 impl ViewerStateSnapshot {
@@ -41,6 +42,7 @@ impl ViewerStateSnapshot {
             error_msg: v.error.as_ref().map(|e| e.to_string()),
             truncated: v.truncated,
             selection: v.selection,
+            loading: v.loading,
         }
     }
 }
@@ -102,6 +104,15 @@ pub fn Viewer(hooks: &mut Hooks, props: &ViewerProps) -> impl Into<AnyElement<'s
 }
 
 fn render_rows(viewer: &ViewerStateSnapshot, theme: &Theme) -> Vec<AnyElement<'static>> {
+    if viewer.loading {
+        return vec![
+            element! {
+                Text(content: "  ⣾ loading…", color: theme.muted, weight: Weight::Bold)
+            }
+            .into_any(),
+        ];
+    }
+
     if let Some(err) = &viewer.error_msg {
         let line = format!(" ⚠  {err}");
         return vec![

@@ -17,6 +17,9 @@ pub struct ViewerState {
     pub error: Option<ViewerError>,
     pub truncated: bool,
     pub highlighter: Highlighter,
+    /// True while a background file load is in flight. Viewer shows a
+    /// "loading…" hint during this window so the UI doesn't feel frozen.
+    pub loading: bool,
     /// Active drag selection, 0-based inclusive line indices, normalized
     /// so `start <= end`. `None` = no selection.
     pub selection: Option<(usize, usize)>,
@@ -35,9 +38,23 @@ impl ViewerState {
             error: None,
             truncated: false,
             highlighter: Highlighter::new(),
+            loading: false,
             selection: None,
             drag_anchor: None,
         }
+    }
+
+    /// Apply a result from a background load. Called from the render body
+    /// when the bg task completes.
+    pub fn apply_bg_load(&mut self, path: PathBuf, load: ViewerLoad) {
+        self.lines = load.lines;
+        self.error = load.error;
+        self.truncated = load.truncated;
+        self.cached_path = Some(path);
+        self.scroll = 0;
+        self.selection = None;
+        self.drag_anchor = None;
+        self.loading = false;
     }
 
     pub fn drag_start(&mut self, line_idx: usize) {
