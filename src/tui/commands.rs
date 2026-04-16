@@ -207,6 +207,63 @@ pub static COMMANDS: &[CommandSpec] = &[
         action: |app, _| app.add_viewer_selection_to_bundle(),
     },
     CommandSpec {
+        name: "theme",
+        description: "switch the active theme <name?> (ctxforge / zinc / tokyo-night / gruvbox)",
+        takes_arg: true,
+        action: |app, arg| match arg {
+            Some(name) if !name.is_empty() => app.set_theme_by_name(&name),
+            _ => {
+                let available: Vec<&'static str> = crate::tui::theme::registry::all_themes()
+                    .iter()
+                    .map(|t| t.name)
+                    .collect();
+                app.set_status(format!(
+                    "current: {}  ·  available: {}",
+                    app.theme.name,
+                    available.join(", ")
+                ));
+            }
+        },
+    },
+    CommandSpec {
+        name: "scenario",
+        description: "switch the active scenario <name?>",
+        takes_arg: true,
+        action: |app, arg| match arg {
+            Some(name) if !name.is_empty() => {
+                if let Err(e) = app.set_scenario(&name) {
+                    app.set_status(e);
+                }
+            }
+            _ => app.open_scenario_picker(),
+        },
+    },
+    CommandSpec {
+        name: "deliver",
+        description: "deliver the crafted prompt (pipe / copy / export)",
+        takes_arg: false,
+        action: |app, _| {
+            let cursor = app
+                .deliver_last
+                .and_then(|last| {
+                    crate::tui::deliver::DeliverChoice::all()
+                        .iter()
+                        .position(|&c| c == last)
+                })
+                .unwrap_or(0);
+            app.set_mode(mode::Mode::DeliverPick { cursor });
+        },
+    },
+    CommandSpec {
+        name: "edit-prompt",
+        description: "edit the full composed prompt in $EDITOR (one-shot override)",
+        takes_arg: false,
+        action: |app, _| {
+            let content = crate::tui::preview::full::render_full(app);
+            app.pending_editor = Some(crate::tui::app::PendingEditor::FullPrompt(content));
+        },
+    },
+    CommandSpec {
         name: "quit",
         description: "quit ctxforge",
         takes_arg: false,

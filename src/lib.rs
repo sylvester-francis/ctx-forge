@@ -21,6 +21,7 @@ pub mod paths;
 pub mod profile;
 pub mod resolve;
 pub mod template;
+pub mod test_helpers;
 pub mod tokens;
 #[cfg(feature = "tui")]
 pub mod tui;

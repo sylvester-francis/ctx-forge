@@ -19,6 +19,15 @@ pub struct Bundle {
     /// Target model for token counting. Defaults via `models::DEFAULT_MODEL`.
     #[serde(default)]
     pub model: Option<String>,
+    /// Natural-language task text the user is authoring. Rendered in the
+    /// prompt preview's `## Task` section and delivered together with the
+    /// bundle contents.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub task_text: String,
+    /// Named scenario (template alias) — drives the template wrapper
+    /// rendered around task + context on delivery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scenario: Option<String>,
 }
 
 fn default_version() -> u32 {
@@ -31,6 +40,8 @@ impl Bundle {
             version: 1,
             items: Vec::new(),
             model: None,
+            task_text: String::new(),
+            scenario: None,
         }
     }
 

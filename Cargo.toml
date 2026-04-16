@@ -32,6 +32,8 @@ comfy-table = "7"
 indicatif = "0.17"
 dialoguer = { version = "0.11", features = ["editor"] }
 strsim = "0.11"
+toml = "0.8"
+tempfile = "3.27"
 
 # Optional: tree-sitter extraction (behind --features=extract)
 tree-sitter = { version = "0.26", optional = true }
@@ -44,7 +46,6 @@ tree-sitter-javascript = { version = "0.25", optional = true }
 [dev-dependencies]
 assert_cmd = "2.2"
 predicates = "3.1.4"
-tempfile = "3.27"
 pretty_assertions = "1.4.1"
 insta = { version = "1.40", features = ["yaml"] }
 temp-env = "0.3"

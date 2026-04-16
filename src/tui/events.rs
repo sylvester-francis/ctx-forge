@@ -94,24 +94,422 @@ pub fn handle(app: &mut App, key: KeyEvent) {
         Mode::Help => handle_help(app, key),
         Mode::TemplatePick { .. } => handle_template_pick(app, key),
         Mode::TemplateTask { .. } => handle_template_task(app, key),
+        Mode::ScenarioPick { .. } => handle_scenario_pick(app, key),
+        Mode::FullPromptPreview { .. } => handle_full_preview(app, key),
+        Mode::AtPicker { .. } => handle_at_picker(app, key),
+        Mode::DeliverPick { .. } => handle_deliver_pick(app, key),
+    }
+}
+
+fn handle_deliver_pick(app: &mut App, key: KeyEvent) {
+    use crate::tui::deliver::DeliverChoice;
+    let len = DeliverChoice::all().len();
+    let action = {
+        let Mode::DeliverPick { cursor } = app.mode_mut() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => Some(None),
+            KeyCode::Char('j') | KeyCode::Down => {
+                *cursor = (*cursor + 1).min(len - 1);
+                None
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                *cursor = cursor.saturating_sub(1);
+                None
+            }
+            KeyCode::Enter => Some(Some(DeliverChoice::all()[*cursor])),
+            _ => None,
+        }
+    };
+    if let Some(maybe_choice) = action {
+        app.set_mode(Mode::Normal);
+        if let Some(choice) = maybe_choice {
+            if let Err(e) = crate::tui::deliver::run_choice(app, choice) {
+                app.set_status(format!("deliver failed: {e}"));
+            }
+        }
+    }
+}
+
+/// Handle keys while the `@` file picker is open. Typing extends the
+/// query; Up/Down moves the cursor; Backspace either shortens the query
+/// or — when the query is empty — closes the picker (leaving the `@`
+/// literally in the prompt as a degenerate no-op). Enter is handled in
+/// Task 21; Esc always closes cleanly.
+fn handle_at_picker(app: &mut App, key: KeyEvent) {
+    // Plan what to do without holding a mutable borrow across set_mode /
+    // prompt mutations. The borrow-split keeps the logic linear.
+    enum Action {
+        None,
+        Close,
+        Extend(char),
+        MoveCursor(i32),
+        Confirm(std::path::PathBuf),
+    }
+
+    let action = {
+        let Mode::AtPicker {
+            query,
+            results,
+            cursor,
+            ..
+        } = app.mode_mut()
+        else {
+            return;
+        };
+        match (key.code, key.modifiers) {
+            (KeyCode::Esc, _) => Action::Close,
+            (KeyCode::Enter, _) => results
+                .get(*cursor)
+                .cloned()
+                .map(Action::Confirm)
+                .unwrap_or(Action::Close),
+            (KeyCode::Char('j'), _) | (KeyCode::Down, _) => Action::MoveCursor(1),
+            (KeyCode::Char('k'), _) | (KeyCode::Up, _) => Action::MoveCursor(-1),
+            (KeyCode::Backspace, _) => {
+                if query.is_empty() {
+                    Action::Close
+                } else {
+                    query.pop();
+                    Action::Extend('\0') // sentinel: rerank-only, no typing
+                }
+            }
+            (KeyCode::Char(c), mods)
+                if !mods.contains(KeyModifiers::CONTROL) && !mods.contains(KeyModifiers::ALT) =>
+            {
+                query.push(c);
+                Action::Extend(c)
+            }
+            _ => Action::None,
+        }
+    };
+
+    match action {
+        Action::None => {}
+        Action::Close => app.set_mode(Mode::Normal),
+        Action::MoveCursor(delta) => {
+            if let Mode::AtPicker {
+                results, cursor, ..
+            } = app.mode_mut()
+            {
+                let len = results.len();
+                if len == 0 {
+                    *cursor = 0;
+                } else if delta > 0 {
+                    *cursor = (*cursor + 1).min(len - 1);
+                } else {
+                    *cursor = cursor.saturating_sub(1);
+                }
+            }
+        }
+        Action::Extend(c) => {
+            // Rerank with the now-updated query.
+            if let Mode::AtPicker {
+                all,
+                query,
+                results,
+                cursor,
+            } = app.mode_mut()
+            {
+                *results = crate::tui::prompt_input::at_picker::rank(
+                    all,
+                    query,
+                    crate::tui::prompt_input::at_picker::RESULT_LIMIT,
+                );
+                *cursor = 0;
+            }
+            // Real char: also type it into the prompt buffer. '\0'
+            // sentinel means this came from Backspace and we already
+            // handled the prompt side below.
+            if c != '\0' {
+                app.prompt_input.insert_char(c);
+                sync_task_text(app);
+            } else {
+                // Backspace path: remove the matching char from the prompt
+                // buffer too so the in-place @query stays in sync.
+                app.prompt_input.backspace();
+                sync_task_text(app);
+            }
+        }
+        Action::Confirm(path) => {
+            confirm_at_mention(app, path);
+        }
+    }
+}
+
+/// Replace the `@<query>` token at the cursor with `@<full path>` and
+/// auto-add the file to the bundle if it's not already there. Closes the
+/// picker on the way out.
+fn confirm_at_mention(app: &mut App, path: std::path::PathBuf) {
+    // Find the '@' preceding the cursor. Everything between that '@' and
+    // the cursor is the query we typed, which we replace with the full
+    // path.
+    let cursor = app.prompt_input.cursor();
+    let text = app.prompt_input.text().to_string();
+    let at_idx = text[..cursor].rfind('@').unwrap_or(cursor);
+    let path_str = path.display().to_string();
+
+    let mut new_text = text;
+    new_text.replace_range(at_idx..cursor, &format!("@{path_str}"));
+    app.prompt_input.set_text(new_text);
+    let new_cursor = at_idx + 1 + path_str.len();
+    app.prompt_input.set_cursor(new_cursor);
+    sync_task_text(app);
+
+    // Add to bundle if missing.
+    if !app.bundled_paths.contains(&path) {
+        app.bundle.items.push(crate::bundle::Item {
+            path: path.clone(),
+            kind: crate::bundle::ItemKind::File,
+            label: None,
+        });
+        app.bundled_paths.insert(path.clone());
+        app.recalculate_tokens();
+        let _ = app.bundle.save(&app.root);
+        app.set_status(format!("@{path_str} added to bundle"));
+    } else {
+        app.set_status(format!("@{path_str} (already in bundle)"));
+    }
+
+    app.set_mode(Mode::Normal);
+}
+
+/// Route a keystroke into the multi-line prompt input. Only reached when
+/// `Focus::Prompt` is active. Esc defocuses back to the last panel; text
+/// keys insert; Backspace / arrows / Home / End / Ctrl-W / Ctrl-A / Ctrl-E
+/// have their standard meanings.
+fn handle_prompt_key(app: &mut App, key: KeyEvent) {
+    match (key.code, key.modifiers) {
+        (KeyCode::Esc, _) => {
+            app.defocus_prompt();
+            return;
+        }
+        (KeyCode::Tab, _) => {
+            app.toggle_focus();
+            return;
+        }
+        (KeyCode::Enter, mods)
+            if mods.contains(KeyModifiers::CONTROL) || mods.contains(KeyModifiers::ALT) =>
+        {
+            // Ctrl-Enter / Alt-Enter both open the deliver picker.
+            // Terminals vary on whether they can distinguish Ctrl-Enter
+            // from plain Enter; Alt-Enter is a more reliable fallback
+            // and /deliver covers the rest.
+            let cursor = app
+                .deliver_last
+                .and_then(|last| {
+                    crate::tui::deliver::DeliverChoice::all()
+                        .iter()
+                        .position(|&c| c == last)
+                })
+                .unwrap_or(0);
+            app.set_mode(Mode::DeliverPick { cursor });
+            return;
+        }
+        (KeyCode::Enter, mods) if mods.contains(KeyModifiers::SHIFT) => {
+            app.prompt_input.insert_newline();
+        }
+        (KeyCode::Enter, _) => {
+            // Plain Enter inside the prompt inserts a newline — this is
+            // a multi-line surface. Ctrl-Enter / Alt-Enter opens the
+            // deliver picker (handled above).
+            app.prompt_input.insert_newline();
+        }
+        (KeyCode::Backspace, _) => app.prompt_input.backspace(),
+        (KeyCode::Left, _) => {
+            app.prompt_input.move_left();
+            return;
+        }
+        (KeyCode::Right, _) => {
+            app.prompt_input.move_right();
+            return;
+        }
+        (KeyCode::Home, _) => {
+            app.prompt_input.move_home();
+            return;
+        }
+        (KeyCode::End, _) => {
+            app.prompt_input.move_end();
+            return;
+        }
+        (KeyCode::Char('w'), mods) if mods.contains(KeyModifiers::CONTROL) => {
+            app.prompt_input.delete_word_back();
+        }
+        (KeyCode::Char('a'), mods) if mods.contains(KeyModifiers::CONTROL) => {
+            app.prompt_input.move_home();
+            return;
+        }
+        (KeyCode::Char('e'), mods) if mods.contains(KeyModifiers::CONTROL) => {
+            // Open the task prompt in $EDITOR for long-form editing.
+            // (The emacs-style "move to end" binding is reachable via
+            // End; we reserve Ctrl-E for the editor spawn per the
+            // v1.3 spec.)
+            app.pending_editor = Some(crate::tui::app::PendingEditor::TaskText(
+                app.prompt_input.text().to_string(),
+            ));
+            return;
+        }
+        (KeyCode::Char('@'), mods)
+            if !mods.contains(KeyModifiers::CONTROL) && !mods.contains(KeyModifiers::ALT) =>
+        {
+            // Insert the literal '@' at the cursor (so the picker can
+            // later replace it with the selected path) and open the
+            // fuzzy popover.
+            app.prompt_input.insert_char('@');
+            sync_task_text(app);
+            let all = crate::tui::prompt_input::at_picker::walk_files(&app.project_root);
+            let results = crate::tui::prompt_input::at_picker::rank(
+                &all,
+                "",
+                crate::tui::prompt_input::at_picker::RESULT_LIMIT,
+            );
+            app.set_mode(Mode::AtPicker {
+                all,
+                query: String::new(),
+                results,
+                cursor: 0,
+            });
+            return;
+        }
+        (KeyCode::Char('/'), mods)
+            if !mods.contains(KeyModifiers::CONTROL) && !mods.contains(KeyModifiers::ALT) =>
+        {
+            // Opens the slash-command palette when the cursor is at the
+            // start of a line (empty buffer or sitting right after a
+            // newline). Anywhere else, `/` inserts literally — this
+            // keeps paths like `src/main.rs` type-able inside the task.
+            let text = app.prompt_input.text();
+            let cursor = app.prompt_input.cursor();
+            let at_line_start = cursor == 0 || text[..cursor].ends_with('\n');
+            if at_line_start {
+                app.set_mode(Mode::CommandPalette {
+                    query: String::new(),
+                    cursor: 0,
+                });
+                return;
+            }
+            app.prompt_input.insert_char('/');
+        }
+        (KeyCode::Char(c), mods)
+            if !mods.contains(KeyModifiers::CONTROL) && !mods.contains(KeyModifiers::ALT) =>
+        {
+            app.prompt_input.insert_char(c);
+        }
+        _ => return,
+    }
+    // Reached only for mutation branches — keep bundle.task_text in lockstep
+    // with the prompt buffer so the preview updates on the next frame.
+    sync_task_text(app);
+}
+
+/// Copy the current prompt input text into `bundle.task_text`. Called
+/// after any mutation so the preview's `## Task` section reflects the
+/// latest edit without a manual save.
+pub fn sync_task_text(app: &mut App) {
+    app.bundle.task_text = app.prompt_input.text().to_string();
+}
+
+/// Handle a bracketed-paste event. Inserts the pasted string verbatim
+/// into the prompt when `Focus::Prompt` is active; ignored otherwise.
+/// The atomic insert avoids per-char side effects (e.g. a `@` in the
+/// paste triggering the file picker once that lands in Phase 5).
+pub fn handle_paste(app: &mut App, content: String) {
+    if !matches!(app.focus, Focus::Prompt) {
+        return;
+    }
+    app.prompt_input.insert_str(&content);
+    sync_task_text(app);
+}
+
+fn handle_full_preview(app: &mut App, key: KeyEvent) {
+    let Mode::FullPromptPreview { scroll, .. } = app.mode_mut() else {
+        return;
+    };
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('P') => {
+            app.set_mode(Mode::Normal);
+        }
+        KeyCode::PageDown | KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            *scroll = scroll.saturating_add(10);
+        }
+        KeyCode::PageDown => {
+            *scroll = scroll.saturating_add(10);
+        }
+        KeyCode::PageUp | KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            *scroll = scroll.saturating_sub(10);
+        }
+        KeyCode::PageUp => {
+            *scroll = scroll.saturating_sub(10);
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            *scroll = scroll.saturating_add(1);
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            *scroll = scroll.saturating_sub(1);
+        }
+        KeyCode::Char('g') => {
+            *scroll = 0;
+        }
+        _ => {}
+    }
+}
+
+fn handle_scenario_pick(app: &mut App, key: KeyEvent) {
+    let Mode::ScenarioPick { cursor, scenarios } = app.mode_mut() else {
+        return;
+    };
+    match key.code {
+        KeyCode::Esc => app.set_mode(Mode::Normal),
+        KeyCode::Char('j') | KeyCode::Down => {
+            if !scenarios.is_empty() {
+                *cursor = (*cursor + 1).min(scenarios.len() - 1);
+            }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            *cursor = cursor.saturating_sub(1);
+        }
+        KeyCode::Enter => {
+            let picked = scenarios.get(*cursor).map(|s| s.name.clone());
+            app.set_mode(Mode::Normal);
+            if let Some(name) = picked {
+                if let Err(e) = app.set_scenario(&name) {
+                    app.set_status(e);
+                }
+            }
+        }
+        _ => {}
     }
 }
 
 fn handle_normal(app: &mut App, key: KeyEvent) {
+    // Prompt focus short-circuits normal-mode handling: everything the user
+    // types goes into the multi-line input. Dedicated keys (Esc to defocus,
+    // Ctrl-C global quit above) remain available.
+    if matches!(app.focus, Focus::Prompt) {
+        handle_prompt_key(app, key);
+        return;
+    }
+
     match key.code {
         // Quit
         KeyCode::Char('q') => app.should_quit = true,
+
+        // Focus the prompt input (text surface at the bottom).
+        KeyCode::Char('i') => app.focus_prompt(),
 
         // Navigation (vim-style)
         KeyCode::Char('j') | KeyCode::Down => match app.focus {
             Focus::FileTree => app.move_tree_cursor(1),
             Focus::Viewer => app.move_viewer_scroll(1),
             Focus::BundleList => app.move_bundle_cursor(1),
+            Focus::Prompt => {}
         },
         KeyCode::Char('k') | KeyCode::Up => match app.focus {
             Focus::FileTree => app.move_tree_cursor(-1),
             Focus::Viewer => app.move_viewer_scroll(-1),
             Focus::BundleList => app.move_bundle_cursor(-1),
+            Focus::Prompt => {}
         },
 
         // Page scrolling — PageDown / PageUp jumps a full viewport.
@@ -122,6 +520,7 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
                 app.move_viewer_scroll(half);
             }
             Focus::BundleList => app.page_bundle_cursor(1),
+            Focus::Prompt => {}
         },
         KeyCode::PageUp => match app.focus {
             Focus::FileTree => app.page_tree_cursor(-1),
@@ -130,6 +529,7 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
                 app.move_viewer_scroll(-half);
             }
             Focus::BundleList => app.page_bundle_cursor(-1),
+            Focus::Prompt => {}
         },
 
         // Vim-style half-page: Ctrl-D / Ctrl-U.
@@ -140,6 +540,7 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
                 app.move_viewer_scroll(half);
             }
             Focus::BundleList => app.half_page_bundle_cursor(1),
+            Focus::Prompt => {}
         },
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => match app.focus {
             Focus::FileTree => app.half_page_tree_cursor(-1),
@@ -148,6 +549,7 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
                 app.move_viewer_scroll(-half);
             }
             Focus::BundleList => app.half_page_bundle_cursor(-1),
+            Focus::Prompt => {}
         },
 
         KeyCode::Char(' ') => {
@@ -177,6 +579,7 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
                     app.bundle_cursor = app.bundle.len() - 1;
                 }
             }
+            Focus::Prompt => {}
         },
         KeyCode::Char('g') => match app.focus {
             Focus::FileTree => {
@@ -185,6 +588,7 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
             }
             Focus::Viewer => app.scroll_viewer_to_top(),
             Focus::BundleList => app.bundle_cursor = 0,
+            Focus::Prompt => {}
         },
 
         // Viewer toggle
@@ -202,16 +606,12 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
             app.viewer.clear_selection();
         }
 
-        // Expand / collapse all directories in the tree.
-        KeyCode::Char('E') => {
-            if app.focus == Focus::FileTree {
-                app.expand_all_dirs();
-            }
+        // Expand / collapse all directories in the tree (tree focus only).
+        KeyCode::Char('E') if app.focus == Focus::FileTree => {
+            app.expand_all_dirs();
         }
-        KeyCode::Char('C') => {
-            if app.focus == Focus::FileTree {
-                app.collapse_all_dirs();
-            }
+        KeyCode::Char('C') if app.focus == Focus::FileTree => {
+            app.collapse_all_dirs();
         }
 
         // Slash command palette
@@ -227,6 +627,16 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
             app.set_mode(Mode::Help);
             app.show_help = true;
         }
+
+        // Full-text composed-prompt preview.
+        KeyCode::Char('P') => {
+            let content = crate::tui::preview::full::render_full(app);
+            app.set_mode(Mode::FullPromptPreview { content, scroll: 0 });
+        }
+        // Note: 'E' remains the FileTree 'expand all' shortcut. The
+        // full-composed-prompt editor is reachable via /edit-prompt
+        // (command palette) — chose that over a dedicated key to
+        // avoid the collision + to keep muscle memory stable.
 
         // Ctrl+F = direct search shortcut
         KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {

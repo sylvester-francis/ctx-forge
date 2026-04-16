@@ -26,3 +26,4 @@ Cargo.lock.bak
 *.swp
 *.swo
 launch-assets/
+.superpowers/

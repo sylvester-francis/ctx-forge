@@ -11,12 +11,20 @@ use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, ListState, Paragra
 
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
+    // Auto-grow the prompt strip from 3 to 8 lines based on content height.
+    // Three lines = single input row plus top/bottom border; eight lines
+    // caps the growth so narrow terminals still keep panels usable.
+    let prompt_rows = {
+        let lines = app.prompt_input.line_count() as u16;
+        (lines + 2).clamp(3, 8)
+    };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // header + gauge
-            Constraint::Min(5),    // main panels
-            Constraint::Length(2), // status + keybindings
+            Constraint::Length(3),           // header + gauge
+            Constraint::Min(5),              // main panels
+            Constraint::Length(prompt_rows), // multi-line prompt input
+            Constraint::Length(2),           // status + keybindings
         ])
         .split(area);
 
@@ -41,7 +49,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             .split(chunks[1]);
         let left_handled = draw_left_panel(f, app, panel_chunks[0]);
         if !left_handled {
-            draw_file_tree(f, app, panel_chunks[0]);
+            draw_left_column(f, app, panel_chunks[0]);
         }
         draw_viewer(f, app, panel_chunks[1]);
         draw_right_panel(f, app, panel_chunks[2]);
@@ -58,7 +66,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         draw_viewer(f, app, panel_chunks[1]);
         let left_handled = draw_left_panel(f, app, panel_chunks[2]);
         if !left_handled {
-            draw_file_tree(f, app, panel_chunks[2]);
+            draw_left_column(f, app, panel_chunks[2]);
         }
     } else if area.width >= 120 && area.height >= 30 {
         let panel_chunks = Layout::default()
@@ -67,7 +75,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             .split(chunks[1]);
         let left_handled = draw_left_panel(f, app, panel_chunks[0]);
         if !left_handled {
-            draw_file_tree(f, app, panel_chunks[0]);
+            draw_left_column(f, app, panel_chunks[0]);
         }
         draw_right_panel(f, app, panel_chunks[1]);
     } else {
@@ -78,16 +86,17 @@ pub fn draw(f: &mut Frame, app: &App) {
         draw_right_panel(f, app, panel_chunks[0]);
         let left_handled = draw_left_panel(f, app, panel_chunks[1]);
         if !left_handled {
-            draw_file_tree(f, app, panel_chunks[1]);
+            draw_left_column(f, app, panel_chunks[1]);
         }
     }
 
-    draw_footer(f, app, chunks[2]);
+    draw_prompt_input(f, app, chunks[2]);
+    draw_footer(f, app, chunks[3]);
 
     // Pass 2 — dim the Normal content when an overlay is visible.
     let dim = app.backdrop_dim.opacity(app.clock.now());
     if dim > 0.001 {
-        apply_dim_to_buffer(f.buffer_mut(), dim);
+        apply_dim_to_buffer(f.buffer_mut(), dim, app.theme.bg);
     }
 
     // Pass 3a — outgoing overlay (during cross-fade).
@@ -116,22 +125,20 @@ pub fn draw(f: &mut Frame, app: &App) {
     // TUI eases in on launch.
     let startup_opacity = app.startup_fade.opacity(app.clock.now());
     if startup_opacity < 0.999 {
-        apply_opacity_to_buffer(f.buffer_mut(), startup_opacity);
+        apply_opacity_to_buffer(f.buffer_mut(), startup_opacity, app.theme.bg);
     }
 }
 
 /// Fade every cell toward the theme bg by `1 - opacity`. Used by the
 /// startup fade-in to ease the whole TUI into view.
-fn apply_opacity_to_buffer(buf: &mut Buffer, opacity: f32) {
+fn apply_opacity_to_buffer(buf: &mut Buffer, opacity: f32, bg: ratatui::style::Color) {
     use crate::tui::motion::blend;
-    use ratatui::style::Color;
-    const BG: Color = Color::Rgb(10, 14, 22);
     let area = buf.area;
     for y in area.top()..area.bottom() {
         for x in area.left()..area.right() {
             let cell = &mut buf[(x, y)];
-            cell.fg = blend(opacity, cell.fg, BG);
-            cell.bg = blend(opacity, cell.bg, BG);
+            cell.fg = blend(opacity, cell.fg, bg);
+            cell.bg = blend(opacity, cell.bg, bg);
         }
     }
 }
@@ -189,7 +196,7 @@ fn draw_overlay_into_buffer(
     }
 
     if matches!(mode, Mode::Help) {
-        draw_help_overlay_buf(buf, frame_area);
+        draw_help_overlay_buf(buf, frame_area, app.theme);
     }
 
     match mode {
@@ -199,7 +206,7 @@ fn draw_overlay_into_buffer(
             let block = Block::default()
                 .title(" Pipe to Agent ")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(ratatui::style::Color::Cyan));
+                .border_style(Style::default().fg(app.theme.border_focused));
             let text = vec![
                 Line::from("  c  claude (XML)"),
                 Line::from("  a  agent (markdown)"),
@@ -217,15 +224,15 @@ fn draw_overlay_into_buffer(
             let block = Block::default()
                 .title(" Switch Model ")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(ratatui::style::Color::Cyan));
+                .border_style(Style::default().fg(app.theme.border_focused));
             let items: Vec<ListItem> = models
                 .iter()
                 .enumerate()
                 .map(|(i, m)| {
                     let style = if i == *cursor {
                         Style::default()
-                            .fg(ratatui::style::Color::Black)
-                            .bg(ratatui::style::Color::White)
+                            .fg(app.theme.selected_fg)
+                            .bg(app.theme.selected_bg)
                     } else {
                         Style::default()
                     };
@@ -238,30 +245,179 @@ fn draw_overlay_into_buffer(
             List::new(items).block(block).render(area, buf);
         }
         Mode::TemplatePick { cursor, templates } => {
-            draw_template_pick_overlay_buf(buf, frame_area, *cursor, templates);
+            draw_template_pick_overlay_buf(buf, frame_area, *cursor, templates, app.theme);
         }
         Mode::TemplateTask {
             template_name,
             task,
         } => {
-            draw_template_task_overlay_buf(buf, frame_area, template_name, task);
+            draw_template_task_overlay_buf(buf, frame_area, template_name, task, app.theme);
+        }
+        Mode::ScenarioPick { cursor, scenarios } => {
+            draw_scenario_pick_overlay_buf(buf, frame_area, *cursor, scenarios, app.theme);
+        }
+        Mode::FullPromptPreview { content, scroll } => {
+            draw_full_preview_overlay_buf(buf, frame_area, content, *scroll, app.theme);
+        }
+        Mode::AtPicker {
+            query,
+            results,
+            cursor,
+            ..
+        } => {
+            draw_at_picker_overlay_buf(buf, frame_area, query, results, *cursor, app.theme);
+        }
+        Mode::DeliverPick { cursor } => {
+            draw_deliver_pick_overlay_buf(buf, frame_area, *cursor, app.theme);
         }
         _ => {}
     }
 }
 
-/// Blend every cell's fg and bg toward `BG` by `dim`, leaving symbols intact.
+fn draw_deliver_pick_overlay_buf(
+    buf: &mut Buffer,
+    frame_area: Rect,
+    cursor: usize,
+    theme: &crate::tui::theme::AppTheme,
+) {
+    use crate::tui::deliver::DeliverChoice;
+    let choices = DeliverChoice::all();
+    let width = 40u16.min(frame_area.width.saturating_sub(4));
+    let height = (choices.len() as u16).saturating_add(2);
+    let area = centered_rect(width, height, frame_area);
+    ratatui::widgets::Clear.render(area, buf);
+    let block = Block::default()
+        .title(" deliver · Enter run · Esc cancel ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.border_focused));
+    let items: Vec<ListItem> = choices
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            let selected = i == cursor;
+            let style = if selected {
+                Style::default().fg(theme.selected_fg).bg(theme.selected_bg)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Span::styled(format!("  {}", c.label()), style))
+        })
+        .collect();
+    List::new(items).block(block).render(area, buf);
+}
+
+fn draw_at_picker_overlay_buf(
+    buf: &mut Buffer,
+    frame_area: Rect,
+    query: &str,
+    results: &[std::path::PathBuf],
+    cursor: usize,
+    theme: &crate::tui::theme::AppTheme,
+) {
+    let width = 60.min(frame_area.width.saturating_sub(4));
+    let height = (results.len().saturating_add(3).min(14)) as u16;
+    let area = centered_rect(width, height, frame_area);
+    ratatui::widgets::Clear.render(area, buf);
+    let title = format!(" @{query} ");
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.border_focused));
+
+    if results.is_empty() {
+        Paragraph::new("  (no matches)")
+            .style(Style::default().add_modifier(Modifier::DIM))
+            .block(block)
+            .render(area, buf);
+        return;
+    }
+
+    let items: Vec<ListItem> = results
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let selected = i == cursor;
+            let style = if selected {
+                Style::default().fg(theme.selected_fg).bg(theme.selected_bg)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Span::styled(format!("  {}", p.display()), style))
+        })
+        .collect();
+    List::new(items).block(block).render(area, buf);
+}
+
+fn draw_full_preview_overlay_buf(
+    buf: &mut Buffer,
+    frame_area: Rect,
+    content: &str,
+    scroll: u16,
+    theme: &crate::tui::theme::AppTheme,
+) {
+    let width = frame_area.width.saturating_mul(9) / 10;
+    let height = frame_area.height.saturating_mul(9) / 10;
+    let area = centered_rect(width, height, frame_area);
+    ratatui::widgets::Clear.render(area, buf);
+    let block = Block::default()
+        .title(" full prompt preview · j/k or PgUp/PgDn scroll · g top · Esc close ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.border_focused));
+    Paragraph::new(content)
+        .block(block)
+        .wrap(ratatui::widgets::Wrap { trim: false })
+        .scroll((scroll, 0))
+        .render(area, buf);
+}
+
+fn draw_scenario_pick_overlay_buf(
+    buf: &mut Buffer,
+    frame_area: Rect,
+    cursor: usize,
+    scenarios: &[crate::tui::scenario::Scenario],
+    theme: &crate::tui::theme::AppTheme,
+) {
+    use crate::tui::scenario::Source;
+    let area = centered_rect(60, (scenarios.len() + 4).min(20) as u16, frame_area);
+    ratatui::widgets::Clear.render(area, buf);
+    let block = Block::default()
+        .title(" / scenario — pick a scenario ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.border_focused));
+    let items: Vec<ListItem> = scenarios
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            let source_label = match s.source {
+                Source::BuiltIn => "built-in",
+                Source::Project => "project",
+                Source::Global => "global",
+            };
+            let marker = if i == cursor { " > " } else { "   " };
+            let style = if i == cursor {
+                Style::default().fg(theme.selected_fg).bg(theme.selected_bg)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Span::styled(
+                format!("{marker}{:<24} ({source_label})", s.name),
+                style,
+            ))
+        })
+        .collect();
+    List::new(items).block(block).render(area, buf);
+}
+
+/// Blend every cell's fg and bg toward `bg` by `dim`, leaving symbols intact.
 /// Used to darken Normal content behind an overlay.
-fn apply_dim_to_buffer(buf: &mut ratatui::buffer::Buffer, dim: f32) {
+fn apply_dim_to_buffer(buf: &mut ratatui::buffer::Buffer, dim: f32, bg: ratatui::style::Color) {
     use crate::tui::motion::blend;
-    use ratatui::style::Color;
-    const BG: Color = Color::Rgb(10, 14, 22);
     let area = buf.area;
     for y in area.top()..area.bottom() {
         for x in area.left()..area.right() {
             let cell = &mut buf[(x, y)];
-            cell.fg = blend(1.0 - dim, cell.fg, BG);
-            cell.bg = blend(1.0 - dim, cell.bg, BG);
+            cell.fg = blend(1.0 - dim, cell.fg, bg);
+            cell.bg = blend(1.0 - dim, cell.bg, bg);
         }
     }
 }
@@ -273,7 +429,7 @@ fn apply_dim_to_buffer(buf: &mut ratatui::buffer::Buffer, dim: f32) {
 fn draw_command_palette_buf(
     buf: &mut Buffer,
     frame_area: Rect,
-    _app: &App,
+    app: &App,
     mode: &crate::tui::mode::Mode,
 ) {
     use crate::tui::mode::Mode;
@@ -297,7 +453,7 @@ fn draw_command_palette_buf(
     let input_block = Block::default()
         .title(" / command palette ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(ratatui::style::Color::Cyan));
+        .border_style(Style::default().fg(app.theme.border_focused));
     Paragraph::new(format!(" /{query}"))
         .block(input_block)
         .render(chunks[0], buf);
@@ -309,8 +465,8 @@ fn draw_command_palette_buf(
             let marker = if i == cursor { " > " } else { "   " };
             let style = if i == cursor {
                 Style::default()
-                    .fg(ratatui::style::Color::Black)
-                    .bg(ratatui::style::Color::White)
+                    .fg(app.theme.selected_fg)
+                    .bg(app.theme.selected_bg)
             } else {
                 Style::default()
             };
@@ -335,13 +491,13 @@ fn draw_command_palette_buf(
         .render(chunks[2], buf);
 }
 
-fn draw_help_overlay_buf(buf: &mut Buffer, frame_area: Rect) {
+fn draw_help_overlay_buf(buf: &mut Buffer, frame_area: Rect, theme: &crate::tui::theme::AppTheme) {
     let area = centered_rect(80, 22, frame_area);
     ratatui::widgets::Clear.render(area, buf);
     let block = Block::default()
         .title(" ctxforge -- navigation keys ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(ratatui::style::Color::Cyan));
+        .border_style(Style::default().fg(theme.border_focused));
     let lines = vec![
         Line::from(""),
         Line::from("  Movement                          Selection"),
@@ -375,6 +531,7 @@ fn draw_template_pick_overlay_buf(
     frame_area: Rect,
     cursor: usize,
     templates: &[(String, crate::tui::mode::TemplateSource)],
+    theme: &crate::tui::theme::AppTheme,
 ) {
     use crate::tui::mode::TemplateSource;
     let area = centered_rect(60, (templates.len() + 4).min(20) as u16, frame_area);
@@ -382,7 +539,7 @@ fn draw_template_pick_overlay_buf(
     let block = Block::default()
         .title(" / template -- pick a template ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(ratatui::style::Color::Cyan));
+        .border_style(Style::default().fg(theme.border_focused));
     let items: Vec<ListItem> = templates
         .iter()
         .enumerate()
@@ -393,9 +550,7 @@ fn draw_template_pick_overlay_buf(
             };
             let marker = if i == cursor { " > " } else { "   " };
             let style = if i == cursor {
-                Style::default()
-                    .fg(ratatui::style::Color::Black)
-                    .bg(ratatui::style::Color::White)
+                Style::default().fg(theme.selected_fg).bg(theme.selected_bg)
             } else {
                 Style::default()
             };
@@ -413,13 +568,14 @@ fn draw_template_task_overlay_buf(
     frame_area: Rect,
     template_name: &str,
     task: &str,
+    theme: &crate::tui::theme::AppTheme,
 ) {
     let area = centered_rect(70, 7, frame_area);
     ratatui::widgets::Clear.render(area, buf);
     let block = Block::default()
         .title(format!(" task for template '{template_name}' "))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(ratatui::style::Color::Cyan));
+        .border_style(Style::default().fg(theme.border_focused));
     let text = vec![
         Line::from(""),
         Line::from(format!("  > {task}")),
@@ -429,21 +585,131 @@ fn draw_template_task_overlay_buf(
     Paragraph::new(text).block(block).render(area, buf);
 }
 
-/// Render the right panel (bundle list, profile list, or memory panel).
+/// Render the right panel. Profile and memory overlays still claim the
+/// whole right column when active; otherwise defaults to the prompt
+/// preview (the scenario-aware artifact view).
 fn draw_right_panel(f: &mut Frame, app: &App, area: Rect) {
-    // LoadProfile mode replaces the right panel with the profile picker.
     if let crate::tui::mode::Mode::LoadProfile { cursor, profiles } = app.mode() {
-        draw_profile_list(f, *cursor, profiles, area);
+        draw_profile_list(f, *cursor, profiles, area, app.theme);
         return;
     }
 
-    // MemoryPanel mode replaces the right panel with the recall view.
     if matches!(app.mode(), crate::tui::mode::Mode::MemoryPanel { .. }) {
         draw_memory_panel(f, app, area);
         return;
     }
 
-    draw_bundle_list(f, app, area);
+    draw_preview(f, app, area);
+}
+
+/// Render the prompt preview — the crafted prompt structure. Replaces the
+/// bundle list as the default right-column surface.
+fn draw_preview(f: &mut Frame, app: &App, area: Rect) {
+    let preview = crate::tui::preview::PromptPreview::from_app(app);
+    let lines = preview.to_lines(app.theme);
+    let block = Block::default()
+        .title(" prompt preview ")
+        .borders(Borders::ALL);
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(ratatui::widgets::Wrap { trim: false });
+    f.render_widget(paragraph, area);
+}
+
+/// Render the left column: file tree on top, compact bundle summary below.
+/// `LoadProfile` and `MemoryPanel` modes keep their claim on the right
+/// column (they don't affect the left column); picker overlays in the left
+/// column (FunctionPick, TypePick, DiffPick) go through the existing
+/// `draw_left_panel` dispatcher.
+fn draw_left_column(f: &mut Frame, app: &App, area: Rect) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+        .split(area);
+    draw_file_tree(f, app, chunks[0]);
+    draw_bundle_summary(f, app, chunks[1]);
+}
+
+/// Compact bundle view for the lower-left slot. Same path + token info as
+/// the full list, with percentage column dropped to fit narrower space.
+fn draw_bundle_summary(f: &mut Frame, app: &App, area: Rect) {
+    let total_tokens = app.total_tokens;
+    let title = if app.bundle.is_empty() {
+        " bundle (0) ".to_string()
+    } else {
+        format!(
+            " bundle ({}) · {} tokens ",
+            app.bundle.len(),
+            format_tokens_compact(total_tokens)
+        )
+    };
+    let border_style = if app.focus == Focus::BundleList {
+        Style::default().fg(app.focus_highlight.current(app.clock.now()))
+    } else {
+        Style::default()
+    };
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(border_style);
+
+    if app.bundle.is_empty() {
+        let msg = Paragraph::new(" (empty — space in tree, or @ in prompt)")
+            .style(Style::default().add_modifier(Modifier::DIM))
+            .block(block);
+        f.render_widget(msg, area);
+        return;
+    }
+
+    // Compute path column width dynamically based on the area.
+    // Reserve: 2 index + 1 space + 2 leading + token column (6) + 2 trailing = ~13.
+    let inner_width = area.width.saturating_sub(2) as usize;
+    let path_width = inner_width.saturating_sub(15).max(10);
+
+    let items: Vec<ListItem> = app
+        .bundle
+        .items
+        .iter()
+        .enumerate()
+        .map(|(i, item)| {
+            let tokens = app.item_tokens.get(i).copied().unwrap_or(0);
+            let display = item.display();
+            let truncated = if display.len() > path_width {
+                let keep = path_width.saturating_sub(1);
+                format!("…{}", &display[display.len() - keep..])
+            } else {
+                display
+            };
+            let text = format!(
+                " {:>2} {:<width$} {:>6}",
+                i + 1,
+                truncated,
+                format_tokens_compact(tokens),
+                width = path_width,
+            );
+            let style = if i == app.bundle_cursor && app.focus == Focus::BundleList {
+                Style::default()
+                    .fg(app.theme.selected_fg)
+                    .bg(app.theme.selected_bg)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Line::from(vec![Span::styled(text, style)]))
+        })
+        .collect();
+
+    let list = List::new(items).block(block);
+    f.render_widget(list, area);
+}
+
+fn format_tokens_compact(n: usize) -> String {
+    if n >= 10_000 {
+        format!("{}k", n / 1000)
+    } else if n >= 1_000 {
+        format!("{:.1}k", n as f64 / 1000.0)
+    } else {
+        n.to_string()
+    }
 }
 
 /// Render the code viewer pane.
@@ -452,7 +718,7 @@ fn draw_viewer(f: &mut Frame, app: &App, area: Rect) {
     let border_color = if focused {
         app.focus_highlight.current(app.clock.now())
     } else {
-        ratatui::style::Color::DarkGray
+        app.theme.border
     };
 
     // Compute body viewport (inside borders).
@@ -481,7 +747,7 @@ fn draw_viewer(f: &mut Frame, app: &App, area: Rect) {
             | crate::tui::viewer::ViewerError::Binary(_) => {
                 Style::default().add_modifier(Modifier::DIM)
             }
-            _ => Style::default().fg(ratatui::style::Color::Red),
+            _ => Style::default().fg(app.theme.danger),
         };
         let p = Paragraph::new(Line::styled(msg, style)).block(block);
         f.render_widget(p, area);
@@ -501,12 +767,12 @@ fn draw_viewer(f: &mut Frame, app: &App, area: Rect) {
     let max_line_no = bottom.max(1);
     let digits = max_line_no.to_string().len();
     let gutter_style = Style::default()
-        .fg(ratatui::style::Color::DarkGray)
+        .fg(app.theme.muted)
         .add_modifier(Modifier::DIM);
-    let divider_style = Style::default().fg(ratatui::style::Color::DarkGray);
+    let divider_style = Style::default().fg(app.theme.muted);
 
     let selection = app.viewer.selection();
-    let selection_bg = ratatui::style::Color::Rgb(60, 40, 80); // dim violet
+    let selection_bg = app.theme.drag_selection_bg;
     let slice: Vec<Line<'static>> = app.viewer.lines()[top..bottom]
         .iter()
         .enumerate()
@@ -610,9 +876,14 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         .map(|n| format!("profile: {n} │ "))
         .unwrap_or_default();
 
+    let scenario_str = match app.bundle.scenario.as_deref() {
+        Some(name) => format!("scenario: {name} │ "),
+        None => "scenario: (none) │ ".to_string(),
+    };
+
     let label = format!(
-        " ctxforge │ {}{} │ {} / {} ({:.1}%)",
-        profile_str, app.model_name, token_str, app.model_window, pct
+        " ctxforge │ {}{}{} │ {} / {} ({:.1}%)",
+        scenario_str, profile_str, app.model_name, token_str, app.model_window, pct
     );
 
     // The bar fill tweens smoothly via `token_gauge`.
@@ -639,11 +910,11 @@ fn draw_left_panel(f: &mut Frame, app: &App, area: Rect) -> bool {
     #[cfg(feature = "extract")]
     {
         if let Mode::FunctionPick { cursor, items } = app.mode() {
-            draw_symbol_pick(f, "Functions", "λ", *cursor, items, area);
+            draw_symbol_pick(f, "Functions", "λ", *cursor, items, area, app.theme);
             return true;
         }
         if let Mode::TypePick { cursor, items } = app.mode() {
-            draw_symbol_pick(f, "Types", "τ", *cursor, items, area);
+            draw_symbol_pick(f, "Types", "τ", *cursor, items, area, app.theme);
             return true;
         }
     }
@@ -656,7 +927,7 @@ fn draw_left_panel(f: &mut Frame, app: &App, area: Rect) -> bool {
     } = app.mode()
     {
         if !*entering_branch {
-            draw_diff_pick(f, *cursor, files, selected, area);
+            draw_diff_pick(f, *cursor, files, selected, area, app.theme);
             return true;
         }
         // entering_branch=true: tree stays visible; the input goes in the footer.
@@ -672,19 +943,18 @@ fn draw_symbol_pick(
     cursor: usize,
     items: &[(String, std::path::PathBuf)],
     area: Rect,
+    theme: &crate::tui::theme::AppTheme,
 ) {
     let block = Block::default()
         .title(format!(" {title} ({}) ", items.len()))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(ratatui::style::Color::Cyan));
+        .border_style(Style::default().fg(theme.border_focused));
     let list_items: Vec<ListItem> = items
         .iter()
         .enumerate()
         .map(|(i, (name, path))| {
             let style = if i == cursor {
-                Style::default()
-                    .fg(ratatui::style::Color::Black)
-                    .bg(ratatui::style::Color::White)
+                Style::default().fg(theme.selected_fg).bg(theme.selected_bg)
             } else {
                 Style::default()
             };
@@ -703,20 +973,19 @@ fn draw_diff_pick(
     files: &[std::path::PathBuf],
     selected: &std::collections::HashSet<usize>,
     area: Rect,
+    theme: &crate::tui::theme::AppTheme,
 ) {
     let block = Block::default()
         .title(format!(" Changed Files ({}) ", files.len()))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(ratatui::style::Color::Cyan));
+        .border_style(Style::default().fg(theme.border_focused));
     let items: Vec<ListItem> = files
         .iter()
         .enumerate()
         .map(|(i, path)| {
             let marker = if selected.contains(&i) { "■" } else { "▫" };
             let style = if i == cursor {
-                Style::default()
-                    .fg(ratatui::style::Color::Black)
-                    .bg(ratatui::style::Color::White)
+                Style::default().fg(theme.selected_fg).bg(theme.selected_bg)
             } else {
                 Style::default()
             };
@@ -733,7 +1002,7 @@ fn draw_memory_panel(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .title(" Memory (recall) ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(ratatui::style::Color::Cyan));
+        .border_style(Style::default().fg(app.theme.border_focused));
 
     let mut notes = crate::memory::index::read_all(&app.root).unwrap_or_default();
     // Show newest first to match recall semantics.
@@ -757,8 +1026,8 @@ fn draw_memory_panel(f: &mut Frame, app: &App, area: Rect) {
                 .unwrap_or_default();
             let style = if i == cursor {
                 Style::default()
-                    .fg(ratatui::style::Color::Black)
-                    .bg(ratatui::style::Color::White)
+                    .fg(app.theme.selected_fg)
+                    .bg(app.theme.selected_bg)
             } else {
                 Style::default()
             };
@@ -783,20 +1052,24 @@ fn draw_memory_panel(f: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-fn draw_profile_list(f: &mut Frame, cursor: usize, profiles: &[String], area: Rect) {
+fn draw_profile_list(
+    f: &mut Frame,
+    cursor: usize,
+    profiles: &[String],
+    area: Rect,
+    theme: &crate::tui::theme::AppTheme,
+) {
     let block = Block::default()
         .title(" Load Profile ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(ratatui::style::Color::Cyan));
+        .border_style(Style::default().fg(theme.border_focused));
 
     let items: Vec<ListItem> = profiles
         .iter()
         .enumerate()
         .map(|(i, name)| {
             let style = if i == cursor {
-                Style::default()
-                    .fg(ratatui::style::Color::Black)
-                    .bg(ratatui::style::Color::White)
+                Style::default().fg(theme.selected_fg).bg(theme.selected_bg)
             } else {
                 Style::default()
             };
@@ -888,12 +1161,12 @@ fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
 
             let style = if *vi == app.tree_cursor && app.focus == Focus::FileTree {
                 Style::default()
-                    .fg(ratatui::style::Color::Black)
-                    .bg(ratatui::style::Color::White)
+                    .fg(app.theme.selected_fg)
+                    .bg(app.theme.selected_bg)
             } else if entry.is_dir {
-                Style::default().fg(theme::dir_color())
+                Style::default().fg(app.theme.dir)
             } else if app.bundled_paths.contains(&entry.rel_path) {
-                Style::default().fg(theme::selected_color())
+                Style::default().fg(app.theme.accent)
             } else {
                 Style::default()
             };
@@ -915,8 +1188,8 @@ fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
         .highlight_symbol("▶ ")
         .highlight_style(
             Style::default()
-                .fg(ratatui::style::Color::Black)
-                .bg(ratatui::style::Color::White),
+                .fg(app.theme.selected_fg)
+                .bg(app.theme.selected_bg),
         );
     let mut state = app.tree_list_state.borrow_mut();
     let selected = if entries_to_show.is_empty() {
@@ -931,11 +1204,18 @@ fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
     f.render_stateful_widget(list, tree_area, &mut state);
 }
 
-fn draw_bundle_list(f: &mut Frame, app: &App, area: Rect) {
-    let title = format!(" bundle ({} items) ", app.bundle.len());
-    let border_style = if app.focus == Focus::BundleList {
+/// Render the multi-line prompt input at the bottom of the TUI. Cursor is
+/// only drawn when `Focus::Prompt` is active.
+fn draw_prompt_input(f: &mut Frame, app: &App, area: Rect) {
+    let focused = matches!(app.focus, Focus::Prompt);
+    let title = match app.bundle.scenario.as_deref() {
+        Some(s) => format!(" prompt · scenario: {s} "),
+        None => " prompt · (no scenario) ".to_string(),
+    };
+    let border_style = if focused {
         Style::default().fg(app.focus_highlight.current(app.clock.now()))
     } else {
+        // Default terminal fg — stays legible behind the backdrop dim.
         Style::default()
     };
     let block = Block::default()
@@ -943,93 +1223,27 @@ fn draw_bundle_list(f: &mut Frame, app: &App, area: Rect) {
         .borders(Borders::ALL)
         .border_style(border_style);
 
-    if app.bundle.is_empty() {
-        let msg = Paragraph::new("  (empty — press space to add files)")
-            .style(Style::default().add_modifier(Modifier::DIM))
-            .block(block);
-        f.render_widget(msg, area);
-        return;
-    }
-
-    let items: Vec<ListItem> = app
-        .bundle
-        .items
-        .iter()
-        .enumerate()
-        .map(|(i, item)| {
-            let tokens = app.item_tokens.get(i).copied().unwrap_or(0);
-            let pct = if app.total_tokens > 0 {
-                (tokens as f64 / app.total_tokens as f64) * 100.0
-            } else {
-                0.0
-            };
-
-            let display = item.display();
-            let truncated = if display.len() > 28 {
-                format!("{}…", &display[..27])
-            } else {
-                display
-            };
-
-            let icon = match &item.kind {
-                crate::bundle::ItemKind::Function { .. } => "λ",
-                crate::bundle::ItemKind::Type { .. } => "τ",
-                _ => "■",
-            };
-
-            let text = format!(
-                "{:>2} {} {:<28} {:>6} {:>5.1}%",
-                i + 1,
-                icon,
-                truncated,
-                tokens,
-                pct
-            );
-
-            let mut style = if i == app.bundle_cursor && app.focus == Focus::BundleList {
-                Style::default()
-                    .fg(ratatui::style::Color::Black)
-                    .bg(ratatui::style::Color::White)
-            } else if pct > 25.0 {
-                Style::default().fg(theme::hotspot_color())
-            } else {
-                Style::default()
-            };
-
-            // Apply per-row fade-in if this path was just added.
-            if let Some(fade) = app.bundle_row_fades.get(&item.path) {
-                use crate::tui::motion::blend;
-                use ratatui::style::Color;
-                const BG: Color = Color::Rgb(10, 14, 22);
-                let opacity = fade.opacity(app.clock.now());
-                if opacity < 0.999 {
-                    let fg = style.fg.unwrap_or(Color::Gray);
-                    style = style.fg(blend(opacity, fg, BG));
-                }
-            }
-
-            ListItem::new(Line::from(vec![Span::styled(text, style)]))
-        })
-        .collect();
-
-    let list = List::new(items)
-        .block(block)
-        .highlight_symbol("▶ ")
-        .highlight_style(
-            Style::default()
-                .fg(ratatui::style::Color::Black)
-                .bg(ratatui::style::Color::White),
-        );
-    // Capture viewport height for PageUp/PageDown on the bundle list.
-    app.bundle_viewport_height
-        .set(area.height.saturating_sub(2));
-    let mut state = app.bundle_list_state.borrow_mut();
-    if app.bundle.is_empty() {
-        state.select(None);
+    let text = if app.prompt_input.is_empty() && !focused {
+        "(press i to edit)".to_string()
     } else {
-        state.select(Some(app.bundle_cursor.min(app.bundle.len() - 1)));
+        app.prompt_input.text().to_string()
+    };
+    let paragraph = Paragraph::new(text)
+        .block(block)
+        .wrap(ratatui::widgets::Wrap { trim: false });
+    f.render_widget(paragraph, area);
+
+    if focused {
+        let (col, row) = app.prompt_input.cursor_line_column();
+        // +1 on each axis to skip the top-left border cell.
+        let x = area.x.saturating_add(1).saturating_add(col);
+        let y = area.y.saturating_add(1).saturating_add(row);
+        // Clamp to the inside of the block so a very long line doesn't
+        // render the cursor off the edge.
+        let max_x = area.x.saturating_add(area.width.saturating_sub(2));
+        let max_y = area.y.saturating_add(area.height.saturating_sub(2));
+        f.set_cursor_position((x.min(max_x), y.min(max_y)));
     }
-    f.render_stateful_widget(list, area, &mut state);
 }
 
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
@@ -1044,12 +1258,12 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     match app.mode() {
         Mode::Narrow { start, end, field } => {
             let start_style = if *field == InputField::First {
-                Style::default().fg(ratatui::style::Color::Cyan)
+                Style::default().fg(app.theme.accent)
             } else {
                 Style::default()
             };
             let end_style = if *field == InputField::Second {
-                Style::default().fg(ratatui::style::Color::Cyan)
+                Style::default().fg(app.theme.accent)
             } else {
                 Style::default()
             };
@@ -1078,7 +1292,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
                     } else {
                         name.as_str()
                     },
-                    Style::default().fg(ratatui::style::Color::Cyan),
+                    Style::default().fg(app.theme.accent),
                 ),
                 Span::raw("  (Enter save, Esc cancel)"),
             ]);
@@ -1091,22 +1305,19 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         } => {
             let line = Line::from(vec![
                 Span::raw(" Diff branch: "),
-                Span::styled(
-                    branch.as_str(),
-                    Style::default().fg(ratatui::style::Color::Cyan),
-                ),
+                Span::styled(branch.as_str(), Style::default().fg(app.theme.accent)),
                 Span::raw("  (Enter to load, Esc cancel)"),
             ]);
             f.render_widget(Paragraph::new(line), chunks[0]);
         }
         Mode::AddNote { tag, body, field } => {
             let tag_style = if *field == InputField::First {
-                Style::default().fg(ratatui::style::Color::Cyan)
+                Style::default().fg(app.theme.accent)
             } else {
                 Style::default()
             };
             let body_style = if *field == InputField::Second {
-                Style::default().fg(ratatui::style::Color::Cyan)
+                Style::default().fg(app.theme.accent)
             } else {
                 Style::default()
             };
@@ -1136,11 +1347,11 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         _ => {
             use crate::tui::motion::blend;
             use ratatui::style::Color;
-            const BG: Color = Color::Rgb(10, 14, 22);
+            let bg = app.theme.bg;
             let opacity = app.status_fade.opacity(app.clock.now());
             // Default dim gray for the status bar; faded toward bg based on
             // the status-fade timeline (fade-in / hold / fade-out).
-            let fg = blend(opacity, Color::Gray, BG);
+            let fg = blend(opacity, Color::Gray, bg);
             let status =
                 Paragraph::new(format!(" {}", app.status_message)).style(Style::default().fg(fg));
             f.render_widget(status, chunks[0]);
@@ -1152,11 +1363,13 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         Focus::FileTree => "tree",
         Focus::Viewer => "viewer",
         Focus::BundleList => "bundle",
+        Focus::Prompt => "prompt",
     };
     let nav_keys = match app.focus {
         Focus::FileTree => "j/k PgUp/PgDn  Enter expand  space add  E/C expand-all",
         Focus::Viewer => "j/k scroll  drag=select  a add  Esc clear  v close",
         Focus::BundleList => "j/k PgUp/PgDn  Enter select",
+        Focus::Prompt => "type to edit  Esc defocus  Shift-Enter newline",
     };
     let keys_text = match app.mode() {
         Mode::Normal => {

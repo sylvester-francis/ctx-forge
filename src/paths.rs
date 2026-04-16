@@ -90,6 +90,20 @@ pub fn global_templates_dir() -> Option<PathBuf> {
     Some(home.join(".config").join("ctxforge").join("templates"))
 }
 
+/// Returns the user-global config file path: `~/.config/ctxforge/config.toml`
+/// (respects `$XDG_CONFIG_HOME` if set). Returns `None` when no home
+/// directory is discoverable — callers should fall back to defaults.
+pub fn config_file_path() -> Option<PathBuf> {
+    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
+        let p = PathBuf::from(xdg);
+        if !p.as_os_str().is_empty() {
+            return Some(p.join("ctxforge").join("config.toml"));
+        }
+    }
+    let home = std::env::var_os("HOME").map(PathBuf::from)?;
+    Some(home.join(".config").join("ctxforge").join("config.toml"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

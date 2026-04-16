@@ -20,6 +20,19 @@ pub enum Focus {
     FileTree,
     Viewer,
     BundleList,
+    Prompt,
+}
+
+/// Pending editor spawn, drained by the run loop. Keeping the content
+/// on the App (rather than spawning inline) lets the loop leave the
+/// alternate screen, run the editor cleanly, then re-enter ratatui.
+#[derive(Debug, Clone)]
+pub enum PendingEditor {
+    /// Edit just the prompt's task text. On save, replaces prompt_input.
+    TaskText(String),
+    /// Edit the full composed prompt. On save, stored as prompt_override
+    /// for the next deliver (one-shot override).
+    FullPrompt(String),
 }
 
 /// In-flight mode transition — both the outgoing and incoming modes render
@@ -113,6 +126,26 @@ pub struct App {
     pub tree_viewport_height: std::cell::Cell<u16>,
     /// Last known height of the bundle list viewport, minus borders.
     pub bundle_viewport_height: std::cell::Cell<u16>,
+    /// Active colour theme. Read from `~/.config/ctxforge/config.toml` at
+    /// startup (Task 7); defaults to the built-in `ctxforge` palette.
+    pub theme: &'static crate::tui::theme::AppTheme,
+    /// Multi-line prompt input widget. Displays at the bottom of the TUI;
+    /// focus moves to it on `i` from Normal mode, defocuses with Esc.
+    pub prompt_input: crate::tui::prompt_input::PromptInput,
+    /// Remembers which panel had focus before the user switched to Prompt,
+    /// so Esc can restore focus accurately.
+    pub last_panel_focus: Focus,
+    /// Last deliver choice this session. The picker uses this to pre-position
+    /// its cursor so repeated deliveries are single-Enter.
+    pub deliver_last: Option<crate::tui::deliver::DeliverChoice>,
+    /// One-shot override set by Task 27's full-prompt editor. When
+    /// `Some`, the next `deliver::run_choice` call uses this content
+    /// verbatim instead of rebuilding from the template + bundle.
+    pub prompt_override: Option<String>,
+    /// Pending $EDITOR spawn. Drained by `run_loop` (leaves alt-screen
+    /// -> spawn editor -> reads back -> re-enters alt-screen) so the
+    /// editor takes full control of the terminal.
+    pub pending_editor: Option<PendingEditor>,
 }
 
 impl App {
@@ -188,16 +221,46 @@ impl App {
             (Focus::FileTree, true) => Focus::Viewer,
             (Focus::FileTree, false) => Focus::BundleList,
             (Focus::Viewer, _) => Focus::BundleList,
-            (Focus::BundleList, _) => Focus::FileTree,
+            (Focus::BundleList, _) => Focus::Prompt,
+            (Focus::Prompt, _) => Focus::FileTree,
         };
         self.focus = next;
-        let target = match next {
-            Focus::FileTree => ratatui::style::Color::Rgb(88, 166, 255), // soft blue
-            Focus::Viewer => ratatui::style::Color::Rgb(163, 113, 247),  // violet
-            Focus::BundleList => ratatui::style::Color::Rgb(255, 165, 0), // orange
-        };
+        // Track the last *panel* focus so Esc from Prompt restores the
+        // previous panel rather than snapping to FileTree.
+        if !matches!(next, Focus::Prompt) {
+            self.last_panel_focus = next;
+        }
+        let target = self.theme.focus_tint(next);
         let ctx = self.anim_ctx();
         self.focus_highlight.transition_to(target, &ctx);
+    }
+
+    /// Move focus to the prompt input surface. Records the current panel
+    /// focus so Esc can restore it.
+    pub fn focus_prompt(&mut self) {
+        if matches!(self.focus, Focus::Prompt) {
+            return;
+        }
+        self.last_panel_focus = self.focus;
+        self.focus = Focus::Prompt;
+        let target = self.theme.focus_tint(Focus::Prompt);
+        let ctx = self.anim_ctx();
+        self.focus_highlight.transition_to(target, &ctx);
+    }
+
+    /// Move focus back to the panel that had it before `focus_prompt`.
+    /// Persists the task text to disk at the same time so the prompt
+    /// content survives a TUI restart even if the user never runs an
+    /// explicit save command.
+    pub fn defocus_prompt(&mut self) {
+        if !matches!(self.focus, Focus::Prompt) {
+            return;
+        }
+        self.focus = self.last_panel_focus;
+        let target = self.theme.focus_tint(self.focus);
+        let ctx = self.anim_ctx();
+        self.focus_highlight.transition_to(target, &ctx);
+        let _ = self.bundle.save(&self.root);
     }
 
     /// Toggle the file viewer pane on/off. On transition to `on`, kicks a
@@ -217,9 +280,9 @@ impl App {
             self.set_mouse_capture(false);
             if self.focus == Focus::Viewer {
                 self.focus = Focus::FileTree;
+                let target = self.theme.focus_tint(Focus::FileTree);
                 let ctx = self.anim_ctx();
-                self.focus_highlight
-                    .transition_to(ratatui::style::Color::Rgb(88, 166, 255), &ctx);
+                self.focus_highlight.transition_to(target, &ctx);
             }
         }
     }
@@ -525,7 +588,9 @@ impl App {
             status_set_at: None,
             tree_list_state: std::cell::RefCell::new(ratatui::widgets::ListState::default()),
             bundle_list_state: std::cell::RefCell::new(ratatui::widgets::ListState::default()),
-            focus_highlight: crate::tui::motion::Highlight::new(ratatui::style::Color::Cyan),
+            focus_highlight: crate::tui::motion::Highlight::new(
+                crate::tui::theme::registry::default_theme().focus_tint(Focus::FileTree),
+            ),
             startup_fade: crate::tui::motion::Fade::new_hidden(),
             bundle_row_fades: std::collections::HashMap::new(),
             viewer: crate::tui::viewer::ViewerState::new(),
@@ -545,7 +610,23 @@ impl App {
             show_help: false,
             tree_viewport_height: std::cell::Cell::new(0),
             bundle_viewport_height: std::cell::Cell::new(0),
+            theme: {
+                let name = crate::paths::config_file_path()
+                    .map(|p| crate::tui::theme::config::resolve_theme_name(&p))
+                    .unwrap_or_else(|| "ctxforge".to_string());
+                crate::tui::theme::registry::by_name(&name)
+                    .unwrap_or_else(|| crate::tui::theme::registry::default_theme())
+            },
+            prompt_input: crate::tui::prompt_input::PromptInput::new(),
+            last_panel_focus: Focus::FileTree,
+            deliver_last: None,
+            prompt_override: None,
+            pending_editor: None,
         };
+        // Seed the prompt input from any task text the bundle already carries.
+        if !app.bundle.task_text.is_empty() {
+            app.prompt_input.set_text(app.bundle.task_text.clone());
+        }
         app.rebuild_bundled_paths();
         app.recalculate_tokens();
         // Snap the gauge to current total so startup doesn't fade from 0.
@@ -1164,6 +1245,72 @@ impl App {
         self.bundled_paths = self.bundle.items.iter().map(|i| i.path.clone()).collect();
     }
 
+    /// Switch to a named scenario. Validates against the available list
+    /// (built-in starters + project/global templates) and persists to
+    /// `.ctxforge/bundle.json`. Returns `Ok(())` on success; callers set
+    /// the status message based on the outcome.
+    pub fn set_scenario(&mut self, name: &str) -> Result<(), String> {
+        let available = crate::tui::scenario::available(&self.root);
+        if !available.iter().any(|s| s.name == name) {
+            return Err(format!("unknown scenario: {name}"));
+        }
+        self.bundle.scenario = Some(name.to_string());
+        self.bundle
+            .save(&self.root)
+            .map_err(|e| format!("save bundle: {e}"))?;
+        self.set_status(format!("scenario: {name}"));
+        Ok(())
+    }
+
+    /// Open the scenario picker exactly once, if the bundle has no scenario
+    /// recorded. Called by the run loop before the first draw so new users
+    /// are prompted to pick a scenario; returning users with a saved
+    /// scenario see a no-op.
+    pub fn auto_open_scenario_picker_if_needed(&mut self) {
+        if self.bundle.scenario.is_none() {
+            self.open_scenario_picker();
+        }
+    }
+
+    /// Open the scenario picker overlay. If a scenario is already set, the
+    /// cursor starts on it; otherwise on the first built-in starter.
+    pub fn open_scenario_picker(&mut self) {
+        let scenarios = crate::tui::scenario::available(&self.root);
+        if scenarios.is_empty() {
+            // Built-ins are always present so this really only fires if the
+            // binary was trimmed to zero starters at build time — warn loudly.
+            self.set_status("no scenarios available");
+            return;
+        }
+        let cursor = self
+            .bundle
+            .scenario
+            .as_deref()
+            .and_then(|active| scenarios.iter().position(|s| s.name == active))
+            .unwrap_or(0);
+        self.set_mode(crate::tui::mode::Mode::ScenarioPick { cursor, scenarios });
+    }
+
+    /// Switch to a named theme and persist the choice to
+    /// `~/.config/ctxforge/config.toml`. Falls back with an error status
+    /// message if the name does not match a known theme.
+    pub fn set_theme_by_name(&mut self, name: &str) {
+        let Some(theme) = crate::tui::theme::registry::by_name(name) else {
+            self.set_status(format!("unknown theme: {name}"));
+            return;
+        };
+        self.theme = theme;
+        if let Some(path) = crate::paths::config_file_path() {
+            let mut cfg = crate::tui::theme::config::load_from(&path).unwrap_or_default();
+            cfg.theme = name.to_string();
+            if let Err(e) = crate::tui::theme::config::save_to(&path, &cfg) {
+                self.set_status(format!("theme set but config save failed: {e}"));
+                return;
+            }
+        }
+        self.set_status(format!("theme: {name}"));
+    }
+
     /// Short status message setter. Kicks off a fade-in animation; the
     /// render loop handles the fade-out after STATUS_HOLD via
     /// `tick_status_fade`.
@@ -1577,6 +1724,8 @@ mod viewer_integration_tests {
         app.toggle_focus();
         assert_eq!(app.focus, Focus::BundleList);
         app.toggle_focus();
+        assert_eq!(app.focus, Focus::Prompt);
+        app.toggle_focus();
         assert_eq!(app.focus, Focus::FileTree);
     }
 
@@ -1589,6 +1738,8 @@ mod viewer_integration_tests {
         assert_eq!(app.focus, Focus::Viewer);
         app.toggle_focus();
         assert_eq!(app.focus, Focus::BundleList);
+        app.toggle_focus();
+        assert_eq!(app.focus, Focus::Prompt);
         app.toggle_focus();
         assert_eq!(app.focus, Focus::FileTree);
     }

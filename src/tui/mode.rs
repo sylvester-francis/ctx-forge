@@ -83,6 +83,28 @@ pub enum Mode {
     },
     /// Template task input open after a template is picked.
     TemplateTask { template_name: String, task: String },
+    /// Scenario picker overlay.
+    ScenarioPick {
+        cursor: usize,
+        scenarios: Vec<crate::tui::scenario::Scenario>,
+    },
+    /// Full-text preview of the composed prompt that would be delivered
+    /// right now. Scrollable. Opened via `P` from Normal mode.
+    FullPromptPreview { content: String, scroll: u16 },
+    /// `@` file-mention popover. `all` is the cached project file list
+    /// (walked once when the popover opens). `query` is whatever the
+    /// user has typed after the `@`; `results` is the top-N fuzzy
+    /// ranking refreshed on every key.
+    AtPicker {
+        all: Vec<std::path::PathBuf>,
+        query: String,
+        results: Vec<std::path::PathBuf>,
+        cursor: usize,
+    },
+    /// Deliver picker — appears on Ctrl-Enter / Alt-Enter from the prompt
+    /// (and via /deliver). Enter runs the highlighted choice through the
+    /// existing copy / pipe / export pipeline.
+    DeliverPick { cursor: usize },
 }
 
 impl Mode {

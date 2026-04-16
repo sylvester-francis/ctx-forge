@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.3.0 (unreleased) — scenario-aware prompt engineer
+
+ctxforge's TUI is now a scenario-aware prompt engineer. The output is no longer a file bundle — it's a **crafted prompt** (template wrapper + task text + context) tuned to a specific scenario. Everything that shipped in v1.2 still works; this release layers new surfaces on top.
+
+### Added
+
+- **Scenario in the header.** The active scenario (bugfix / code-review / explain / refactor / migrate / custom) is always visible in the header. `/scenario [name]` switches immediately or opens a picker. Fresh projects see the picker as the first overlay on launch.
+- **Permanent prompt input.** A multi-line text surface at the bottom of the TUI. Press `i` to focus, `Esc` to defocus (auto-saves), Shift-Enter for newlines, full cursor editing (arrows, Home/End, Backspace, Ctrl-W, Ctrl-A, paste). Auto-grows 3–8 lines.
+- **Live prompt preview.** The right column now shows the composed prompt's structure — template prefix, Task section (live-synced with the input), Context list (with per-item tokens), template suffix. Updates on every keystroke.
+- **`P` — full-text preview overlay.** Shows the exact bytes that would be delivered, scrollable. `j/k` / PgUp/PgDn to scroll, `g` to top, `Esc` / `q` to close.
+- **`@` file mentions.** Type `@` in the prompt to open a fuzzy file picker (respects `.gitignore`). Selecting a file inserts `@path/to/file` and auto-adds it to the bundle. De-dupes; paste events with `@` don't trigger the picker.
+- **`/` in the prompt.** At the start of a line, `/` opens the command palette. Anywhere else, it inserts literally (so `src/main.rs` type-able inside the task).
+- **Ctrl-Enter / Alt-Enter / `/deliver` — deliver picker.** One keystroke opens a modal with pipe claude / pipe agent / pipe gemini / copy markdown / copy XML / copy JSON / export. Last choice is remembered per session; cursor pre-positions there. Scenario template auto-wraps the bundle.
+- **`Ctrl-E` — edit task in `$EDITOR`.** Round-trips through the user's configured editor (honors `CTXFORGE_EDITOR` override). Mouse capture and bracketed paste are disabled for the editor and re-enabled on return.
+- **`/edit-prompt` — edit full composed prompt in `$EDITOR`.** One-shot override: the edited content is sent on the next deliver, then cleared.
+- **Theme registry.** `/theme` switches between `ctxforge` (default), `zinc`, `tokyo-night`, `gruvbox`. Persists in `~/.config/ctxforge/config.toml` (or `$XDG_CONFIG_HOME/ctxforge/config.toml`). `CTXFORGE_THEME=<name>` overrides for one session. Every theme passes a WCAG AA contrast check.
+- **Bracketed paste.** Pasted content arrives as one `Event::Paste` instead of a burst of keys, so `@` / `/` characters inside a paste don't trigger their handlers.
+- **`task_text` + `scenario` persistence.** Bundle gains two optional serde-default fields; legacy `bundle.json` files load cleanly.
+
+### Changed
+
+- **Bundle column moved.** The detailed bundle list is now a compact summary in the lower-left (under the tree). The full list is the preview's Context section. Token gauge and scenario fit still live in the header.
+- **Tab cycle expanded.** `FileTree → (Viewer) → BundleList → Prompt → FileTree`.
+- **`E` / `C` expand-all / collapse-all** now require tree focus.
+- **Focus border tints** now read from the active theme (`focus_tree` / `focus_viewer` / `focus_bundle`) with `Prompt` using the theme's accent.
+
+### Fixed
+
+- **Mouse-tracking garbage after TUI exit.** When the code viewer had been open, the terminal kept emitting SGR mouse-tracking bytes (`0;96;38M...`) to the shell after `q` / Ctrl-C. `DisableMouseCapture` is now issued unconditionally on exit.
+
+### Internal
+
+- `src/tui/` gains 6 submodules: `theme/`, `scenario.rs`, `preview/`, `prompt_input/`, `deliver.rs`, `editor.rs`. Every hardcoded `Color::<variant>` literal in `src/tui/**` has been migrated behind a compile-time lint-guarded `AppTheme`.
+- 80+ new integration tests covering theme / scenario / preview / prompt-input / at-picker / deliver / editor / responsive.
+- `toml 0.8` added as a direct dependency for config persistence; `tempfile 3.27` promoted from dev to regular dependencies for editor tempfiles.
+
 ## 1.2.0 — 2026-04-14
 
 ### Added
