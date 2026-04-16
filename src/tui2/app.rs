@@ -681,6 +681,10 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                 }
                             }
                             d.set_status("viewer on".to_string());
+                            drop(d);
+                            // Auto-focus the viewer so it appears immediately
+                            // (critical in narrow mode where only focused panel renders).
+                            *focus.write() = Focus::Viewer;
                         } else {
                             drop(d);
                             if *focus.read() == Focus::Viewer {
@@ -1163,15 +1167,18 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             bundle_border,
                             render_bundle_rows(&data.bundle, &data.item_tokens, &theme).1,
                         ),
-                        Focus::Viewer => (
-                            "VIEWER".to_string(),
-                            viewer_border,
-                            vec![
-                                element! { Text(content: "  ∘ code viewer arrives in Phase 2", color: theme.muted) }.into_any(),
-                                element! { Text(content: "") }.into_any(),
-                                element! { Text(content: "  ▸ v  toggle viewer", color: theme.muted, weight: Weight::Light) }.into_any(),
-                            ],
-                        ),
+                        Focus::Viewer => {
+                            let title = data.viewer.cached_path.as_ref()
+                                .and_then(|p| p.file_name())
+                                .and_then(|n| n.to_str())
+                                .map(|s| format!("VIEWER · {}", s))
+                                .unwrap_or_else(|| "VIEWER".to_string());
+                            (
+                                title,
+                                viewer_border,
+                                crate::tui2::components::viewer::render_body(&data.viewer, &theme),
+                            )
+                        }
                         Focus::Prompt => (
                             preview_title_styled.clone(),
                             preview_border,
