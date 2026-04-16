@@ -159,8 +159,12 @@ impl AppData {
                 self.set_status(if enabled { "viewer on".to_string() } else { "viewer off".to_string() });
                 None
             }
-            A::Deliver | A::EditPrompt | A::AddSelection => {
-                self.set_status("coming in a follow-up phase (deliver / editor / add-selection)".to_string());
+            A::AddSelection => {
+                self.add_viewer_selection_to_bundle();
+                None
+            }
+            A::Deliver | A::EditPrompt => {
+                self.set_status("coming in a follow-up phase (deliver / editor)".to_string());
                 None
             }
             A::Copy => { self.set_status("use CLI: ctxforge copy".to_string()); None }
@@ -206,6 +210,52 @@ impl AppData {
         }
         self.set_status(format!("theme → {name}"));
         Ok(())
+    }
+
+    /// Add the viewer's current selection to the bundle as a Range item.
+    /// Clears the selection on success. No-op when viewer has no file loaded
+    /// or no selection is active.
+    fn add_viewer_selection_to_bundle(&mut self) {
+        use crate::bundle::{Item, ItemKind};
+        let (start0, end0) = match self.viewer.selection {
+            Some(range) => range,
+            None => {
+                self.set_status("no selection — click-drag in the viewer first".to_string());
+                return;
+            }
+        };
+        let path = match &self.viewer.cached_path {
+            Some(p) => p.clone(),
+            None => {
+                self.set_status("viewer has no file loaded".to_string());
+                return;
+            }
+        };
+        let rel_path = path
+            .strip_prefix(&self.project_root)
+            .unwrap_or(&path)
+            .to_path_buf();
+        let range = crate::bundle::Range {
+            start: start0 + 1,
+            end: end0 + 1,
+        };
+        let item = Item {
+            path: rel_path.clone(),
+            kind: ItemKind::Range(range),
+            label: None,
+        };
+        self.bundle.add(item);
+        self.bundled_paths.insert(rel_path.clone());
+        self.viewer.clear_selection();
+        self.recompute_tokens();
+        self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
+        let _ = self.bundle.save(&self.root);
+        self.set_status(format!(
+            "added {}:{}-{}",
+            rel_path.display(),
+            range.start,
+            range.end
+        ));
     }
 
     /// Set the active scenario and rebuild the preview. Persists to disk.
@@ -793,6 +843,16 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     }
                     KeyCode::Char('C') if *focus.read() == Focus::FileTree => {
                         app_data.write().collapse_all();
+                    }
+                    // Viewer: a adds selection, Esc clears selection.
+                    KeyCode::Char('a') if *focus.read() == Focus::Viewer => {
+                        app_data.write().add_viewer_selection_to_bundle();
+                    }
+                    KeyCode::Esc
+                        if *focus.read() == Focus::Viewer
+                            && app_data.read().viewer.selection.is_some() =>
+                    {
+                        app_data.write().viewer.clear_selection();
                     }
                     // Navigation: g/G top/bottom, Ctrl-U/D half-page
                     KeyCode::Char('g') if *focus.read() == Focus::FileTree => {
