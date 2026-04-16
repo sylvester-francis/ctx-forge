@@ -396,6 +396,14 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     let cur = *cursor.read();
     let theme = data.theme;
 
+    // Search query — cloned to &'static String so we can use it in both the
+    // search bar and the tree branch selection.
+    let search_query: Option<String> = match &*mode.read() {
+        crate::tui2::mode::Mode::Search { query } => Some(query.clone()),
+        _ => None,
+    };
+    let search_active = search_query.as_ref().is_some_and(|q| !q.is_empty());
+
     // Animated focus-border RGB
     let (tr, tg, tb) = focus_color_rgb(cur_focus, &theme);
     let anim_r = use_animated(hooks, tr, constants::FOCUS_BORDER, ease_out_cubic);
@@ -570,6 +578,9 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             width: 35pct,
                             height: 100pct,
                         ) {
+                            #(search_query.as_ref().map(|q| {
+                                crate::tui2::components::search_bar::render_search_bar(q, &theme)
+                            }))
                             View(
                                 flex_direction: FlexDirection::Column,
                                 border_style: BorderStyle::Round,
@@ -585,7 +596,18 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                     MixedTextContent::new(tree_title_styled.clone()).color(theme.accent).weight(Weight::Bold),
                                 ])
                                 Text(content: "")
-                                #(render_tree_rows(&visible, cur, cur_focus == Focus::FileTree, &data.bundled_paths, &theme))
+                                #(if search_active {
+                                    crate::tui2::components::tree::render_search_rows(
+                                        &data.tree_entries,
+                                        search_query.as_deref().unwrap_or(""),
+                                        cur,
+                                        &data.bundled_paths,
+                                        &theme,
+                                        TREE_VIEWPORT,
+                                    )
+                                } else {
+                                    render_tree_rows(&visible, cur, cur_focus == Focus::FileTree, &data.bundled_paths, &theme)
+                                })
                             }
                             View(
                                 flex_direction: FlexDirection::Column,
@@ -652,7 +674,18 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         Focus::FileTree => (
                             tree_title_styled.clone(),
                             tree_border,
-                            render_tree_rows(&visible, cur, cur_focus == Focus::FileTree, &data.bundled_paths, &theme),
+                            if search_active {
+                                crate::tui2::components::tree::render_search_rows(
+                                    &data.tree_entries,
+                                    search_query.as_deref().unwrap_or(""),
+                                    cur,
+                                    &data.bundled_paths,
+                                    &theme,
+                                    TREE_VIEWPORT,
+                                )
+                            } else {
+                                render_tree_rows(&visible, cur, cur_focus == Focus::FileTree, &data.bundled_paths, &theme)
+                            },
                         ),
                     };
 
