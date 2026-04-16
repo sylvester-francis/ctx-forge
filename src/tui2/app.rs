@@ -593,12 +593,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         pct,
     );
 
-    let prompt_title = if scenario.is_empty() {
-        " ⌥ prompt ".to_string()
-    } else {
-        format!(" ⌥ prompt · {} ", scenario)
-    };
-
     // Section-marker titles — left bar + uppercase label for consistent hierarchy
     let tree_title_styled = format!("FILES  {}", visible_count);
     let preview_title_styled = "PREVIEW".to_string();
@@ -789,22 +783,14 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 }.into_any()
             })
 
-            // ─── PROMPT INPUT (height: 3) ──
-            View(
-                flex_direction: FlexDirection::Column,
-                border_style: BorderStyle::Round,
-                border_color: prompt_border,
-                background_color: theme.bg,
-                width: 100pct,
-                height: 3,
-                padding_left: 1,
-                padding_right: 1,
-            ) {
-                MixedText(contents: vec![
-                    MixedTextContent::new(prompt_title).color(theme.muted).weight(Weight::Bold),
-                    MixedTextContent::new(" press i to edit — full editor arrives in Phase 2").color(theme.muted).weight(Weight::Light),
-                ])
-            }
+            // ─── PROMPT INPUT (auto-grow 4..=10 rows) ──
+            #(crate::tui2::components::prompt_input::render_prompt_input(
+                &prompt_input.read(),
+                cur_focus == Focus::Prompt,
+                prompt_border,
+                scenario.as_str(),
+                &theme,
+            ))
 
             // ─── FOOTER (height: 2) ──
             View(
