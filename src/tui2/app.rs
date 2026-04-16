@@ -490,7 +490,8 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         let initial = app_data.read().bundle.task_text.clone();
         PromptInput::with_text(initial)
     });
-    let viewer_events = hooks.use_state(crate::tui2::components::viewer::ViewerEventSink::new);
+    let viewer_events: State<Vec<crate::tui2::components::viewer::ViewerMouseEvent>> =
+        hooks.use_state(Vec::new);
 
     let (term_w, term_h) = hooks.use_terminal_size();
 
@@ -965,9 +966,13 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     drop(data);
 
     // Drain viewer mouse events batched since last render (wheel, drag,
-    // click). Apply them in order so a press+drag+release sequence
-    // produces the expected final selection.
-    let pending_mouse = viewer_events.read().drain();
+    // click). Using State<Vec<_>> means the callback wakes the render loop
+    // on every event — essential for fluid drag-select and scroll feel.
+    let pending_mouse: Vec<crate::tui2::components::viewer::ViewerMouseEvent> = {
+        let mut events = viewer_events;
+        let mut guard = events.write();
+        std::mem::take(&mut *guard)
+    };
     if !pending_mouse.is_empty() {
         let viewport = viewer_viewport(term_h);
         let mut d = app_data.write();
@@ -1254,7 +1259,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                     crate::tui2::components::viewer::Viewer(
                                         viewer: crate::tui2::components::viewer::ViewerStateSnapshot::from_state(&data.viewer),
                                         theme: Some(theme),
-                                        events: viewer_events.read().clone(),
+                                        events: Some(viewer_events),
                                     )
                                 }
                             })
@@ -1301,7 +1306,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                 crate::tui2::components::viewer::Viewer(
                                     viewer: crate::tui2::components::viewer::ViewerStateSnapshot::from_state(&data.viewer),
                                     theme: Some(theme),
-                                    events: viewer_events.read().clone(),
+                                    events: Some(viewer_events),
                                 )
                             }
                             .into_any();

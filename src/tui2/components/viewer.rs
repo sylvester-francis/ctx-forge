@@ -11,31 +11,14 @@ use iocraft::prelude::*;
 // y=0 = first line of the rendered code. Events fired outside the
 // viewer bounds don't trigger the callback.
 use iocraft::hooks::UseTerminalEvents;
-use std::sync::{Arc, Mutex};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ViewerMouseEvent {
     ScrollUp,
     ScrollDown,
     Down { line: usize },
     Drag { line: usize },
     Up,
-}
-
-/// Shared queue the viewer component appends mouse events to; the parent
-/// drains it each render. Arc<Mutex<..>> avoids the Unpin constraint that
-/// iocraft State imposes on its generic type.
-#[derive(Clone, Default)]
-pub struct ViewerEventSink(pub Arc<Mutex<Vec<ViewerMouseEvent>>>);
-
-impl ViewerEventSink {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn drain(&self) -> Vec<ViewerMouseEvent> {
-        std::mem::take(&mut *self.0.lock().unwrap())
-    }
 }
 
 /// Cheap clone-only snapshot of viewer state needed to render. Separating
@@ -66,37 +49,38 @@ impl ViewerStateSnapshot {
 pub struct ViewerProps {
     pub viewer: ViewerStateSnapshot,
     pub theme: Option<Theme>,
-    pub events: ViewerEventSink,
+    /// Queue the mouse callback pushes into. Using `State<Vec<_>>` instead
+    /// of a plain Arc<Mutex<..>> so iocraft re-renders on every event —
+    /// critical for fluid drag-select and scroll.
+    pub events: Option<State<Vec<ViewerMouseEvent>>>,
 }
 
 #[component]
 pub fn Viewer(hooks: &mut Hooks, props: &ViewerProps) -> impl Into<AnyElement<'static>> {
-    let events = props.events.clone();
     let scroll = props.viewer.scroll;
+    let events = props.events;
 
-    hooks.use_local_terminal_events({
-        let events = events.clone();
-        move |event| {
-            if let TerminalEvent::FullscreenMouse(m) = event {
-                use crossterm::event::{MouseButton, MouseEventKind};
-                // Component-local coords: m.row = 0 is the viewer's first
-                // rendered line. Add scroll to get the absolute line index.
-                let line_idx = m.row as usize + scroll;
-                let out = match m.kind {
-                    MouseEventKind::ScrollUp => Some(ViewerMouseEvent::ScrollUp),
-                    MouseEventKind::ScrollDown => Some(ViewerMouseEvent::ScrollDown),
-                    MouseEventKind::Down(MouseButton::Left) => {
-                        Some(ViewerMouseEvent::Down { line: line_idx })
-                    }
-                    MouseEventKind::Drag(MouseButton::Left) => {
-                        Some(ViewerMouseEvent::Drag { line: line_idx })
-                    }
-                    MouseEventKind::Up(MouseButton::Left) => Some(ViewerMouseEvent::Up),
-                    _ => None,
-                };
-                if let Some(ev) = out {
-                    events.0.lock().unwrap().push(ev);
+    hooks.use_local_terminal_events(move |event| {
+        let Some(mut events) = events else { return };
+        if let TerminalEvent::FullscreenMouse(m) = event {
+            use crossterm::event::{MouseButton, MouseEventKind};
+            // Component-local coords: m.row = 0 is the viewer's first
+            // rendered line. Add scroll to get the absolute line index.
+            let line_idx = m.row as usize + scroll;
+            let out = match m.kind {
+                MouseEventKind::ScrollUp => Some(ViewerMouseEvent::ScrollUp),
+                MouseEventKind::ScrollDown => Some(ViewerMouseEvent::ScrollDown),
+                MouseEventKind::Down(MouseButton::Left) => {
+                    Some(ViewerMouseEvent::Down { line: line_idx })
                 }
+                MouseEventKind::Drag(MouseButton::Left) => {
+                    Some(ViewerMouseEvent::Drag { line: line_idx })
+                }
+                MouseEventKind::Up(MouseButton::Left) => Some(ViewerMouseEvent::Up),
+                _ => None,
+            };
+            if let Some(ev) = out {
+                events.write().push(ev);
             }
         }
     });
