@@ -1023,10 +1023,10 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     .map(|s| format!("VIEWER · {}", s))
                     .unwrap_or_else(|| "VIEWER".to_string());
 
-                let (left_w, center_w, right_w): (u32, u32, u32) = if viewer_on {
-                    (25, 45, 30)
+                let (left_w, center_w, right_w) = if viewer_on {
+                    (iocraft::Percent(25.0), iocraft::Percent(45.0), iocraft::Percent(30.0))
                 } else {
-                    (35, 0, 65)
+                    (iocraft::Percent(35.0), iocraft::Percent(0.0), iocraft::Percent(65.0))
                 };
 
                 element! {
