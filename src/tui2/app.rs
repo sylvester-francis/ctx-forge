@@ -330,8 +330,13 @@ fn spawn_viewer_load(
     smol::spawn(async move {
         let path_for_task = path.clone();
         let load = smol::unblock(move || {
-            let highlighter = crate::tui2::viewer::Highlighter::new();
-            crate::tui2::viewer::read_and_highlight(&path_for_task, &highlighter)
+            // Static highlighter: SyntaxSet deserialization is ~200ms, so
+            // paying that cost per file load is what made toggling `v`
+            // feel slow. LazyLock initialises on first use and reuses
+            // the compiled syntax database forever.
+            static HIGHLIGHTER: std::sync::LazyLock<crate::tui2::viewer::Highlighter> =
+                std::sync::LazyLock::new(crate::tui2::viewer::Highlighter::new);
+            crate::tui2::viewer::read_and_highlight(&path_for_task, &HIGHLIGHTER)
         })
         .await;
         result_slot.set(Some((path, load)));
