@@ -15,13 +15,19 @@ pub enum Mode {
         query: String,
         cursor: usize,
     },
+    ThemePicker {
+        cursor: usize,
+    },
 }
 
 impl Mode {
     pub fn is_overlay(&self) -> bool {
         matches!(
             self,
-            Mode::Help | Mode::ScenarioPicker { .. } | Mode::CommandPalette { .. }
+            Mode::Help
+                | Mode::ScenarioPicker { .. }
+                | Mode::CommandPalette { .. }
+                | Mode::ThemePicker { .. }
         )
     }
 }
