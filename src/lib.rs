@@ -16,6 +16,7 @@ pub mod lang;
 pub mod mcp;
 pub mod memory;
 pub mod models;
+pub mod motion_core;
 pub mod output;
 pub mod paths;
 pub mod profile;

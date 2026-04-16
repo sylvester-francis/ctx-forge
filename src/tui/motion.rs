@@ -2,21 +2,20 @@
 //!
 //! See `docs/superpowers/specs/2026-04-14-fluid-tui-design.md` for the design.
 //! Gated behind the `tui` feature because it uses `ratatui::style::Color`.
+//!
+//! Framework-agnostic types (`Lerp`, `MotionLevel`, `EasingFn`, easing fns,
+//! timing constants, `detect_motion`) live in `crate::motion_core` and are
+//! re-exported here so v1 callers keep working unchanged.
+
+pub use crate::motion_core::{
+    constants, detect_motion, ease_in_cubic, ease_in_out_cubic, ease_out_cubic, ease_out_quad,
+    linear, EasingFn, Lerp, MotionLevel,
+};
 
 use ratatui::style::Color;
 use std::cell::Cell;
-use std::env;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
-
-/// Whether animations are allowed. Detected once at app startup.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MotionLevel {
-    /// Full animation support (truecolor terminal, user hasn't opted out).
-    Full,
-    /// Animations snap to target. No tweening.
-    None,
-}
 
 /// Context passed to animation calls. Threads the clock and motion level
 /// through the app without globals.
@@ -24,37 +23,6 @@ pub enum MotionLevel {
 pub struct AnimCtx {
     pub now: Instant,
     pub motion: MotionLevel,
-}
-
-/// Detect the motion level from env vars.
-///
-/// Rules:
-/// - `NO_ANIMATIONS` or `PROMPT_NO_ANIMATIONS` set → `None`.
-/// - `COLORTERM = truecolor` or `24bit` → `Full`.
-/// - Everything else → `None`.
-pub fn detect_motion() -> MotionLevel {
-    if env::var("NO_ANIMATIONS").is_ok() {
-        return MotionLevel::None;
-    }
-    if env::var("PROMPT_NO_ANIMATIONS").is_ok() {
-        return MotionLevel::None;
-    }
-    match env::var("COLORTERM").as_deref() {
-        Ok("truecolor") | Ok("24bit") => MotionLevel::Full,
-        _ => MotionLevel::None,
-    }
-}
-
-/// Interpolation between two values. `t` is clamped to `[0.0, 1.0]`.
-pub trait Lerp: Copy {
-    fn lerp(from: Self, to: Self, t: f32) -> Self;
-}
-
-impl Lerp for f32 {
-    fn lerp(from: Self, to: Self, t: f32) -> Self {
-        let t = t.clamp(0.0, 1.0);
-        from + (to - from) * t
-    }
 }
 
 /// A tween in progress.
@@ -137,35 +105,6 @@ impl<T: Lerp> Animated<T> {
 }
 
 /// Signature for easing functions. Maps `t` in `[0, 1]` to eased output.
-pub type EasingFn = fn(f32) -> f32;
-
-pub mod constants {
-    use super::Duration;
-
-    pub const MODAL_IN: Duration = Duration::from_millis(200);
-    pub const MODAL_OUT: Duration = Duration::from_millis(180);
-    pub const MODAL_CROSSFADE: Duration = Duration::from_millis(240);
-    pub const GAUGE_FILL: Duration = Duration::from_millis(320);
-    pub const STATUS_IN: Duration = Duration::from_millis(180);
-    pub const STATUS_OUT: Duration = Duration::from_millis(280);
-    pub const STATUS_HOLD: Duration = Duration::from_millis(2400);
-    pub const HIGHLIGHT_MOVE: Duration = Duration::from_millis(120);
-    pub const ROW_IN: Duration = Duration::from_millis(200);
-    pub const ROW_OUT: Duration = Duration::from_millis(160);
-    pub const FOCUS_BORDER: Duration = Duration::from_millis(160);
-    pub const TREE_EXPAND: Duration = Duration::from_millis(180);
-    pub const LIST_FILTER: Duration = Duration::from_millis(140);
-    pub const STARTUP: Duration = Duration::from_millis(260);
-    pub const LIST_STAGGER_STEP: Duration = Duration::from_millis(20);
-    pub const LIST_STAGGER_CAP_ROWS: usize = 6;
-    /// How far the Normal content fades toward `theme.bg` when an overlay
-    /// is visible. 0.0 = no dim, 1.0 = solid bg. Tuned to signal 'overlay
-    /// active' without hiding the preview / bundle summary / unfocused
-    /// borders — with the v1.3 theme-driven unfocused borders (DarkGray
-    /// against navy bg), dims > 0.4 made those regions invisible.
-    pub const BACKDROP_DIM: f32 = 0.35;
-}
-
 /// Opacity animation, 0.0..1.0.
 pub struct Fade(Animated<f32>);
 
@@ -271,32 +210,6 @@ impl Slide {
     pub fn is_active(&self, now: Instant) -> bool {
         self.0.is_active(now)
     }
-}
-
-pub fn linear(t: f32) -> f32 {
-    t
-}
-
-pub fn ease_out_cubic(t: f32) -> f32 {
-    let inv = 1.0 - t;
-    1.0 - inv * inv * inv
-}
-
-pub fn ease_in_cubic(t: f32) -> f32 {
-    t * t * t
-}
-
-pub fn ease_in_out_cubic(t: f32) -> f32 {
-    if t < 0.5 {
-        4.0 * t * t * t
-    } else {
-        let f = 2.0 * t - 2.0;
-        0.5 * f * f * f + 1.0
-    }
-}
-
-pub fn ease_out_quad(t: f32) -> f32 {
-    1.0 - (1.0 - t) * (1.0 - t)
 }
 
 /// Blend `fg` toward `bg` by `(1 - opacity)`. At opacity = 1.0 returns `fg`,
