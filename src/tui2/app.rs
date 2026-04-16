@@ -667,30 +667,35 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         *focus.write() = Focus::Prompt;
                     }
                     KeyCode::Char('v') => {
-                        let mut d = app_data.write();
-                        d.viewer.toggle();
-                        let enabled = d.viewer.enabled;
-                        if enabled {
-                            let visible = tree::visible_indices(&d.tree_entries);
-                            if let Some(&idx) = visible.get(*cursor.read()) {
-                                if let Some(entry) = d.tree_entries.get(idx).cloned() {
-                                    if !entry.is_dir {
-                                        let abs = d.project_root.join(&entry.rel_path);
-                                        d.viewer.load_for_path(&abs);
-                                    }
-                                }
+                        // Snapshot what we need, release app_data lock, then do
+                        // both state writes without nesting — iocraft's state
+                        // updates are more reliable this way than trying to
+                        // mutate focus while holding an app_data guard.
+                        let (now_enabled, loaded_path) = {
+                            let mut d = app_data.write();
+                            d.viewer.toggle();
+                            let enabled = d.viewer.enabled;
+                            let path = if enabled {
+                                let visible = tree::visible_indices(&d.tree_entries);
+                                visible.get(*cursor.read())
+                                    .copied()
+                                    .and_then(|idx| d.tree_entries.get(idx).cloned())
+                                    .filter(|e| !e.is_dir)
+                                    .map(|e| d.project_root.join(&e.rel_path))
+                            } else {
+                                None
+                            };
+                            if let Some(p) = &path {
+                                d.viewer.load_for_path(p);
                             }
-                            d.set_status("viewer on".to_string());
-                            drop(d);
-                            // Auto-focus the viewer so it appears immediately
-                            // (critical in narrow mode where only focused panel renders).
-                            *focus.write() = Focus::Viewer;
-                        } else {
-                            drop(d);
-                            if *focus.read() == Focus::Viewer {
-                                *focus.write() = Focus::FileTree;
-                            }
-                            app_data.write().set_status("viewer off".to_string());
+                            d.set_status(if enabled { "viewer on".to_string() } else { "viewer off".to_string() });
+                            (enabled, path)
+                        };
+                        let _ = loaded_path;
+                        if now_enabled {
+                            focus.set(Focus::Viewer);
+                        } else if *focus.read() == Focus::Viewer {
+                            focus.set(Focus::FileTree);
                         }
                     }
                     KeyCode::Tab => {
