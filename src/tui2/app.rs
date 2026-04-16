@@ -153,8 +153,14 @@ impl AppData {
                 None
             }
             A::Theme => Some(crate::tui2::mode::Mode::ThemePicker { cursor: 0 }),
-            A::Deliver | A::EditPrompt | A::ToggleViewer | A::AddSelection => {
-                self.set_status("coming in a follow-up phase (deliver / viewer / editor)".to_string());
+            A::ToggleViewer => {
+                self.viewer.toggle();
+                let enabled = self.viewer.enabled;
+                self.set_status(if enabled { "viewer on".to_string() } else { "viewer off".to_string() });
+                None
+            }
+            A::Deliver | A::EditPrompt | A::AddSelection => {
+                self.set_status("coming in a follow-up phase (deliver / editor / add-selection)".to_string());
                 None
             }
             A::Copy => { self.set_status("use CLI: ctxforge copy".to_string()); None }
@@ -990,19 +996,31 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
             }
 
             // ─── MAIN CONTENT ROW ────────────────────────────────
-            // Phase 1 default: two-column. Viewer is opt-in (Phase 2).
+            // Two-column by default; three-column when viewer is enabled.
             #(if wide {
-                // Two-column: tree+bundle | preview (35/65 split favoring the preview)
+                let viewer_on = data.viewer.enabled;
+                let viewer_file_title = data.viewer.cached_path.as_ref()
+                    .and_then(|p| p.file_name())
+                    .and_then(|n| n.to_str())
+                    .map(|s| format!("VIEWER · {}", s))
+                    .unwrap_or_else(|| "VIEWER".to_string());
+
+                let (left_w, center_w, right_w): (u32, u32, u32) = if viewer_on {
+                    (25, 45, 30)
+                } else {
+                    (35, 0, 65)
+                };
+
                 element! {
                     View(
                         flex_direction: FlexDirection::Row,
                         width: 100pct,
                         flex_grow: 1.0,
                     ) {
-                        // Left: tree + bundle (narrow, list-focused)
+                        // Left: tree + bundle
                         View(
                             flex_direction: FlexDirection::Column,
-                            width: 35pct,
+                            width: left_w,
                             height: 100pct,
                         ) {
                             #(search_query.as_ref().map(|q| {
@@ -1054,13 +1072,38 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                 #(render_bundle_rows(&data.bundle, &data.item_tokens, &theme).1)
                             }
                         }
-                        // Right: preview (primary — the crafted prompt output)
+                        // Center: viewer (only when enabled)
+                        #(if viewer_on {
+                            Some(element! {
+                                View(
+                                    flex_direction: FlexDirection::Column,
+                                    border_style: BorderStyle::Round,
+                                    border_color: viewer_border,
+                                    background_color: theme.bg,
+                                    width: center_w,
+                                    height: 100pct,
+                                    padding_left: 1,
+                                    padding_right: 1,
+                                    padding_top: 1,
+                                ) {
+                                    MixedText(contents: vec![
+                                        MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
+                                        MixedTextContent::new(viewer_file_title).color(theme.accent).weight(Weight::Bold),
+                                    ])
+                                    Text(content: "")
+                                    #(crate::tui2::components::viewer::render_body(&data.viewer, &theme))
+                                }
+                            })
+                        } else {
+                            None
+                        })
+                        // Right: preview
                         View(
                             flex_direction: FlexDirection::Column,
                             border_style: BorderStyle::Round,
                             border_color: preview_border,
                             background_color: theme.bg,
-                            width: 65pct,
+                            width: right_w,
                             height: 100pct,
                             padding_left: 2,
                             padding_right: 2,
