@@ -107,7 +107,11 @@ pub fn Viewer(hooks: &mut Hooks, props: &ViewerProps) -> impl Into<AnyElement<'s
     let rows = render_rows(&props.viewer, &theme);
 
     element! {
-        View(flex_direction: FlexDirection::Column) {
+        View(
+            flex_direction: FlexDirection::Column,
+            width: 100pct,
+            flex_grow: 1.0,
+        ) {
             #(rows)
         }
     }
