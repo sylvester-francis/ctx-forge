@@ -7,6 +7,7 @@ pub mod app;
 pub mod components;
 pub mod mode;
 pub mod motion;
+pub mod overlays;
 pub mod theme;
 
 use crate::error::Result;
