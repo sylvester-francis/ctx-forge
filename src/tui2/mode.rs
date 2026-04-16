@@ -1,7 +1,8 @@
 //! Mode enum — the input mode stack for the v2 TUI.
 //!
-//! Phase 2a only needs `Normal` and `Search`. Phase 2c adds overlay modes
-//! (help, scenario picker, etc.).
+//! Overlay variants carry their own state (e.g. picker cursor) so the App
+//! component stays thin: the `mode` signal owns the overlay's transient
+//! state.
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum Mode {
@@ -10,4 +11,14 @@ pub enum Mode {
     Search {
         query: String,
     },
+    Help,
+    ScenarioPicker {
+        cursor: usize,
+    },
+}
+
+impl Mode {
+    pub fn is_overlay(&self) -> bool {
+        matches!(self, Mode::Help | Mode::ScenarioPicker { .. })
+    }
 }
