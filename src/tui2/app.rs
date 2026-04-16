@@ -306,10 +306,48 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     }
                 }
 
+                // ── Prompt focus: route text keys into PromptInput ──
+                if *focus.read() == Focus::Prompt {
+                    let mut handled = true;
+                    match k.code {
+                        KeyCode::Esc => {
+                            *focus.write() = Focus::FileTree;
+                        }
+                        KeyCode::Enter => {
+                            prompt_input.write().insert_newline();
+                        }
+                        KeyCode::Backspace => {
+                            prompt_input.write().backspace();
+                        }
+                        KeyCode::Left => prompt_input.write().move_left(),
+                        KeyCode::Right => prompt_input.write().move_right(),
+                        KeyCode::Home => prompt_input.write().move_home(),
+                        KeyCode::End => prompt_input.write().move_end(),
+                        KeyCode::Char('w') if k.modifiers.contains(KeyModifiers::CONTROL) => {
+                            prompt_input.write().delete_word_back();
+                        }
+                        KeyCode::Char(c) => {
+                            prompt_input.write().insert_char(c);
+                        }
+                        _ => {
+                            handled = false;
+                        }
+                    }
+                    if handled {
+                        let text = prompt_input.read().text().to_string();
+                        app_data.write().sync_task_text(text);
+                        return;
+                    }
+                    // Fall through: Tab, BackTab, etc. bubble to normal dispatch below
+                }
+
                 match k.code {
                     KeyCode::Char('q') => *should_quit.write() = true,
                     KeyCode::Char('/') => {
                         *mode.write() = crate::tui2::mode::Mode::Search { query: String::new() };
+                    }
+                    KeyCode::Char('i') if *focus.read() != Focus::Prompt => {
+                        *focus.write() = Focus::Prompt;
                     }
                     KeyCode::Tab => {
                         let next = match *focus.read() {
