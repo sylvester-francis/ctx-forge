@@ -4,6 +4,7 @@
 //! v1 (`crate::tui`) continues to ship as default; this module is additive.
 
 pub mod app;
+pub mod command_registry;
 pub mod components;
 pub mod mode;
 pub mod motion;
