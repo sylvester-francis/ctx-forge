@@ -94,11 +94,28 @@ fn load_app_data(root: CtxforgeRoot) -> AppData {
 
 impl AppData {
     /// Toggle file at `rel_path` in/out of the bundle. No-op on directories.
-    /// Recomputes token counts and the preview. Persists the bundle to disk.
+    /// Only the affected item is resolved + tokenized — existing items keep
+    /// their cached token counts.
     fn toggle_bundle(&mut self, rel_path: &std::path::Path) {
         use crate::bundle::{Item, ItemKind};
         if self.bundled_paths.contains(rel_path) {
-            self.bundle.remove_by_path(rel_path);
+            // Remove path: drop the matching token entry too. Bundle stores
+            // items ordered; find the first File-kind item matching the path
+            // and remove its parallel token entry.
+            if let Some(idx) = self.bundle.items.iter().position(|it| {
+                it.path == rel_path && matches!(it.kind, ItemKind::File)
+            }) {
+                self.bundle.items.remove(idx);
+                if idx < self.item_tokens.len() {
+                    let removed = self.item_tokens.remove(idx);
+                    self.total_tokens = self.total_tokens.saturating_sub(removed);
+                }
+            } else {
+                // Fallback: path exists but not a File-kind entry. Use the
+                // existing helper which scans for any path match, and recount.
+                self.bundle.remove_by_path(rel_path);
+                self.recompute_tokens();
+            }
             self.bundled_paths.remove(rel_path);
         } else {
             let item = Item {
@@ -106,10 +123,16 @@ impl AppData {
                 kind: ItemKind::File,
                 label: None,
             };
+            let model = models::lookup(&self.model_name);
+            let new_tokens: usize =
+                resolve::resolve_all(std::slice::from_ref(&item), &self.project_root)
+                    .map(|res| res.iter().map(|r| tokens::count(&r.content, &model).tokens).sum())
+                    .unwrap_or(0);
             self.bundle.add(item);
             self.bundled_paths.insert(rel_path.to_path_buf());
+            self.item_tokens.push(new_tokens);
+            self.total_tokens += new_tokens;
         }
-        self.recompute_tokens();
         self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
         let _ = self.bundle.save(&self.root);
     }
@@ -213,8 +236,9 @@ impl AppData {
     }
 
     /// Add the viewer's current selection to the bundle as a Range item.
-    /// Clears the selection on success. No-op when viewer has no file loaded
-    /// or no selection is active.
+    /// Only the NEW item is resolved and tokenized — existing bundle items
+    /// keep their cached token counts. Noticeably faster than a full
+    /// `recompute_tokens()` call for large bundles.
     fn add_viewer_selection_to_bundle(&mut self) {
         use crate::bundle::{Item, ItemKind};
         let (start0, end0) = match self.viewer.selection {
@@ -244,17 +268,27 @@ impl AppData {
             kind: ItemKind::Range(range),
             label: None,
         };
+
+        // Tokenize ONLY the new item — resolve_all is O(items × file size).
+        let model = models::lookup(&self.model_name);
+        let new_tokens: usize =
+            resolve::resolve_all(std::slice::from_ref(&item), &self.project_root)
+                .map(|res| res.iter().map(|r| tokens::count(&r.content, &model).tokens).sum())
+                .unwrap_or(0);
+
         self.bundle.add(item);
         self.bundled_paths.insert(rel_path.clone());
+        self.item_tokens.push(new_tokens);
+        self.total_tokens += new_tokens;
         self.viewer.clear_selection();
-        self.recompute_tokens();
         self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
         let _ = self.bundle.save(&self.root);
         self.set_status(format!(
-            "added {}:{}-{}",
+            "added {}:{}-{} (+{} tokens)",
             rel_path.display(),
             range.start,
-            range.end
+            range.end,
+            new_tokens,
         ));
     }
 
