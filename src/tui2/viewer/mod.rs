@@ -17,6 +17,12 @@ pub struct ViewerState {
     pub error: Option<ViewerError>,
     pub truncated: bool,
     pub highlighter: Highlighter,
+    /// Active drag selection, 0-based inclusive line indices, normalized
+    /// so `start <= end`. `None` = no selection.
+    pub selection: Option<(usize, usize)>,
+    /// Anchor line set on MouseDown, cleared on MouseUp. Drives selection
+    /// range extension during drag.
+    pub drag_anchor: Option<usize>,
 }
 
 impl ViewerState {
@@ -29,7 +35,34 @@ impl ViewerState {
             error: None,
             truncated: false,
             highlighter: Highlighter::new(),
+            selection: None,
+            drag_anchor: None,
         }
+    }
+
+    pub fn drag_start(&mut self, line_idx: usize) {
+        self.drag_anchor = Some(line_idx);
+        self.selection = Some((line_idx, line_idx));
+    }
+
+    pub fn drag_extend(&mut self, line_idx: usize) {
+        if let Some(anchor) = self.drag_anchor {
+            let (start, end) = if anchor <= line_idx {
+                (anchor, line_idx)
+            } else {
+                (line_idx, anchor)
+            };
+            self.selection = Some((start, end));
+        }
+    }
+
+    pub fn drag_end(&mut self) {
+        self.drag_anchor = None;
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.selection = None;
+        self.drag_anchor = None;
     }
 
     pub fn toggle(&mut self) {
@@ -46,6 +79,8 @@ impl ViewerState {
         self.error = load.error;
         self.cached_path = Some(path.to_path_buf());
         self.scroll = 0;
+        self.selection = None;
+        self.drag_anchor = None;
     }
 
     pub fn scroll_by(&mut self, delta: i32, viewport_height: usize) {
