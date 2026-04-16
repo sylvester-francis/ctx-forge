@@ -26,4 +26,6 @@ pub mod test_helpers;
 pub mod tokens;
 #[cfg(feature = "tui")]
 pub mod tui;
+#[cfg(feature = "tui-v2")]
+pub mod tui2;
 pub mod walk;
