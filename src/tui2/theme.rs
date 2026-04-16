@@ -49,6 +49,7 @@ pub struct Theme {
     pub focus_viewer: iocraft::Color,
     pub focus_bundle: iocraft::Color,
     pub hotspot: iocraft::Color,
+    pub drag_selection_bg: iocraft::Color,
 }
 
 impl Theme {
@@ -70,6 +71,7 @@ impl Theme {
             selected_bg: to_iocraft_color(t.selected_bg),
             focus_tree: to_iocraft_color(t.focus_tree),
             focus_viewer: to_iocraft_color(t.focus_viewer),
+            drag_selection_bg: to_iocraft_color(t.drag_selection_bg),
             focus_bundle: to_iocraft_color(t.focus_bundle),
             hotspot: to_iocraft_color(t.hotspot),
         }

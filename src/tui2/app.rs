@@ -406,6 +406,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         let initial = app_data.read().bundle.task_text.clone();
         PromptInput::with_text(initial)
     });
+    let viewer_events = hooks.use_state(crate::tui2::components::viewer::ViewerEventSink::new);
 
     let (term_w, term_h) = hooks.use_terminal_size();
 
@@ -1136,7 +1137,11 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                         MixedTextContent::new(viewer_file_title).color(theme.accent).weight(Weight::Bold),
                                     ])
                                     Text(content: "")
-                                    #(crate::tui2::components::viewer::render_body(&data.viewer, &theme))
+                                    crate::tui2::components::viewer::Viewer(
+                                        viewer: crate::tui2::components::viewer::ViewerStateSnapshot::from_state(&data.viewer),
+                                        theme: Some(theme),
+                                        events: viewer_events.read().clone(),
+                                    )
                                 }
                             })
                         } else {
@@ -1178,11 +1183,15 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                 .and_then(|n| n.to_str())
                                 .map(|s| format!("VIEWER · {}", s))
                                 .unwrap_or_else(|| "VIEWER".to_string());
-                            (
-                                title,
-                                viewer_border,
-                                crate::tui2::components::viewer::render_body(&data.viewer, &theme),
-                            )
+                            let viewer_element = element! {
+                                crate::tui2::components::viewer::Viewer(
+                                    viewer: crate::tui2::components::viewer::ViewerStateSnapshot::from_state(&data.viewer),
+                                    theme: Some(theme),
+                                    events: viewer_events.read().clone(),
+                                )
+                            }
+                            .into_any();
+                            (title, viewer_border, vec![viewer_element])
                         }
                         Focus::Prompt => (
                             preview_title_styled.clone(),
