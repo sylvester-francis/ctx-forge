@@ -12,15 +12,7 @@ fn format_tokens(n: usize) -> String {
     }
 }
 
-fn smart_truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        return s.to_string();
-    }
-    let tail = max.saturating_sub(3);
-    let chars: Vec<char> = s.chars().collect();
-    let start = chars.len().saturating_sub(tail);
-    format!("…{}", chars[start..].iter().collect::<String>())
-}
+use super::smart_truncate_path;
 
 fn span(text: String, color: Option<Color>, bold: bool) -> MixedTextContent {
     let mut c = MixedTextContent::new(text);
@@ -67,7 +59,7 @@ pub fn render_bundle_rows(
         for (i, (item, tok)) in bundle.items.iter().zip(item_tokens.iter()).enumerate() {
             let badge = format!(" {:02} ", i + 1);
             let path_str = item.path.display().to_string();
-            let path = smart_truncate(&path_str, 28);
+            let path = smart_truncate_path(&path_str, 28);
             let path_padded = format!(" {:<28} ", path);
             let toks = format!("{:>6}", format_tokens(*tok));
 

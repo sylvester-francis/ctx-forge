@@ -169,13 +169,7 @@ pub fn render_preview(preview: &PromptPreview, theme: &Theme) -> Vec<AnyElement<
                     for (i, item) in items.iter().enumerate() {
                         let badge = format!(" {:02} ", i + 1);
                         let path_str = item.path.display().to_string();
-                        let path = if path_str.chars().count() > 24 {
-                            let chars: Vec<char> = path_str.chars().collect();
-                            let start = chars.len().saturating_sub(21);
-                            format!("…{}", chars[start..].iter().collect::<String>())
-                        } else {
-                            path_str
-                        };
+                        let path = super::smart_truncate_path(&path_str, 24);
                         let path_padded = format!(" {:<24} ", path);
                         let toks = format!("{:>5}", format_tokens(item.tokens));
 
