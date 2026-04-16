@@ -25,13 +25,15 @@ pub fn render_full(app: &App) -> String {
     let notes = crate::memory::index::read_all(&app.root).unwrap_or_default();
     let bundle_rendered = crate::format::render(crate::format::Format::Markdown, &resolved, &notes);
 
-    let task_flag = if app.bundle.task_text.is_empty() {
-        None
-    } else {
-        Some(app.bundle.task_text.as_str())
+    // Use scenario::load_body + template::substitute so built-in starters
+    // (bugfix, code-review, explain, refactor, migrate) work alongside
+    // file-backed templates. `apply_template` would only search for files
+    // and reject the embedded starters.
+    let body = match crate::tui::scenario::load_body(&app.root, scenario) {
+        Ok(s) => s,
+        Err(e) => return format!("⚠ load scenario body: {e}\n"),
     };
-
-    match crate::template::apply_template(&app.root, scenario, &bundle_rendered, task_flag) {
+    match crate::template::substitute(scenario, &body, &bundle_rendered, &app.bundle.task_text) {
         Ok(s) => s,
         Err(e) => format!("⚠ template render failed: {e}\n"),
     }
