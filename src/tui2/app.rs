@@ -29,7 +29,7 @@ use iocraft::prelude::*;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-/// ─── Startup state (loaded once, owned by App) ────────────────────────
+// ─── Startup state (loaded once, owned by App) ────────────────────────
 
 struct StartupData {
     bundle: Bundle,
@@ -130,7 +130,7 @@ fn build_preview(root: &CtxforgeRoot, bundle: &Bundle, item_tokens: &[usize]) ->
     PromptPreview { sections }
 }
 
-/// ─── Focus ────────────────────────────────────────────────────────────
+// ─── Focus ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Focus {
@@ -169,7 +169,7 @@ pub async fn run(root: CtxforgeRoot) -> Result<()> {
     Ok(())
 }
 
-/// ─── App component ───────────────────────────────────────────────────
+// ─── App component ───────────────────────────────────────────────────
 
 #[component]
 fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
