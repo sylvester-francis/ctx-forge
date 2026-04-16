@@ -177,6 +177,27 @@ impl AppData {
         }
     }
 
+    /// Apply a theme by name. Swaps the active theme, rebuilds the preview
+    /// (so any theme-dependent colors re-render), and persists the selection
+    /// to `~/.config/ctxforge/config.toml`.
+    fn apply_theme(&mut self, name: &str) -> std::result::Result<(), String> {
+        let raw = crate::tui::theme::registry::by_name(name)
+            .ok_or_else(|| format!("unknown theme '{name}'"))?;
+        self.theme = Theme::from_app_theme(raw);
+        self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
+
+        if let Some(path) = crate::paths::config_file_path() {
+            let existing = crate::tui::theme::config::load_from(&path).unwrap_or_default();
+            let next = crate::tui::theme::config::Config {
+                theme: name.to_string(),
+                default_send: existing.default_send,
+            };
+            let _ = crate::tui::theme::config::save_to(&path, &next);
+        }
+        self.set_status(format!("theme → {name}"));
+        Ok(())
+    }
+
     /// Set the active scenario and rebuild the preview. Persists to disk.
     fn set_scenario(&mut self, name: Option<String>) {
         self.bundle.scenario = name;
