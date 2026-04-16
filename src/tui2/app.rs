@@ -198,8 +198,10 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     let mut should_quit: State<bool> = hooks.use_state(|| false);
 
     let s = startup.read();
-    let total_entries = s.tree_entries.len();
-    let max_cursor = total_entries.saturating_sub(1);
+    // Only show entries that aren't inside a collapsed directory
+    let visible_indices = tree::visible_indices(&s.tree_entries);
+    let visible_count = visible_indices.len();
+    let max_cursor = visible_count.saturating_sub(1);
 
     hooks.use_terminal_events({
         move |event| {
@@ -264,16 +266,15 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         b: anim_b,
     };
 
-    // Clip tree to viewport. Center the cursor when possible.
+    // Clip visible entries to viewport centered around the cursor
     let start = cur.saturating_sub(TREE_VIEWPORT / 2);
-    let end = (start + TREE_VIEWPORT).min(total_entries);
-    let visible: Vec<(usize, TreeEntry)> = s
-        .tree_entries
+    let end = (start + TREE_VIEWPORT).min(visible_count);
+    let visible: Vec<(usize, TreeEntry)> = visible_indices
         .iter()
         .enumerate()
         .skip(start)
-        .take(end - start)
-        .map(|(i, e)| (i, e.clone()))
+        .take(end.saturating_sub(start))
+        .filter_map(|(vi, &idx)| s.tree_entries.get(idx).map(|e| (vi, e.clone())))
         .collect();
 
     // Render content blocks
@@ -284,7 +285,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         &s.bundled_paths,
         &theme,
     );
-    let _ = total_entries; // tree title built inline below
     let tree_border = if cur_focus == Focus::FileTree {
         focus_color
     } else {
@@ -368,10 +368,10 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         format!(" ⌥ prompt · {} ", scenario)
     };
 
-    // Renamed title strings — section markers + uppercase for hierarchy
-    let tree_title_styled = format!(" ▶ FILES · {} ", s.tree_entries.len());
-    let viewer_title_styled = " ≡ VIEWER ".to_string();
-    let preview_title_styled = " ◆ PREVIEW ".to_string();
+    // Section-marker titles — left bar + uppercase label for consistent hierarchy
+    let tree_title_styled = format!("FILES  {}", visible_count);
+    let viewer_title_styled = "VIEWER".to_string();
+    let preview_title_styled = "PREVIEW".to_string();
 
     element! {
         View(
@@ -381,10 +381,10 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
             height: 100pct,
         ) {
             // ─── HEADER (height: 3) ──────────────────────────────
-            // Double-line border for the authoritative top bar
+            // Single-line subtle border; wordmark + meta + gauge
             View(
-                border_style: BorderStyle::Double,
-                border_color: theme.accent,
+                border_style: BorderStyle::Round,
+                border_color: theme.border,
                 background_color: theme.bg,
                 height: 3,
                 width: 100pct,
@@ -392,9 +392,10 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 padding_right: 1,
             ) {
                 MixedText(contents: vec![
-                    MixedTextContent::new("⚒ CTXFORGE").color(theme.accent).weight(Weight::Bold),
+                    MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
+                    MixedTextContent::new("ctxforge").color(theme.accent).weight(Weight::Bold),
                     MixedTextContent::new(scenario_chip).color(theme.muted),
-                    MixedTextContent::new(meta),
+                    MixedTextContent::new(meta).color(theme.muted),
                     MixedTextContent::new(gauge).color(bar_color).weight(Weight::Bold),
                 ])
             }
@@ -422,6 +423,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         padding_right: 1,
                     ) {
                         MixedText(contents: vec![
+                            MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
                             MixedTextContent::new(tree_title_styled).color(theme.accent).weight(Weight::Bold),
                         ])
                         Text(content: "")
@@ -438,6 +440,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         padding_right: 1,
                     ) {
                         MixedText(contents: vec![
+                            MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
                             MixedTextContent::new(bundle_title).color(theme.accent).weight(Weight::Bold),
                         ])
                         Text(content: "")
@@ -458,6 +461,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     padding_top: 1,
                 ) {
                     MixedText(contents: vec![
+                        MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
                         MixedTextContent::new(viewer_title_styled).color(theme.accent).weight(Weight::Bold),
                     ])
                     Text(content: "")
@@ -481,6 +485,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     padding_top: 1,
                 ) {
                     MixedText(contents: vec![
+                        MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
                         MixedTextContent::new(preview_title_styled).color(theme.accent).weight(Weight::Bold),
                     ])
                     Text(content: "")

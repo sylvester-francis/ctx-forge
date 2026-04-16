@@ -69,7 +69,8 @@ pub fn render_preview(preview: &PromptPreview, theme: &Theme) -> Vec<AnyElement<
                     element! {
                         View(width: 100pct) {
                             MixedText(contents: vec![
-                                span(" ▶ SCENARIO ".to_string(), Some(theme.accent), true),
+                                span("▍ ".to_string(), Some(theme.accent), true),
+                                span("SCENARIO  ".to_string(), Some(theme.accent), true),
                                 span(scenario_name, None, true),
                             ])
                         }
@@ -103,7 +104,8 @@ pub fn render_preview(preview: &PromptPreview, theme: &Theme) -> Vec<AnyElement<
                     element! {
                         View(width: 100pct) {
                             MixedText(contents: vec![
-                                span(" ≡ TASK ".to_string(), Some(theme.accent), true),
+                                span("▍ ".to_string(), Some(theme.accent), true),
+                                span("TASK".to_string(), Some(theme.accent), true),
                             ])
                         }
                     }
@@ -144,7 +146,8 @@ pub fn render_preview(preview: &PromptPreview, theme: &Theme) -> Vec<AnyElement<
                     element! {
                         View(width: 100pct) {
                             MixedText(contents: vec![
-                                span(" ◆ CONTEXT ".to_string(), Some(theme.accent), true),
+                                span("▍ ".to_string(), Some(theme.accent), true),
+                                span("CONTEXT  ".to_string(), Some(theme.accent), true),
                                 span(meta, Some(theme.muted), false),
                             ])
                         }

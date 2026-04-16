@@ -40,10 +40,10 @@ pub fn render_bundle_rows(
 ) -> (String, Vec<AnyElement<'static>>) {
     let total: usize = item_tokens.iter().sum();
     let title = if bundle.is_empty() {
-        " ◆ BUNDLE · empty ".to_string()
+        "BUNDLE · empty".to_string()
     } else {
         format!(
-            " ◆ BUNDLE · {} · {} tokens ",
+            "BUNDLE · {} · {} tokens",
             bundle.len(),
             format_tokens(total)
         )
