@@ -1357,14 +1357,14 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         MixedText(contents: vec![
                             MixedTextContent::new("j/k").color(theme.accent).weight(Weight::Bold),
                             MixedTextContent::new(" scroll  ").color(theme.muted),
-                            MixedTextContent::new("g/G").color(theme.accent).weight(Weight::Bold),
-                            MixedTextContent::new(" top/bot  ").color(theme.muted),
-                            MixedTextContent::new("ctrl-u/d").color(theme.accent).weight(Weight::Bold),
-                            MixedTextContent::new(" page  ").color(theme.muted),
+                            MixedTextContent::new("drag").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" select  ").color(theme.muted),
+                            MixedTextContent::new("a").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" add  ").color(theme.muted),
+                            MixedTextContent::new("esc").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" clear  ").color(theme.muted),
                             MixedTextContent::new("v").color(theme.accent).weight(Weight::Bold),
-                            MixedTextContent::new(" close  ").color(theme.muted),
-                            MixedTextContent::new("tab").color(theme.accent).weight(Weight::Bold),
-                            MixedTextContent::new(" focus").color(theme.muted),
+                            MixedTextContent::new(" close").color(theme.muted),
                         ])
                     }
                 } else if cur_focus == Focus::Prompt {
