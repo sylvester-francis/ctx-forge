@@ -347,7 +347,20 @@ thread_local! {
 
 pub async fn run(root: CtxforgeRoot) -> Result<()> {
     STARTUP.with(|s| *s.borrow_mut() = Some(load_app_data(root)));
-    element!(App).render_loop().fullscreen().await?;
+    let result = element!(App).render_loop().fullscreen().await;
+
+    // Belt-and-suspenders cleanup: iocraft's fullscreen enables mouse
+    // capture by default and disables it on graceful exit, but if the loop
+    // exits abnormally, mouse reporting can leak into the shell and
+    // garble the terminal. Sending these is idempotent — safe regardless.
+    use crossterm::event::{DisableBracketedPaste, DisableMouseCapture};
+    let _ = crossterm::execute!(
+        std::io::stdout(),
+        DisableMouseCapture,
+        DisableBracketedPaste,
+    );
+
+    result?;
     Ok(())
 }
 
@@ -816,7 +829,12 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     });
 
     if *should_quit.read() {
-        std::process::exit(0);
+        // Use iocraft's system.exit() so the render loop unwinds cleanly,
+        // disabling mouse capture / bracketed paste / alternate screen.
+        // std::process::exit() would bypass all of that and leave the
+        // terminal in a dirty state (mouse reports leaking into the shell).
+        let mut system = hooks.use_context_mut::<iocraft::SystemContext>();
+        system.exit();
     }
 
     // Re-read app_data after the event handler may have mutated it, and
