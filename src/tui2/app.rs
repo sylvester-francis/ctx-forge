@@ -370,6 +370,35 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     KeyCode::Char('C') if *focus.read() == Focus::FileTree => {
                         app_data.write().collapse_all();
                     }
+                    // Navigation: g/G top/bottom, Ctrl-U/D half-page
+                    KeyCode::Char('g') if *focus.read() == Focus::FileTree => {
+                        cursor.set(0);
+                    }
+                    KeyCode::Char('G') if *focus.read() == Focus::FileTree => {
+                        let d = app_data.read();
+                        let visible = tree::visible_indices(&d.tree_entries);
+                        if !visible.is_empty() {
+                            cursor.set(visible.len() - 1);
+                        }
+                    }
+                    KeyCode::Char('u')
+                        if k.modifiers.contains(KeyModifiers::CONTROL)
+                            && *focus.read() == Focus::FileTree =>
+                    {
+                        let half = TREE_VIEWPORT / 2;
+                        let c = *cursor.read();
+                        cursor.set(c.saturating_sub(half));
+                    }
+                    KeyCode::Char('d')
+                        if k.modifiers.contains(KeyModifiers::CONTROL)
+                            && *focus.read() == Focus::FileTree =>
+                    {
+                        let d = app_data.read();
+                        let visible = tree::visible_indices(&d.tree_entries);
+                        let half = TREE_VIEWPORT / 2;
+                        let c = *cursor.read();
+                        cursor.set((c + half).min(visible.len().saturating_sub(1)));
+                    }
                     _ => {}
                 }
             }
