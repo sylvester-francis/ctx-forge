@@ -149,8 +149,9 @@ impl AppData {
                 self.set_status("quit requested".to_string());
                 None
             }
-            A::Theme | A::Deliver | A::EditPrompt | A::ToggleViewer | A::AddSelection => {
-                self.set_status("coming in Phase 2c-3 (theme / deliver / viewer)".to_string());
+            A::Theme => Some(crate::tui2::mode::Mode::ThemePicker { cursor: 0 }),
+            A::Deliver | A::EditPrompt | A::ToggleViewer | A::AddSelection => {
+                self.set_status("coming in a follow-up phase (deliver / viewer / editor)".to_string());
                 None
             }
             A::Copy => { self.set_status("use CLI: ctxforge copy".to_string()); None }
@@ -426,6 +427,44 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             if let Some(picked) = scenarios.get(cur) {
                                 let name = picked.name.clone();
                                 app_data.write().set_scenario(Some(name));
+                            }
+                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+
+                // ── Theme picker overlay ────────────────────────
+                if matches!(*mode.read(), crate::tui2::mode::Mode::ThemePicker { .. }) {
+                    let themes = crate::tui2::overlays::theme_picker::all();
+                    let count = themes.len();
+                    match k.code {
+                        KeyCode::Esc => {
+                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            if let crate::tui2::mode::Mode::ThemePicker { cursor } = &mut *mode.write() {
+                                if *cursor > 0 {
+                                    *cursor -= 1;
+                                }
+                            }
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            if let crate::tui2::mode::Mode::ThemePicker { cursor } = &mut *mode.write() {
+                                if *cursor + 1 < count {
+                                    *cursor += 1;
+                                }
+                            }
+                        }
+                        KeyCode::Enter => {
+                            let cur = match *mode.read() {
+                                crate::tui2::mode::Mode::ThemePicker { cursor } => cursor,
+                                _ => 0,
+                            };
+                            if let Some(picked) = themes.get(cur) {
+                                let name = picked.name.to_string();
+                                let _ = app_data.write().apply_theme(&name);
                             }
                             *mode.write() = crate::tui2::mode::Mode::Normal;
                         }
@@ -1133,6 +1172,16 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     Some(crate::tui2::overlays::card::render_card(
                         "COMMANDS",
                         crate::tui2::overlays::command_palette::render_body(query, &results, *cursor, &theme),
+                        &theme,
+                        term_w,
+                        term_h,
+                    ))
+                }
+                crate::tui2::mode::Mode::ThemePicker { cursor } => {
+                    let themes = crate::tui2::overlays::theme_picker::all();
+                    Some(crate::tui2::overlays::card::render_card(
+                        "THEME",
+                        crate::tui2::overlays::theme_picker::render_body(themes, *cursor, data.theme.name, &theme),
                         &theme,
                         term_w,
                         term_h,
