@@ -16,12 +16,7 @@ use crate::tui::preview::PromptPreview;
 use crate::tui::theme::{config::resolve_theme_name, registry, AppTheme};
 use crate::tui::tree::{self, TreeEntry};
 use crate::tui2::components::{
-    bundle_summary::render_bundle_rows,
-    header::Header,
-    prompt_input::PromptInput,
-    prompt_preview::render_preview,
-    status_bar::render_footer,
-    tree::render_tree_rows,
+    bundle_summary::render_bundle_rows, prompt_preview::render_preview, tree::render_tree_rows,
 };
 use crate::tui2::motion::use_animated;
 use crate::tui2::theme::Theme;
@@ -69,10 +64,8 @@ fn load_startup(root: &CtxforgeRoot) -> StartupData {
     let theme = Theme::from_app_theme(raw);
 
     let bundled_paths: HashSet<PathBuf> = bundle.items.iter().map(|i| i.path.clone()).collect();
-
     let preview = build_preview(root, &bundle, &item_tokens);
 
-    let _ = project_root; // consumed by tree::build above
     StartupData {
         bundle,
         tree_entries,
@@ -86,7 +79,6 @@ fn load_startup(root: &CtxforgeRoot) -> StartupData {
     }
 }
 
-/// Build a PromptPreview from startup data (avoids needing a full v1 App).
 fn build_preview(root: &CtxforgeRoot, bundle: &Bundle, item_tokens: &[usize]) -> PromptPreview {
     use crate::tui::preview::{ContextItem, Section};
     let mut sections = Vec::new();
@@ -153,11 +145,28 @@ fn focus_color_rgb(focus: Focus, theme: &Theme) -> (u8, u8, u8) {
     }
 }
 
+fn format_tokens(n: usize) -> String {
+    if n >= 1_000 {
+        format!("{:.1}k", n as f64 / 1_000.0)
+    } else {
+        format!("{n}")
+    }
+}
+
+fn gauge_color(pct: f64, theme: &Theme) -> Color {
+    if pct > 90.0 {
+        theme.danger
+    } else if pct > 75.0 {
+        theme.hotspot
+    } else if pct > 40.0 {
+        theme.warning
+    } else {
+        theme.success
+    }
+}
+
 // ─── Entry point ──────────────────────────────────────────────────────
 
-// Store startup data in a thread-local so the component closure can read it
-// without threading it through props. `Option<StartupData>` — taken once at
-// first render.
 thread_local! {
     static STARTUP: std::cell::RefCell<Option<StartupData>> = const { std::cell::RefCell::new(None) };
 }
@@ -169,12 +178,15 @@ pub async fn run(root: CtxforgeRoot) -> Result<()> {
     Ok(())
 }
 
+// Max tree rows rendered per frame. Phase 1 does no scrolling; we clip to
+// a reasonable viewport so the layout doesn't overflow. Phase 2 adds
+// proper viewport tracking + scrolling.
+const TREE_VIEWPORT: usize = 24;
+
 // ─── App component ───────────────────────────────────────────────────
 
 #[component]
 fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
-    // Pull startup data out of the thread-local on first render. Keep it in
-    // a hook-state slot so subsequent renders have it too.
     let startup = hooks.use_state(|| {
         STARTUP
             .with(|s| s.borrow_mut().take())
@@ -183,17 +195,11 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
 
     let mut focus: State<Focus> = hooks.use_state(|| Focus::FileTree);
     let mut cursor: State<usize> = hooks.use_state(|| 0usize);
+    let mut should_quit: State<bool> = hooks.use_state(|| false);
 
-    // Filter visible entries (for Phase 1, all entries are visible — dir
-    // expansion comes in Phase 2).
-    let visible: Vec<(usize, TreeEntry)> = startup
-        .read()
-        .tree_entries
-        .iter()
-        .enumerate()
-        .map(|(i, e)| (i, e.clone()))
-        .collect();
-    let max_cursor = visible.len().saturating_sub(1);
+    let s = startup.read();
+    let total_entries = s.tree_entries.len();
+    let max_cursor = total_entries.saturating_sub(1);
 
     hooks.use_terminal_events({
         move |event| {
@@ -202,6 +208,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     return;
                 }
                 match k.code {
+                    KeyCode::Char('q') => *should_quit.write() = true,
                     KeyCode::Tab => {
                         let next = match *focus.read() {
                             Focus::FileTree => Focus::Viewer,
@@ -238,10 +245,16 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         }
     });
 
-    // Animated focus-border RGB. Tweens smoothly when focus changes.
+    if *should_quit.read() {
+        std::process::exit(0);
+    }
+
     let cur_focus = *focus.read();
-    let s = startup.read();
-    let (tr, tg, tb) = focus_color_rgb(cur_focus, &s.theme);
+    let cur = *cursor.read();
+    let theme = s.theme;
+
+    // Animated focus-border RGB
+    let (tr, tg, tb) = focus_color_rgb(cur_focus, &theme);
     let anim_r = use_animated(hooks, tr, constants::FOCUS_BORDER, ease_out_cubic);
     let anim_g = use_animated(hooks, tg, constants::FOCUS_BORDER, ease_out_cubic);
     let anim_b = use_animated(hooks, tb, constants::FOCUS_BORDER, ease_out_cubic);
@@ -251,19 +264,33 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         b: anim_b,
     };
 
-    let cur = *cursor.read();
-    let theme = s.theme;
+    // Clip tree to viewport. Center the cursor when possible.
+    let start = cur.saturating_sub(TREE_VIEWPORT / 2);
+    let end = (start + TREE_VIEWPORT).min(total_entries);
+    let visible: Vec<(usize, TreeEntry)> = s
+        .tree_entries
+        .iter()
+        .enumerate()
+        .skip(start)
+        .take(end - start)
+        .map(|(i, e)| (i, e.clone()))
+        .collect();
 
-    // Tree rows.
-    let tree_rows = render_tree_rows(&visible, cur, cur_focus == Focus::FileTree, &s.bundled_paths, &theme);
-    let tree_title = format!(" files ({}) ", visible.len());
+    // Render content blocks
+    let tree_rows = render_tree_rows(
+        &visible,
+        cur,
+        cur_focus == Focus::FileTree,
+        &s.bundled_paths,
+        &theme,
+    );
+    let tree_title = format!(" files ({}) ", total_entries);
     let tree_border = if cur_focus == Focus::FileTree {
         focus_color
     } else {
         theme.border
     };
 
-    // Bundle rows.
     let (bundle_title, bundle_rows) = render_bundle_rows(&s.bundle, &s.item_tokens, &theme);
     let bundle_border = if cur_focus == Focus::BundleList {
         focus_color
@@ -271,7 +298,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         theme.border
     };
 
-    // Preview lines.
     let preview_lines = render_preview(&s.preview, &theme);
     let preview_border = if cur_focus == Focus::Viewer {
         focus_color
@@ -279,8 +305,59 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         theme.border
     };
 
-    // Scenario string for prompt input.
+    let viewer_border = if cur_focus == Focus::Viewer {
+        focus_color
+    } else {
+        theme.border
+    };
+
+    let prompt_border = if cur_focus == Focus::Prompt {
+        focus_color
+    } else {
+        theme.border
+    };
+
+    // Header content
+    let pct = if s.model_window == 0 {
+        0.0
+    } else {
+        (s.total_tokens as f64 / s.model_window as f64) * 100.0
+    };
+    let ratio = (s.total_tokens as f32) / (s.model_window.max(1) as f32);
+    let animated_ratio = use_animated(
+        hooks,
+        ratio.clamp(0.0, 1.0),
+        constants::GAUGE_FILL,
+        crate::motion_core::ease_out_quad,
+    );
     let scenario = s.bundle.scenario.clone().unwrap_or_default();
+    let header_label = format!(
+        " ctxforge │ scenario: {} │ {} │ ~{} / {} ({:.1}%) ",
+        if scenario.is_empty() {
+            "(none)"
+        } else {
+            scenario.as_str()
+        },
+        s.model_name,
+        format_tokens(s.total_tokens),
+        format_tokens(s.model_window),
+        pct,
+    );
+    let bar_width = 30u32;
+    let filled = ((animated_ratio * bar_width as f32) as u32).min(bar_width);
+    let empty = bar_width - filled;
+    let bar = format!(
+        "{}{}",
+        "█".repeat(filled as usize),
+        "░".repeat(empty as usize)
+    );
+    let bar_color = gauge_color(pct, &theme);
+
+    let prompt_title = if scenario.is_empty() {
+        " prompt · (no scenario) ".to_string()
+    } else {
+        format!(" prompt · scenario: {} ", scenario)
+    };
 
     element! {
         View(
@@ -289,22 +366,41 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
             width: 100pct,
             height: 100pct,
         ) {
-            Header(
-                total_tokens: s.total_tokens,
-                model_window: s.model_window,
-                model_name: s.model_name.clone(),
-                scenario: scenario.clone(),
-                theme: Some(theme),
-            )
-            View(flex_direction: FlexDirection::Row, height: 100pct) {
-                // ─── Left column: file tree + bundle summary ────────
-                View(flex_direction: FlexDirection::Column, width: 28pct) {
+            // ─── HEADER (height: 3 — 1 line + top/bottom border) ──
+            View(
+                border_style: BorderStyle::Single,
+                border_color: theme.border,
+                background_color: theme.bg,
+                height: 3,
+                width: 100pct,
+            ) {
+                MixedText(contents: vec![
+                    MixedTextContent::new(header_label),
+                    MixedTextContent::new(bar).color(bar_color),
+                ])
+            }
+
+            // ─── MAIN CONTENT ROW (flex_grow: 1) ──
+            View(
+                flex_direction: FlexDirection::Row,
+                width: 100pct,
+                flex_grow: 1.0,
+            ) {
+                // ── Left column: tree (top) + bundle (bottom) ──
+                View(
+                    flex_direction: FlexDirection::Column,
+                    width: 28pct,
+                    height: 100pct,
+                ) {
                     View(
                         flex_direction: FlexDirection::Column,
                         border_style: BorderStyle::Round,
                         border_color: tree_border,
                         background_color: theme.bg,
+                        width: 100pct,
                         height: 65pct,
+                        padding_left: 1,
+                        padding_right: 1,
                     ) {
                         Text(content: tree_title.leak() as &str, color: theme.muted, weight: Weight::Bold)
                         #(tree_rows)
@@ -314,39 +410,43 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         border_style: BorderStyle::Round,
                         border_color: bundle_border,
                         background_color: theme.bg,
+                        width: 100pct,
                         height: 35pct,
+                        padding_left: 1,
+                        padding_right: 1,
                     ) {
                         Text(content: bundle_title.leak() as &str, color: theme.muted, weight: Weight::Bold)
                         #(bundle_rows)
                     }
                 }
-                // ─── Center column: viewer placeholder ───────────────
+
+                // ── Center column: viewer placeholder ──
                 View(
                     flex_direction: FlexDirection::Column,
                     border_style: BorderStyle::Round,
-                    border_color: if cur_focus == Focus::Viewer { focus_color } else { theme.border },
+                    border_color: viewer_border,
                     background_color: theme.bg,
                     width: 42pct,
-                    padding: 1,
+                    height: 100pct,
+                    padding: 2,
                 ) {
                     Text(content: " viewer ", color: theme.muted, weight: Weight::Bold)
                     Text(content: "")
-                    Text(
-                        content: "  (code viewer lands in Phase 2)",
-                        color: theme.muted,
-                        weight: Weight::Light,
-                    )
+                    Text(content: "  (code viewer arrives in Phase 2)", color: theme.muted)
                     Text(content: "")
-                    Text(content: "  Press v to toggle, drag to select,", weight: Weight::Light)
-                    Text(content: "  a to add selection to bundle.", weight: Weight::Light)
+                    Text(content: "  • v toggles viewer pane", weight: Weight::Light)
+                    Text(content: "  • drag-select a range", weight: Weight::Light)
+                    Text(content: "  • a adds selection to bundle", weight: Weight::Light)
                 }
-                // ─── Right column: prompt preview ────────────────────
+
+                // ── Right column: prompt preview ──
                 View(
                     flex_direction: FlexDirection::Column,
                     border_style: BorderStyle::Round,
                     border_color: preview_border,
                     background_color: theme.bg,
                     width: 30pct,
+                    height: 100pct,
                     padding_left: 1,
                     padding_right: 1,
                     padding_top: 1,
@@ -356,13 +456,47 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     #(preview_lines)
                 }
             }
-            PromptInput(
-                focused: cur_focus == Focus::Prompt,
-                border_color: Some(focus_color),
-                scenario: scenario,
-                theme: Some(theme),
-            )
-            #(vec![render_footer("Ready", &theme)])
+
+            // ─── PROMPT INPUT (height: 3) ──
+            View(
+                flex_direction: FlexDirection::Column,
+                border_style: BorderStyle::Round,
+                border_color: prompt_border,
+                background_color: theme.bg,
+                width: 100pct,
+                height: 3,
+            ) {
+                MixedText(contents: vec![
+                    MixedTextContent::new(prompt_title).color(theme.muted).weight(Weight::Bold),
+                ])
+                Text(content: " (press i to edit — full editor in Phase 2)", weight: Weight::Light)
+            }
+
+            // ─── FOOTER (height: 2) ──
+            View(
+                flex_direction: FlexDirection::Column,
+                background_color: theme.bg,
+                width: 100pct,
+                height: 2,
+            ) {
+                Text(content: " Ready", color: theme.muted)
+                MixedText(contents: vec![
+                    MixedTextContent::new(" Tab").color(theme.accent),
+                    MixedTextContent::new(" focus  "),
+                    MixedTextContent::new("j/k").color(theme.accent),
+                    MixedTextContent::new(" move  "),
+                    MixedTextContent::new("Space").color(theme.accent),
+                    MixedTextContent::new(" toggle  "),
+                    MixedTextContent::new("v").color(theme.accent),
+                    MixedTextContent::new(" viewer  "),
+                    MixedTextContent::new("d").color(theme.accent),
+                    MixedTextContent::new(" deliver  "),
+                    MixedTextContent::new("?").color(theme.accent),
+                    MixedTextContent::new(" help  "),
+                    MixedTextContent::new("q").color(theme.accent),
+                    MixedTextContent::new(" quit"),
+                ])
+            }
         }
     }
 }

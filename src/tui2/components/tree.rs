@@ -46,7 +46,7 @@ pub fn render_tree_rows(
             };
 
             element! {
-                View(background_color: bg) {
+                View(background_color: bg, width: 100pct) {
                     Text(content: text.leak() as &str, color: fg)
                 }
             }
