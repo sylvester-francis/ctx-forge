@@ -25,9 +25,9 @@ use iocraft::prelude::*;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-// ─── Startup state (loaded once, owned by App) ────────────────────────
+// ─── App state (mutable, held in use_state) ───────────────────────────
 
-struct StartupData {
+struct AppData {
     bundle: Bundle,
     tree_entries: Vec<TreeEntry>,
     item_tokens: Vec<usize>,
@@ -37,10 +37,13 @@ struct StartupData {
     theme: Theme,
     preview: PromptPreview,
     bundled_paths: HashSet<PathBuf>,
+    // Needed so mutations can persist to disk and recompute tokens.
+    root: CtxforgeRoot,
+    project_root: PathBuf,
 }
 
-fn load_startup(root: &CtxforgeRoot) -> StartupData {
-    let bundle = Bundle::load_or_default(root).unwrap_or_default();
+fn load_app_data(root: CtxforgeRoot) -> AppData {
+    let bundle = Bundle::load_or_default(&root).unwrap_or_default();
     let project_root = root.project_root().to_path_buf();
     let tree_entries = tree::build(&project_root);
 
@@ -65,9 +68,9 @@ fn load_startup(root: &CtxforgeRoot) -> StartupData {
     let theme = Theme::from_app_theme(raw);
 
     let bundled_paths: HashSet<PathBuf> = bundle.items.iter().map(|i| i.path.clone()).collect();
-    let preview = build_preview(root, &bundle, &item_tokens);
+    let preview = build_preview(&root, &bundle, &item_tokens);
 
-    StartupData {
+    AppData {
         bundle,
         tree_entries,
         item_tokens,
@@ -77,6 +80,8 @@ fn load_startup(root: &CtxforgeRoot) -> StartupData {
         theme,
         preview,
         bundled_paths,
+        root,
+        project_root,
     }
 }
 
@@ -169,12 +174,11 @@ fn gauge_color(pct: f64, theme: &Theme) -> Color {
 // ─── Entry point ──────────────────────────────────────────────────────
 
 thread_local! {
-    static STARTUP: std::cell::RefCell<Option<StartupData>> = const { std::cell::RefCell::new(None) };
+    static STARTUP: std::cell::RefCell<Option<AppData>> = const { std::cell::RefCell::new(None) };
 }
 
 pub async fn run(root: CtxforgeRoot) -> Result<()> {
-    let data = load_startup(&root);
-    STARTUP.with(|s| *s.borrow_mut() = Some(data));
+    STARTUP.with(|s| *s.borrow_mut() = Some(load_app_data(root)));
     element!(App).render_loop().fullscreen().await?;
     Ok(())
 }
@@ -188,10 +192,10 @@ const TREE_VIEWPORT: usize = 24;
 
 #[component]
 fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
-    let startup = hooks.use_state(|| {
+    let mut app_data = hooks.use_state(|| {
         STARTUP
             .with(|s| s.borrow_mut().take())
-            .unwrap_or_else(|| panic!("tui2 startup data missing"))
+            .unwrap_or_else(|| panic!("tui2 app data missing"))
     });
 
     let mut focus: State<Focus> = hooks.use_state(|| Focus::FileTree);
@@ -200,9 +204,9 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
 
     let (term_w, term_h) = hooks.use_terminal_size();
 
-    let s = startup.read();
+    let data = app_data.read();
     // Only show entries that aren't inside a collapsed directory
-    let visible_indices = tree::visible_indices(&s.tree_entries);
+    let visible_indices = tree::visible_indices(&data.tree_entries);
     let visible_count = visible_indices.len();
     let max_cursor = visible_count.saturating_sub(1);
 
@@ -258,7 +262,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
 
     let cur_focus = *focus.read();
     let cur = *cursor.read();
-    let theme = s.theme;
+    let theme = data.theme;
 
     // Animated focus-border RGB
     let (tr, tg, tb) = focus_color_rgb(cur_focus, &theme);
@@ -279,7 +283,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         .enumerate()
         .skip(start)
         .take(end.saturating_sub(start))
-        .filter_map(|(vi, &idx)| s.tree_entries.get(idx).map(|e| (vi, e.clone())))
+        .filter_map(|(vi, &idx)| data.tree_entries.get(idx).map(|e| (vi, e.clone())))
         .collect();
 
     // Focus-aware border colors. Content rendering is done per-branch below
@@ -312,8 +316,8 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
 
     // Compute the bundle title once — it's cheap and Clone.
     let bundle_title = {
-        let total: usize = s.item_tokens.iter().sum();
-        if s.bundle.is_empty() {
+        let total: usize = data.item_tokens.iter().sum();
+        if data.bundle.is_empty() {
             "BUNDLE · empty".to_string()
         } else {
             let tokens = if total >= 1_000 {
@@ -321,24 +325,24 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
             } else {
                 total.to_string()
             };
-            format!("BUNDLE · {} · {} tokens", s.bundle.len(), tokens)
+            format!("BUNDLE · {} · {} tokens", data.bundle.len(), tokens)
         }
     };
 
     // Header content — wordmark + scenario + model + animated gradient gauge
-    let pct = if s.model_window == 0 {
+    let pct = if data.model_window == 0 {
         0.0
     } else {
-        (s.total_tokens as f64 / s.model_window as f64) * 100.0
+        (data.total_tokens as f64 / data.model_window as f64) * 100.0
     };
-    let ratio = (s.total_tokens as f32) / (s.model_window.max(1) as f32);
+    let ratio = (data.total_tokens as f32) / (data.model_window.max(1) as f32);
     let animated_ratio = use_animated(
         hooks,
         ratio.clamp(0.0, 1.0),
         constants::GAUGE_FILL,
         crate::motion_core::ease_out_quad,
     );
-    let scenario = s.bundle.scenario.clone().unwrap_or_default();
+    let scenario = data.bundle.scenario.clone().unwrap_or_default();
 
     // Gradient gauge using ░▒▓█ — 4-step fill for finer visual granularity
     let bar_width = 24u32;
@@ -364,9 +368,9 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     };
     let meta = format!(
         "{} · ~{} / {} · {:.1}% ",
-        s.model_name,
-        format_tokens(s.total_tokens),
-        format_tokens(s.model_window),
+        data.model_name,
+        format_tokens(data.total_tokens),
+        format_tokens(data.model_window),
         pct,
     );
 
@@ -449,7 +453,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                     MixedTextContent::new(tree_title_styled.clone()).color(theme.accent).weight(Weight::Bold),
                                 ])
                                 Text(content: "")
-                                #(render_tree_rows(&visible, cur, cur_focus == Focus::FileTree, &s.bundled_paths, &theme))
+                                #(render_tree_rows(&visible, cur, cur_focus == Focus::FileTree, &data.bundled_paths, &theme))
                             }
                             View(
                                 flex_direction: FlexDirection::Column,
@@ -466,7 +470,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                     MixedTextContent::new(bundle_title.clone()).color(theme.accent).weight(Weight::Bold),
                                 ])
                                 Text(content: "")
-                                #(render_bundle_rows(&s.bundle, &s.item_tokens, &theme).1)
+                                #(render_bundle_rows(&data.bundle, &data.item_tokens, &theme).1)
                             }
                         }
                         // Right: preview (primary — the crafted prompt output)
@@ -486,7 +490,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                 MixedTextContent::new(preview_title_styled.clone()).color(theme.accent).weight(Weight::Bold),
                             ])
                             Text(content: "")
-                            #(render_preview(&s.preview, &theme))
+                            #(render_preview(&data.preview, &theme))
                         }
                     }
                 }.into_any()
@@ -497,7 +501,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         Focus::BundleList => (
                             bundle_title.clone(),
                             bundle_border,
-                            render_bundle_rows(&s.bundle, &s.item_tokens, &theme).1,
+                            render_bundle_rows(&data.bundle, &data.item_tokens, &theme).1,
                         ),
                         Focus::Viewer => (
                             "VIEWER".to_string(),
@@ -511,12 +515,12 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         Focus::Prompt => (
                             preview_title_styled.clone(),
                             preview_border,
-                            render_preview(&s.preview, &theme),
+                            render_preview(&data.preview, &theme),
                         ),
                         Focus::FileTree => (
                             tree_title_styled.clone(),
                             tree_border,
-                            render_tree_rows(&visible, cur, cur_focus == Focus::FileTree, &s.bundled_paths, &theme),
+                            render_tree_rows(&visible, cur, cur_focus == Focus::FileTree, &data.bundled_paths, &theme),
                         ),
                     };
 
