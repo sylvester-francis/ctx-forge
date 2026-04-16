@@ -271,8 +271,34 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 if k.kind != KeyEventKind::Press {
                     return;
                 }
+                // ── Search mode: accumulate chars, Esc cancels, Enter confirms ──
+                if matches!(*mode.read(), crate::tui2::mode::Mode::Search { .. }) {
+                    match k.code {
+                        KeyCode::Esc | KeyCode::Enter => {
+                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                            return;
+                        }
+                        KeyCode::Backspace => {
+                            if let crate::tui2::mode::Mode::Search { query } = &mut *mode.write() {
+                                query.pop();
+                            }
+                            return;
+                        }
+                        KeyCode::Char(c) => {
+                            if let crate::tui2::mode::Mode::Search { query } = &mut *mode.write() {
+                                query.push(c);
+                            }
+                            return;
+                        }
+                        _ => return,
+                    }
+                }
+
                 match k.code {
                     KeyCode::Char('q') => *should_quit.write() = true,
+                    KeyCode::Char('/') => {
+                        *mode.write() = crate::tui2::mode::Mode::Search { query: String::new() };
+                    }
                     KeyCode::Tab => {
                         let next = match *focus.read() {
                             Focus::FileTree => Focus::BundleList,
