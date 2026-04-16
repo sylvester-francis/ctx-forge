@@ -41,6 +41,8 @@ struct AppData {
     // Needed so mutations can persist to disk and recompute tokens.
     root: CtxforgeRoot,
     project_root: PathBuf,
+    // Transient status message shown in the footer.
+    status: String,
 }
 
 fn load_app_data(root: CtxforgeRoot) -> AppData {
@@ -83,6 +85,7 @@ fn load_app_data(root: CtxforgeRoot) -> AppData {
         bundled_paths,
         root,
         project_root,
+        status: String::new(),
     }
 }
 
@@ -124,6 +127,54 @@ impl AppData {
 
     fn collapse_all(&mut self) {
         tree::collapse_all(&mut self.tree_entries);
+    }
+
+    fn set_status(&mut self, msg: String) {
+        self.status = msg;
+    }
+
+    /// Dispatch a command action. Returns the new Mode to enter, or None
+    /// for actions that only set status / quit / stay in Normal mode.
+    fn dispatch_command(
+        &mut self,
+        action: crate::tui2::command_registry::CommandAction,
+    ) -> Option<crate::tui2::mode::Mode> {
+        use crate::tui2::command_registry::CommandAction as A;
+        use crate::tui2::mode::Mode;
+        match action {
+            A::Help => Some(Mode::Help),
+            A::Scenario => Some(Mode::ScenarioPicker { cursor: 0 }),
+            A::Find => Some(Mode::Search { query: String::new() }),
+            A::Quit => {
+                self.set_status("quit requested".to_string());
+                None
+            }
+            A::Theme | A::Deliver | A::EditPrompt | A::ToggleViewer | A::AddSelection => {
+                self.set_status("coming in Phase 2c-3 (theme / deliver / viewer)".to_string());
+                None
+            }
+            A::Copy => { self.set_status("use CLI: ctxforge copy".to_string()); None }
+            A::CopyXml => { self.set_status("use CLI: ctxforge copy --xml".to_string()); None }
+            A::CopyJson => { self.set_status("use CLI: ctxforge copy --json".to_string()); None }
+            A::Export => { self.set_status("use CLI: ctxforge export".to_string()); None }
+            A::ExportXml => { self.set_status("use CLI: ctxforge export --xml".to_string()); None }
+            A::ExportJson => { self.set_status("use CLI: ctxforge export --json".to_string()); None }
+            A::Pipe => { self.set_status("use CLI: ctxforge copy | your-agent".to_string()); None }
+            A::SaveProfile => { self.set_status("use CLI: ctxforge profile save <name>".to_string()); None }
+            A::LoadProfile => { self.set_status("use CLI: ctxforge profile load <name>".to_string()); None }
+            A::Narrow => { self.set_status("use CLI: ctxforge narrow <path> <start> <end>".to_string()); None }
+            A::Model => { self.set_status("set model via --model flag or config.toml".to_string()); None }
+            A::Memory => { self.set_status("use CLI: ctxforge memory".to_string()); None }
+            A::Note => { self.set_status("use CLI: ctxforge memory note".to_string()); None }
+            A::FindFn => { self.set_status("use CLI: ctxforge add --fn <name> <path>".to_string()); None }
+            A::FindType => { self.set_status("use CLI: ctxforge add --type <name> <path>".to_string()); None }
+            A::FindDiff => { self.set_status("use CLI: ctxforge add --diff <branch>".to_string()); None }
+            A::Template => { self.set_status("use CLI: ctxforge template".to_string()); None }
+            A::TemplateNew => { self.set_status("use CLI: ctxforge template new <name>".to_string()); None }
+            A::TemplateRm => { self.set_status("use CLI: ctxforge template rm <name>".to_string()); None }
+            A::TemplateStarters => { self.set_status("use CLI: ctxforge template starters".to_string()); None }
+            A::TemplateList => { self.set_status("use CLI: ctxforge template list".to_string()); None }
+        }
     }
 
     /// Set the active scenario and rebuild the preview. Persists to disk.
@@ -362,6 +413,86 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     return;
                 }
 
+                // ── Command palette overlay ────────────────────
+                if matches!(*mode.read(), crate::tui2::mode::Mode::CommandPalette { .. }) {
+                    match k.code {
+                        KeyCode::Esc => {
+                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                        }
+                        KeyCode::Up => {
+                            if let crate::tui2::mode::Mode::CommandPalette { cursor, .. } =
+                                &mut *mode.write()
+                            {
+                                if *cursor > 0 {
+                                    *cursor -= 1;
+                                }
+                            }
+                        }
+                        KeyCode::Down => {
+                            let count = {
+                                let m = mode.read();
+                                if let crate::tui2::mode::Mode::CommandPalette { query, .. } = &*m {
+                                    crate::tui2::command_registry::filter(query).len()
+                                } else {
+                                    0
+                                }
+                            };
+                            if let crate::tui2::mode::Mode::CommandPalette { cursor, .. } =
+                                &mut *mode.write()
+                            {
+                                if *cursor + 1 < count {
+                                    *cursor += 1;
+                                }
+                            }
+                        }
+                        KeyCode::Backspace => {
+                            if let crate::tui2::mode::Mode::CommandPalette { query, cursor } =
+                                &mut *mode.write()
+                            {
+                                query.pop();
+                                *cursor = 0;
+                            }
+                        }
+                        KeyCode::Char(c) => {
+                            if let crate::tui2::mode::Mode::CommandPalette { query, cursor } =
+                                &mut *mode.write()
+                            {
+                                query.push(c);
+                                *cursor = 0;
+                            }
+                        }
+                        KeyCode::Enter => {
+                            let (query_owned, cursor_idx) = match &*mode.read() {
+                                crate::tui2::mode::Mode::CommandPalette { query, cursor } => {
+                                    (query.clone(), *cursor)
+                                }
+                                _ => (String::new(), 0),
+                            };
+                            let results = crate::tui2::command_registry::filter(&query_owned);
+                            if let Some(cmd) = results.get(cursor_idx) {
+                                let action = cmd.action;
+                                let next_mode = app_data.write().dispatch_command(action);
+                                match next_mode {
+                                    Some(m) => *mode.write() = m,
+                                    None => {
+                                        if matches!(
+                                            action,
+                                            crate::tui2::command_registry::CommandAction::Quit
+                                        ) {
+                                            *should_quit.write() = true;
+                                        }
+                                        *mode.write() = crate::tui2::mode::Mode::Normal;
+                                    }
+                                }
+                            } else {
+                                *mode.write() = crate::tui2::mode::Mode::Normal;
+                            }
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+
                 // ── Prompt focus: route text keys into PromptInput ──
                 if *focus.read() == Focus::Prompt {
                     let mut handled = true;
@@ -406,6 +537,12 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         *mode.write() = crate::tui2::mode::Mode::ScenarioPicker { cursor: 0 };
                     }
                     KeyCode::Char('/') => {
+                        *mode.write() = crate::tui2::mode::Mode::CommandPalette {
+                            query: String::new(),
+                            cursor: 0,
+                        };
+                    }
+                    KeyCode::Char('f') if k.modifiers.contains(KeyModifiers::CONTROL) => {
                         *mode.write() = crate::tui2::mode::Mode::Search { query: String::new() };
                     }
                     KeyCode::Char('i') if *focus.read() != Focus::Prompt => {
@@ -865,7 +1002,9 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
             ) {
                 MixedText(contents: vec![
                     MixedTextContent::new("● ").color(theme.success).weight(Weight::Bold),
-                    MixedTextContent::new("ready").color(theme.muted),
+                    MixedTextContent::new(
+                        if data.status.is_empty() { "ready".to_string() } else { data.status.clone() }
+                    ).color(theme.muted),
                 ])
                 #(if mode.read().is_overlay() {
                     element! {
@@ -917,7 +1056,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             MixedTextContent::new("space").color(theme.accent).weight(Weight::Bold),
                             MixedTextContent::new(" toggle  ").color(theme.muted),
                             MixedTextContent::new("/").color(theme.accent).weight(Weight::Bold),
-                            MixedTextContent::new(" find  ").color(theme.muted),
+                            MixedTextContent::new(" cmds  ").color(theme.muted),
                             MixedTextContent::new("q").color(theme.accent).weight(Weight::Bold),
                             MixedTextContent::new(" quit").color(theme.muted),
                         ])
@@ -934,6 +1073,8 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             MixedTextContent::new("i").color(theme.accent).weight(Weight::Bold),
                             MixedTextContent::new(" edit  ").color(theme.muted),
                             MixedTextContent::new("/").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" commands  ").color(theme.muted),
+                            MixedTextContent::new("ctrl-f").color(theme.accent).weight(Weight::Bold),
                             MixedTextContent::new(" find  ").color(theme.muted),
                             MixedTextContent::new("E/C").color(theme.accent).weight(Weight::Bold),
                             MixedTextContent::new(" all  ").color(theme.muted),
@@ -961,6 +1102,16 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     Some(crate::tui2::overlays::card::render_card(
                         "SCENARIO",
                         crate::tui2::overlays::scenario_picker::render_body(&scenarios, *cursor, current, &theme),
+                        &theme,
+                        term_w,
+                        term_h,
+                    ))
+                }
+                crate::tui2::mode::Mode::CommandPalette { query, cursor } => {
+                    let results = crate::tui2::command_registry::filter(query);
+                    Some(crate::tui2::overlays::card::render_card(
+                        "COMMANDS",
+                        crate::tui2::overlays::command_palette::render_body(query, &results, *cursor, &theme),
                         &theme,
                         term_w,
                         term_h,
