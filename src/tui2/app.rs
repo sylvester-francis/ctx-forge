@@ -126,6 +126,13 @@ impl AppData {
         tree::collapse_all(&mut self.tree_entries);
     }
 
+    /// Set the active scenario and rebuild the preview. Persists to disk.
+    fn set_scenario(&mut self, name: Option<String>) {
+        self.bundle.scenario = name;
+        self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
+        let _ = self.bundle.save(&self.root);
+    }
+
     /// Write task_text into the bundle and rebuild the preview. Persists to disk.
     fn sync_task_text(&mut self, text: String) {
         self.bundle.task_text = text;
@@ -306,6 +313,55 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     }
                 }
 
+                // ── Help overlay ────────────────────────────────
+                if matches!(*mode.read(), crate::tui2::mode::Mode::Help) {
+                    match k.code {
+                        KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
+                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+
+                // ── Scenario picker overlay ─────────────────────
+                if matches!(*mode.read(), crate::tui2::mode::Mode::ScenarioPicker { .. }) {
+                    let scenarios = crate::tui2::overlays::scenario_picker::load(&app_data.read().root);
+                    let count = scenarios.len();
+                    match k.code {
+                        KeyCode::Esc => {
+                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            if let crate::tui2::mode::Mode::ScenarioPicker { cursor } = &mut *mode.write() {
+                                if *cursor > 0 {
+                                    *cursor -= 1;
+                                }
+                            }
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            if let crate::tui2::mode::Mode::ScenarioPicker { cursor } = &mut *mode.write() {
+                                if *cursor + 1 < count {
+                                    *cursor += 1;
+                                }
+                            }
+                        }
+                        KeyCode::Enter => {
+                            let cur = match *mode.read() {
+                                crate::tui2::mode::Mode::ScenarioPicker { cursor } => cursor,
+                                _ => 0,
+                            };
+                            if let Some(picked) = scenarios.get(cur) {
+                                let name = picked.name.clone();
+                                app_data.write().set_scenario(Some(name));
+                            }
+                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+
                 // ── Prompt focus: route text keys into PromptInput ──
                 if *focus.read() == Focus::Prompt {
                     let mut handled = true;
@@ -343,6 +399,12 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
 
                 match k.code {
                     KeyCode::Char('q') => *should_quit.write() = true,
+                    KeyCode::Char('?') => {
+                        *mode.write() = crate::tui2::mode::Mode::Help;
+                    }
+                    KeyCode::Char('S') => {
+                        *mode.write() = crate::tui2::mode::Mode::ScenarioPicker { cursor: 0 };
+                    }
                     KeyCode::Char('/') => {
                         *mode.write() = crate::tui2::mode::Mode::Search { query: String::new() };
                     }
@@ -805,7 +867,18 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     MixedTextContent::new("● ").color(theme.success).weight(Weight::Bold),
                     MixedTextContent::new("ready").color(theme.muted),
                 ])
-                #(if cur_focus == Focus::Prompt {
+                #(if mode.read().is_overlay() {
+                    element! {
+                        MixedText(contents: vec![
+                            MixedTextContent::new("↑/↓").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" navigate  ").color(theme.muted),
+                            MixedTextContent::new("enter").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" select  ").color(theme.muted),
+                            MixedTextContent::new("esc").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" close").color(theme.muted),
+                        ])
+                    }
+                } else if cur_focus == Focus::Prompt {
                     // Prompt focus: text-editing hints
                     element! {
                         MixedText(contents: vec![
@@ -870,6 +943,31 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     }
                 })
             }
+
+            // ─── OVERLAY LAYER (rendered above main layout) ──
+            #(match &*mode.read() {
+                crate::tui2::mode::Mode::Help => Some(
+                    crate::tui2::overlays::card::render_card(
+                        "HELP",
+                        crate::tui2::overlays::help::render_body(&theme),
+                        &theme,
+                        term_w,
+                        term_h,
+                    )
+                ),
+                crate::tui2::mode::Mode::ScenarioPicker { cursor } => {
+                    let scenarios = crate::tui2::overlays::scenario_picker::load(&data.root);
+                    let current = data.bundle.scenario.as_deref();
+                    Some(crate::tui2::overlays::card::render_card(
+                        "SCENARIO",
+                        crate::tui2::overlays::scenario_picker::render_body(&scenarios, *cursor, current, &theme),
+                        &theme,
+                        term_w,
+                        term_h,
+                    ))
+                }
+                _ => None,
+            })
         }
     }
 }
