@@ -273,8 +273,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 match k.code {
                     KeyCode::Char('q') => *should_quit.write() = true,
                     KeyCode::Tab => {
-                        // Phase 1 cycle: files → bundle → prompt → files.
-                        // Viewer re-enters the cycle in Phase 2 when it ships.
                         let next = match *focus.read() {
                             Focus::FileTree => Focus::BundleList,
                             Focus::BundleList => Focus::Prompt,
@@ -304,6 +302,47 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             *cursor.write() = c + 1;
                         }
                     }
+                    // Space: toggle bundle (on file) or expand/collapse (on dir).
+                    KeyCode::Char(' ') if *focus.read() == Focus::FileTree => {
+                        let (actual_idx, is_dir, rel_path) = {
+                            let d = app_data.read();
+                            let visible = tree::visible_indices(&d.tree_entries);
+                            let Some(&actual) = visible.get(*cursor.read()) else {
+                                return;
+                            };
+                            match d.tree_entries.get(actual) {
+                                Some(e) => (actual, e.is_dir, e.rel_path.clone()),
+                                None => return,
+                            }
+                        };
+                        let mut d = app_data.write();
+                        if is_dir {
+                            d.toggle_expanded(actual_idx);
+                        } else {
+                            d.toggle_bundle(&rel_path);
+                        }
+                    }
+                    // Enter: expand/collapse directory only.
+                    KeyCode::Enter if *focus.read() == Focus::FileTree => {
+                        let (actual_idx, is_dir) = {
+                            let d = app_data.read();
+                            let visible = tree::visible_indices(&d.tree_entries);
+                            let Some(&actual) = visible.get(*cursor.read()) else {
+                                return;
+                            };
+                            let is_dir = d.tree_entries.get(actual).map(|e| e.is_dir).unwrap_or(false);
+                            (actual, is_dir)
+                        };
+                        if is_dir {
+                            app_data.write().toggle_expanded(actual_idx);
+                        }
+                    }
+                    KeyCode::Char('E') if *focus.read() == Focus::FileTree => {
+                        app_data.write().expand_all();
+                    }
+                    KeyCode::Char('C') if *focus.read() == Focus::FileTree => {
+                        app_data.write().collapse_all();
+                    }
                     _ => {}
                 }
             }
@@ -312,6 +351,18 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
 
     if *should_quit.read() {
         std::process::exit(0);
+    }
+
+    // Re-read app_data after the event handler may have mutated it, and
+    // clamp the cursor so it stays within the (possibly shrunken) visible
+    // range — relevant after collapse-all.
+    drop(data);
+    let data = app_data.read();
+    let visible_indices = tree::visible_indices(&data.tree_entries);
+    let visible_count = visible_indices.len();
+    let max_cursor = visible_count.saturating_sub(1);
+    if *cursor.read() > max_cursor {
+        cursor.set(max_cursor);
     }
 
     let cur_focus = *focus.read();
