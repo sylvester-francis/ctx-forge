@@ -20,6 +20,7 @@ use crate::tui2::components::{
 };
 use crate::tui2::motion::use_animated;
 use crate::tui2::theme::Theme;
+use iocraft::hooks::UseTerminalSize;
 use iocraft::prelude::*;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -197,6 +198,8 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     let mut cursor: State<usize> = hooks.use_state(|| 0usize);
     let mut should_quit: State<bool> = hooks.use_state(|| false);
 
+    let (term_w, _term_h) = hooks.use_terminal_size();
+
     let s = startup.read();
     // Only show entries that aren't inside a collapsed directory
     let visible_indices = tree::visible_indices(&s.tree_entries);
@@ -277,44 +280,47 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         .filter_map(|(vi, &idx)| s.tree_entries.get(idx).map(|e| (vi, e.clone())))
         .collect();
 
-    // Render content blocks
-    let tree_rows = render_tree_rows(
-        &visible,
-        cur,
-        cur_focus == Focus::FileTree,
-        &s.bundled_paths,
-        &theme,
-    );
+    // Focus-aware border colors. Content rendering is done per-branch below
+    // so `AnyElement` vectors (which aren't Clone) don't need to be duplicated.
     let tree_border = if cur_focus == Focus::FileTree {
         focus_color
     } else {
         theme.border
     };
-
-    let (bundle_title, bundle_rows) = render_bundle_rows(&s.bundle, &s.item_tokens, &theme);
     let bundle_border = if cur_focus == Focus::BundleList {
         focus_color
     } else {
         theme.border
     };
-
-    let preview_lines = render_preview(&s.preview, &theme);
     let preview_border = if cur_focus == Focus::Viewer {
         focus_color
     } else {
         theme.border
     };
-
     let viewer_border = if cur_focus == Focus::Viewer {
         focus_color
     } else {
         theme.border
     };
-
     let prompt_border = if cur_focus == Focus::Prompt {
         focus_color
     } else {
         theme.border
+    };
+
+    // Compute the bundle title once — it's cheap and Clone.
+    let bundle_title = {
+        let total: usize = s.item_tokens.iter().sum();
+        if s.bundle.is_empty() {
+            "BUNDLE · empty".to_string()
+        } else {
+            let tokens = if total >= 1_000 {
+                format!("{:.1}k", total as f64 / 1_000.0)
+            } else {
+                total.to_string()
+            };
+            format!("BUNDLE · {} · {} tokens", s.bundle.len(), tokens)
+        }
     };
 
     // Header content — wordmark + scenario + model + animated gradient gauge
@@ -373,6 +379,11 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     let viewer_title_styled = "VIEWER".to_string();
     let preview_title_styled = "PREVIEW".to_string();
 
+    // Width-adaptive layout breakpoints
+    let wide = term_w >= 140;
+    let medium = (100..140).contains(&term_w);
+    let _narrow = term_w < 100; // handled by the else branch below
+
     element! {
         View(
             flex_direction: FlexDirection::Column,
@@ -381,7 +392,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
             height: 100pct,
         ) {
             // ─── HEADER (height: 3) ──────────────────────────────
-            // Single-line subtle border; wordmark + meta + gauge
             View(
                 border_style: BorderStyle::Round,
                 border_color: theme.border,
@@ -401,97 +411,218 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
             }
 
             // ─── MAIN CONTENT ROW ────────────────────────────────
-            View(
-                flex_direction: FlexDirection::Row,
-                width: 100pct,
-                flex_grow: 1.0,
-            ) {
-                // ── Left column: tree (top) + bundle (bottom) ──
-                View(
-                    flex_direction: FlexDirection::Column,
-                    width: 28pct,
-                    height: 100pct,
-                ) {
+            #(if wide {
+                element! {
+                    View(
+                        flex_direction: FlexDirection::Row,
+                        width: 100pct,
+                        flex_grow: 1.0,
+                    ) {
+                        // Left: tree + bundle
+                        View(
+                            flex_direction: FlexDirection::Column,
+                            width: 28pct,
+                            height: 100pct,
+                        ) {
+                            View(
+                                flex_direction: FlexDirection::Column,
+                                border_style: BorderStyle::Round,
+                                border_color: tree_border,
+                                background_color: theme.bg,
+                                width: 100pct,
+                                height: 60pct,
+                                padding_left: 1,
+                                padding_right: 1,
+                            ) {
+                                MixedText(contents: vec![
+                                    MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
+                                    MixedTextContent::new(tree_title_styled.clone()).color(theme.accent).weight(Weight::Bold),
+                                ])
+                                Text(content: "")
+                                #(render_tree_rows(&visible, cur, cur_focus == Focus::FileTree, &s.bundled_paths, &theme))
+                            }
+                            View(
+                                flex_direction: FlexDirection::Column,
+                                border_style: BorderStyle::Round,
+                                border_color: bundle_border,
+                                background_color: theme.bg,
+                                width: 100pct,
+                                height: 40pct,
+                                padding_left: 1,
+                                padding_right: 1,
+                            ) {
+                                MixedText(contents: vec![
+                                    MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
+                                    MixedTextContent::new(bundle_title.clone()).color(theme.accent).weight(Weight::Bold),
+                                ])
+                                Text(content: "")
+                                #(render_bundle_rows(&s.bundle, &s.item_tokens, &theme).1)
+                            }
+                        }
+                        // Center: viewer placeholder
+                        View(
+                            flex_direction: FlexDirection::Column,
+                            border_style: BorderStyle::Round,
+                            border_color: viewer_border,
+                            background_color: theme.bg,
+                            width: 42pct,
+                            height: 100pct,
+                            padding_left: 2,
+                            padding_right: 2,
+                            padding_top: 1,
+                        ) {
+                            MixedText(contents: vec![
+                                MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
+                                MixedTextContent::new(viewer_title_styled.clone()).color(theme.accent).weight(Weight::Bold),
+                            ])
+                            Text(content: "")
+                            Text(content: "  ∘ code viewer arrives in Phase 2", color: theme.muted)
+                            Text(content: "")
+                            Text(content: "  ▸ v  toggle viewer pane", color: theme.muted, weight: Weight::Light)
+                            Text(content: "  ▸ drag-select a range", color: theme.muted, weight: Weight::Light)
+                            Text(content: "  ▸ a  add selection to bundle", color: theme.muted, weight: Weight::Light)
+                        }
+                        // Right: preview
+                        View(
+                            flex_direction: FlexDirection::Column,
+                            border_style: BorderStyle::Round,
+                            border_color: preview_border,
+                            background_color: theme.bg,
+                            width: 30pct,
+                            height: 100pct,
+                            padding_left: 1,
+                            padding_right: 1,
+                            padding_top: 1,
+                        ) {
+                            MixedText(contents: vec![
+                                MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
+                                MixedTextContent::new(preview_title_styled.clone()).color(theme.accent).weight(Weight::Bold),
+                            ])
+                            Text(content: "")
+                            #(render_preview(&s.preview, &theme))
+                        }
+                    }
+                }.into_any()
+            } else if medium {
+                // Medium: 2-column, hide viewer placeholder
+                element! {
+                    View(
+                        flex_direction: FlexDirection::Row,
+                        width: 100pct,
+                        flex_grow: 1.0,
+                    ) {
+                        // Left: tree + bundle (wider than in 3-col mode)
+                        View(
+                            flex_direction: FlexDirection::Column,
+                            width: 50pct,
+                            height: 100pct,
+                        ) {
+                            View(
+                                flex_direction: FlexDirection::Column,
+                                border_style: BorderStyle::Round,
+                                border_color: tree_border,
+                                background_color: theme.bg,
+                                width: 100pct,
+                                height: 60pct,
+                                padding_left: 1,
+                                padding_right: 1,
+                            ) {
+                                MixedText(contents: vec![
+                                    MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
+                                    MixedTextContent::new(tree_title_styled.clone()).color(theme.accent).weight(Weight::Bold),
+                                ])
+                                Text(content: "")
+                                #(render_tree_rows(&visible, cur, cur_focus == Focus::FileTree, &s.bundled_paths, &theme))
+                            }
+                            View(
+                                flex_direction: FlexDirection::Column,
+                                border_style: BorderStyle::Round,
+                                border_color: bundle_border,
+                                background_color: theme.bg,
+                                width: 100pct,
+                                height: 40pct,
+                                padding_left: 1,
+                                padding_right: 1,
+                            ) {
+                                MixedText(contents: vec![
+                                    MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
+                                    MixedTextContent::new(bundle_title.clone()).color(theme.accent).weight(Weight::Bold),
+                                ])
+                                Text(content: "")
+                                #(render_bundle_rows(&s.bundle, &s.item_tokens, &theme).1)
+                            }
+                        }
+                        // Right: preview
+                        View(
+                            flex_direction: FlexDirection::Column,
+                            border_style: BorderStyle::Round,
+                            border_color: preview_border,
+                            background_color: theme.bg,
+                            width: 50pct,
+                            height: 100pct,
+                            padding_left: 1,
+                            padding_right: 1,
+                            padding_top: 1,
+                        ) {
+                            MixedText(contents: vec![
+                                MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
+                                MixedTextContent::new(preview_title_styled.clone()).color(theme.accent).weight(Weight::Bold),
+                            ])
+                            Text(content: "")
+                            #(render_preview(&s.preview, &theme))
+                        }
+                    }
+                }.into_any()
+            } else {
+                // Narrow: single-column focus-based — show just the focused panel
+                let (panel_label, panel_border, panel_body): (String, Color, Vec<AnyElement<'static>>) =
+                    match cur_focus {
+                        Focus::BundleList => (
+                            bundle_title.clone(),
+                            bundle_border,
+                            render_bundle_rows(&s.bundle, &s.item_tokens, &theme).1,
+                        ),
+                        Focus::Viewer => (
+                            "VIEWER".to_string(),
+                            viewer_border,
+                            vec![
+                                element! { Text(content: "  ∘ code viewer arrives in Phase 2", color: theme.muted) }.into_any(),
+                                element! { Text(content: "") }.into_any(),
+                                element! { Text(content: "  ▸ v  toggle viewer", color: theme.muted, weight: Weight::Light) }.into_any(),
+                            ],
+                        ),
+                        Focus::Prompt => (
+                            preview_title_styled.clone(),
+                            preview_border,
+                            render_preview(&s.preview, &theme),
+                        ),
+                        Focus::FileTree => (
+                            tree_title_styled.clone(),
+                            tree_border,
+                            render_tree_rows(&visible, cur, cur_focus == Focus::FileTree, &s.bundled_paths, &theme),
+                        ),
+                    };
+
+                element! {
                     View(
                         flex_direction: FlexDirection::Column,
                         border_style: BorderStyle::Round,
-                        border_color: tree_border,
+                        border_color: panel_border,
                         background_color: theme.bg,
                         width: 100pct,
-                        height: 60pct,
+                        flex_grow: 1.0,
                         padding_left: 1,
                         padding_right: 1,
                     ) {
                         MixedText(contents: vec![
                             MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
-                            MixedTextContent::new(tree_title_styled).color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(panel_label).color(theme.accent).weight(Weight::Bold),
                         ])
                         Text(content: "")
-                        #(tree_rows)
+                        #(panel_body)
                     }
-                    View(
-                        flex_direction: FlexDirection::Column,
-                        border_style: BorderStyle::Round,
-                        border_color: bundle_border,
-                        background_color: theme.bg,
-                        width: 100pct,
-                        height: 40pct,
-                        padding_left: 1,
-                        padding_right: 1,
-                    ) {
-                        MixedText(contents: vec![
-                            MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
-                            MixedTextContent::new(bundle_title).color(theme.accent).weight(Weight::Bold),
-                        ])
-                        Text(content: "")
-                        #(bundle_rows)
-                    }
-                }
-
-                // ── Center column: viewer placeholder ──
-                View(
-                    flex_direction: FlexDirection::Column,
-                    border_style: BorderStyle::Round,
-                    border_color: viewer_border,
-                    background_color: theme.bg,
-                    width: 42pct,
-                    height: 100pct,
-                    padding_left: 2,
-                    padding_right: 2,
-                    padding_top: 1,
-                ) {
-                    MixedText(contents: vec![
-                        MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
-                        MixedTextContent::new(viewer_title_styled).color(theme.accent).weight(Weight::Bold),
-                    ])
-                    Text(content: "")
-                    Text(content: "  ∘ code viewer arrives in Phase 2", color: theme.muted)
-                    Text(content: "")
-                    Text(content: "  ▸ v  toggle viewer pane", color: theme.muted, weight: Weight::Light)
-                    Text(content: "  ▸ drag-select a range", color: theme.muted, weight: Weight::Light)
-                    Text(content: "  ▸ a  add selection to bundle", color: theme.muted, weight: Weight::Light)
-                }
-
-                // ── Right column: prompt preview ──
-                View(
-                    flex_direction: FlexDirection::Column,
-                    border_style: BorderStyle::Round,
-                    border_color: preview_border,
-                    background_color: theme.bg,
-                    width: 30pct,
-                    height: 100pct,
-                    padding_left: 1,
-                    padding_right: 1,
-                    padding_top: 1,
-                ) {
-                    MixedText(contents: vec![
-                        MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
-                        MixedTextContent::new(preview_title_styled).color(theme.accent).weight(Weight::Bold),
-                    ])
-                    Text(content: "")
-                    #(preview_lines)
-                }
-            }
+                }.into_any()
+            })
 
             // ─── PROMPT INPUT (height: 3) ──
             View(
@@ -523,22 +654,42 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     MixedTextContent::new("● ").color(theme.success).weight(Weight::Bold),
                     MixedTextContent::new("ready").color(theme.muted),
                 ])
-                MixedText(contents: vec![
-                    MixedTextContent::new("tab").color(theme.accent).weight(Weight::Bold),
-                    MixedTextContent::new(" focus  ").color(theme.muted),
-                    MixedTextContent::new("j/k").color(theme.accent).weight(Weight::Bold),
-                    MixedTextContent::new(" move  ").color(theme.muted),
-                    MixedTextContent::new("space").color(theme.accent).weight(Weight::Bold),
-                    MixedTextContent::new(" toggle  ").color(theme.muted),
-                    MixedTextContent::new("v").color(theme.accent).weight(Weight::Bold),
-                    MixedTextContent::new(" viewer  ").color(theme.muted),
-                    MixedTextContent::new("d").color(theme.accent).weight(Weight::Bold),
-                    MixedTextContent::new(" deliver  ").color(theme.muted),
-                    MixedTextContent::new("?").color(theme.accent).weight(Weight::Bold),
-                    MixedTextContent::new(" help  ").color(theme.muted),
-                    MixedTextContent::new("q").color(theme.accent).weight(Weight::Bold),
-                    MixedTextContent::new(" quit").color(theme.muted),
-                ])
+                #(if term_w < 100 {
+                    // Narrow mode: show only essential bindings
+                    element! {
+                        MixedText(contents: vec![
+                            MixedTextContent::new("tab").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" switch  ").color(theme.muted),
+                            MixedTextContent::new("j/k").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" move  ").color(theme.muted),
+                            MixedTextContent::new("space").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" toggle  ").color(theme.muted),
+                            MixedTextContent::new("?").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" help  ").color(theme.muted),
+                            MixedTextContent::new("q").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" quit").color(theme.muted),
+                        ])
+                    }
+                } else {
+                    element! {
+                        MixedText(contents: vec![
+                            MixedTextContent::new("tab").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" focus  ").color(theme.muted),
+                            MixedTextContent::new("j/k").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" move  ").color(theme.muted),
+                            MixedTextContent::new("space").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" toggle  ").color(theme.muted),
+                            MixedTextContent::new("v").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" viewer  ").color(theme.muted),
+                            MixedTextContent::new("d").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" deliver  ").color(theme.muted),
+                            MixedTextContent::new("?").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" help  ").color(theme.muted),
+                            MixedTextContent::new("q").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" quit").color(theme.muted),
+                        ])
+                    }
+                })
             }
         }
     }
