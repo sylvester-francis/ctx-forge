@@ -255,6 +255,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     let mut focus: State<Focus> = hooks.use_state(|| Focus::FileTree);
     let mut cursor: State<usize> = hooks.use_state(|| 0usize);
     let mut should_quit: State<bool> = hooks.use_state(|| false);
+    let mut mode: State<crate::tui2::mode::Mode> = hooks.use_state(crate::tui2::mode::Mode::default);
 
     let (term_w, term_h) = hooks.use_terminal_size();
 

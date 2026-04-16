@@ -5,6 +5,7 @@
 
 pub mod app;
 pub mod components;
+pub mod mode;
 pub mod motion;
 pub mod theme;
 
