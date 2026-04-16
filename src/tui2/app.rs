@@ -43,6 +43,8 @@ struct AppData {
     project_root: PathBuf,
     // Transient status message shown in the footer.
     status: String,
+    // Code viewer pane state.
+    viewer: crate::tui2::viewer::ViewerState,
 }
 
 fn load_app_data(root: CtxforgeRoot) -> AppData {
@@ -86,6 +88,7 @@ fn load_app_data(root: CtxforgeRoot) -> AppData {
         root,
         project_root,
         status: String::new(),
+        viewer: crate::tui2::viewer::ViewerState::new(),
     }
 }
 
