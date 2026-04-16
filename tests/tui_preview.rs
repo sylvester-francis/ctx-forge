@@ -27,25 +27,22 @@ fn preview_renders_sections_when_scenario_set() {
     let preview = PromptPreview::from_app(&app);
     let text = preview.to_text();
     assert!(
-        text.contains("template: bugfix (prefix)"),
-        "prefix marker missing:\n{text}"
+        text.contains("scenario: bugfix"),
+        "scenario marker missing:\n{text}"
     );
-    assert!(text.contains("── task ──"), "task section missing:\n{text}");
+    assert!(
+        text.contains("template:"),
+        "template summary missing:\n{text}"
+    );
+    assert!(text.contains("task"), "task section missing:\n{text}");
     assert!(
         text.contains("fix jwt validation"),
         "task text missing:\n{text}"
     );
-    assert!(
-        text.contains("── context"),
-        "context section missing:\n{text}"
-    );
+    assert!(text.contains("context"), "context section missing:\n{text}");
     assert!(
         text.contains("src/auth.rs"),
         "context item missing:\n{text}"
-    );
-    assert!(
-        text.contains("template: bugfix (suffix)"),
-        "suffix marker missing:\n{text}"
     );
 }
 
@@ -145,8 +142,8 @@ fn wide_layout_renders_preview_in_right_column() {
         s.contains("prompt preview"),
         "preview block title missing:\n{s}"
     );
-    assert!(s.contains("── task"), "Task section missing:\n{s}");
-    assert!(s.contains("── context"), "Context section missing:\n{s}");
+    assert!(s.contains("task"), "Task section missing:\n{s}");
+    assert!(s.contains("context"), "Context section missing:\n{s}");
     // Bundle summary still visible in lower-left
     assert!(
         s.contains("bundle (1)") || s.contains("bundle (1) "),

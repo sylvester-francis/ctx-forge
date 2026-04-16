@@ -605,17 +605,12 @@ fn draw_right_panel(f: &mut Frame, app: &App, area: Rect) {
 /// Render the prompt preview — the crafted prompt structure. Replaces the
 /// bundle list as the default right-column surface.
 fn draw_preview(f: &mut Frame, app: &App, area: Rect) {
-    // Unfocused borders use the terminal default fg (same choice as the
-    // file tree) so they remain visible through the backdrop dim when an
-    // overlay opens. Theme.border (DarkGray on the default palette) was
-    // too faint once dimmed — the user couldn't tell the preview was
-    // even on screen.
     let preview = crate::tui::preview::PromptPreview::from_app(app);
-    let text = preview.to_text();
+    let lines = preview.to_lines(app.theme);
     let block = Block::default()
         .title(" prompt preview ")
         .borders(Borders::ALL);
-    let paragraph = Paragraph::new(text)
+    let paragraph = Paragraph::new(lines)
         .block(block)
         .wrap(ratatui::widgets::Wrap { trim: false });
     f.render_widget(paragraph, area);

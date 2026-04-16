@@ -7,10 +7,10 @@ expression: "render_with_theme(\"ctxforge\")"
 │                                    ctxforge │ scenario: (none) │ claude-sonnet-4 │ ~0 / 200000 (0.0%)                                    │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ files (0) ───────────────────────────────────────────┐┌ prompt preview ──────────────────────────────────────────────────────────────────┐
-│                                                      ││no scenario selected                                                              │
+│                                                      ││  no scenario selected                                                            │
 │                                                      ││                                                                                  │
-│                                                      ││press / and type 'scenario' to pick one                                           │
-│                                                      ││built-in: bugfix · code-review · explain · refactor · migrate                     │
+│                                                      ││  press / and type 'scenario' to pick one                                         │
+│                                                      ││  built-in: bugfix · code-review · explain · refactor · migrate                   │
 │                                                      ││                                                                                  │
 │                                                      ││                                                                                  │
 │                                                      ││                                                                                  │
