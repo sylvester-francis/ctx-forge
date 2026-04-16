@@ -85,6 +85,60 @@ fn load_app_data(root: CtxforgeRoot) -> AppData {
     }
 }
 
+impl AppData {
+    /// Toggle file at `rel_path` in/out of the bundle. No-op on directories.
+    /// Recomputes token counts and the preview. Persists the bundle to disk.
+    fn toggle_bundle(&mut self, rel_path: &std::path::Path) {
+        use crate::bundle::{Item, ItemKind};
+        if self.bundled_paths.contains(rel_path) {
+            self.bundle.remove_by_path(rel_path);
+            self.bundled_paths.remove(rel_path);
+        } else {
+            let item = Item {
+                path: rel_path.to_path_buf(),
+                kind: ItemKind::File,
+                label: None,
+            };
+            self.bundle.add(item);
+            self.bundled_paths.insert(rel_path.to_path_buf());
+        }
+        self.recompute_tokens();
+        self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
+        let _ = self.bundle.save(&self.root);
+    }
+
+    /// Toggle expanded state of the directory at `tree_idx` (absolute index
+    /// into `tree_entries`). No-op on files.
+    fn toggle_expanded(&mut self, tree_idx: usize) {
+        if let Some(entry) = self.tree_entries.get_mut(tree_idx) {
+            if entry.is_dir {
+                entry.expanded = !entry.expanded;
+            }
+        }
+    }
+
+    fn expand_all(&mut self) {
+        tree::expand_all(&mut self.tree_entries);
+    }
+
+    fn collapse_all(&mut self) {
+        tree::collapse_all(&mut self.tree_entries);
+    }
+
+    /// Recompute `item_tokens` and `total_tokens` from the current bundle.
+    fn recompute_tokens(&mut self) {
+        let model = models::lookup(&self.model_name);
+        self.model_window = model.window;
+        let resolved =
+            resolve::resolve_all(&self.bundle.items, &self.project_root).unwrap_or_default();
+        self.item_tokens = resolved
+            .iter()
+            .map(|r| tokens::count(&r.content, &model).tokens)
+            .collect();
+        self.total_tokens = self.item_tokens.iter().sum();
+    }
+}
+
 fn build_preview(root: &CtxforgeRoot, bundle: &Bundle, item_tokens: &[usize]) -> PromptPreview {
     use crate::tui::preview::{ContextItem, Section};
     let mut sections = Vec::new();
