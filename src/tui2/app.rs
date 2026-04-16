@@ -367,8 +367,26 @@ pub async fn run(root: CtxforgeRoot) -> Result<()> {
 // Max tree rows rendered per frame. Phase 1 does no scrolling; we clip to
 // a reasonable viewport so the layout doesn't overflow. Phase 2 adds
 // proper viewport tracking + scrolling.
-const TREE_VIEWPORT: usize = 24;
-const VIEWER_VIEWPORT: usize = 24;
+// Chrome rows: header (3) + prompt input min (4) + footer (2) = 9.
+const CHROME_ROWS: usize = 9;
+
+/// Height available for the tree panel's scrollable content.
+/// Tree panel is 60% of the left column's main-row height; subtract the
+/// panel's own 4 rows of chrome (2 borders + title + blank).
+fn tree_viewport(term_h: u16) -> usize {
+    ((term_h as usize).saturating_sub(CHROME_ROWS) * 60 / 100)
+        .saturating_sub(4)
+        .max(6)
+}
+
+/// Height available for the viewer panel's scrollable content.
+/// Viewer takes the full main-row height when enabled.
+fn viewer_viewport(term_h: u16) -> usize {
+    (term_h as usize)
+        .saturating_sub(CHROME_ROWS)
+        .saturating_sub(4)
+        .max(6)
+}
 
 // ─── App component ───────────────────────────────────────────────────
 
@@ -698,7 +716,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     KeyCode::Up | KeyCode::Char('k') => {
                         match *focus.read() {
                             Focus::Viewer => {
-                                app_data.write().viewer.scroll_by(-1, VIEWER_VIEWPORT);
+                                app_data.write().viewer.scroll_by(-1, viewer_viewport(term_h));
                             }
                             _ => {
                                 let c = *cursor.read();
@@ -713,7 +731,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     KeyCode::Down | KeyCode::Char('j') => {
                         match *focus.read() {
                             Focus::Viewer => {
-                                app_data.write().viewer.scroll_by(1, VIEWER_VIEWPORT);
+                                app_data.write().viewer.scroll_by(1, viewer_viewport(term_h));
                             }
                             _ => {
                                 let c = *cursor.read();
@@ -785,13 +803,13 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         }
                     }
                     KeyCode::Char('G') if *focus.read() == Focus::Viewer => {
-                        app_data.write().viewer.scroll_to_bottom(VIEWER_VIEWPORT);
+                        app_data.write().viewer.scroll_to_bottom(viewer_viewport(term_h));
                     }
                     KeyCode::Char('u')
                         if k.modifiers.contains(KeyModifiers::CONTROL)
                             && *focus.read() == Focus::FileTree =>
                     {
-                        let half = TREE_VIEWPORT / 2;
+                        let half = tree_viewport(term_h) / 2;
                         let c = *cursor.read();
                         let new = c.saturating_sub(half);
                         cursor.set(new);
@@ -801,7 +819,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         if k.modifiers.contains(KeyModifiers::CONTROL)
                             && *focus.read() == Focus::Viewer =>
                     {
-                        app_data.write().viewer.scroll_by(-(VIEWER_VIEWPORT as i32 / 2), VIEWER_VIEWPORT);
+                        app_data.write().viewer.scroll_by(-(viewer_viewport(term_h) as i32 / 2), viewer_viewport(term_h));
                     }
                     KeyCode::Char('d')
                         if k.modifiers.contains(KeyModifiers::CONTROL)
@@ -809,7 +827,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     {
                         let d = app_data.read();
                         let visible = tree::visible_indices(&d.tree_entries);
-                        let half = TREE_VIEWPORT / 2;
+                        let half = tree_viewport(term_h) / 2;
                         let c = *cursor.read();
                         let new = (c + half).min(visible.len().saturating_sub(1));
                         drop(d);
@@ -820,7 +838,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         if k.modifiers.contains(KeyModifiers::CONTROL)
                             && *focus.read() == Focus::Viewer =>
                     {
-                        app_data.write().viewer.scroll_by(VIEWER_VIEWPORT as i32 / 2, VIEWER_VIEWPORT);
+                        app_data.write().viewer.scroll_by(viewer_viewport(term_h) as i32 / 2, viewer_viewport(term_h));
                     }
                     _ => {}
                 }
@@ -873,8 +891,8 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     };
 
     // Clip visible entries to viewport centered around the cursor
-    let start = cur.saturating_sub(TREE_VIEWPORT / 2);
-    let end = (start + TREE_VIEWPORT).min(visible_count);
+    let start = cur.saturating_sub(tree_viewport(term_h) / 2);
+    let end = (start + tree_viewport(term_h)).min(visible_count);
     let visible: Vec<(usize, TreeEntry)> = visible_indices
         .iter()
         .enumerate()
@@ -1066,7 +1084,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                         cur,
                                         &data.bundled_paths,
                                         &theme,
-                                        TREE_VIEWPORT,
+                                        tree_viewport(term_h),
                                     )
                                 } else {
                                     render_tree_rows(&visible, cur, cur_focus == Focus::FileTree, &data.bundled_paths, &theme)
@@ -1169,7 +1187,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                     cur,
                                     &data.bundled_paths,
                                     &theme,
-                                    TREE_VIEWPORT,
+                                    tree_viewport(term_h),
                                 )
                             } else {
                                 render_tree_rows(&visible, cur, cur_focus == Focus::FileTree, &data.bundled_paths, &theme)
