@@ -1,4 +1,4 @@
-//! Compact bundle summary (lower-left column).
+//! Bundle list — indexed badges, truncated paths, right-aligned tokens.
 
 use crate::bundle::Bundle;
 use crate::tui2::theme::Theme;
@@ -12,6 +12,27 @@ fn format_tokens(n: usize) -> String {
     }
 }
 
+fn smart_truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let tail = max.saturating_sub(3);
+    let chars: Vec<char> = s.chars().collect();
+    let start = chars.len().saturating_sub(tail);
+    format!("…{}", chars[start..].iter().collect::<String>())
+}
+
+fn span(text: String, color: Option<Color>, bold: bool) -> MixedTextContent {
+    let mut c = MixedTextContent::new(text);
+    if let Some(col) = color {
+        c = c.color(col);
+    }
+    if bold {
+        c = c.weight(Weight::Bold);
+    }
+    c
+}
+
 pub fn render_bundle_rows(
     bundle: &Bundle,
     item_tokens: &[usize],
@@ -19,10 +40,10 @@ pub fn render_bundle_rows(
 ) -> (String, Vec<AnyElement<'static>>) {
     let total: usize = item_tokens.iter().sum();
     let title = if bundle.is_empty() {
-        " bundle (0) ".to_string()
+        " ◆ BUNDLE · empty ".to_string()
     } else {
         format!(
-            " bundle ({}) · {} tokens ",
+            " ◆ BUNDLE · {} · {} tokens ",
             bundle.len(),
             format_tokens(total)
         )
@@ -32,26 +53,33 @@ pub fn render_bundle_rows(
     if bundle.is_empty() {
         rows.push(
             element! {
-                Text(
-                    content: " (empty — space in tree, or @ in prompt)",
-                    color: theme.muted,
-                    weight: Weight::Light,
-                )
+                View(width: 100pct) {
+                    Text(
+                        content: "  no files yet — space in tree, or @ in prompt",
+                        color: theme.muted,
+                        weight: Weight::Light,
+                    )
+                }
             }
             .into_any(),
         );
     } else {
         for (i, (item, tok)) in bundle.items.iter().zip(item_tokens.iter()).enumerate() {
-            let idx = format!(" {:>2}  ", i + 1);
-            let path = format!("{:<35}  ", item.path.display());
-            let toks = format_tokens(*tok);
+            let badge = format!(" {:02} ", i + 1);
+            let path_str = item.path.display().to_string();
+            let path = smart_truncate(&path_str, 28);
+            let path_padded = format!(" {:<28} ", path);
+            let toks = format!("{:>6}", format_tokens(*tok));
+
             rows.push(
                 element! {
-                    MixedText(contents: vec![
-                        MixedTextContent::new(idx).color(theme.muted),
-                        MixedTextContent::new(path),
-                        MixedTextContent::new(toks).color(theme.muted),
-                    ])
+                    View(width: 100pct) {
+                        MixedText(contents: vec![
+                            span(badge, Some(theme.accent), true),
+                            span(path_padded, None, false),
+                            span(toks, Some(theme.muted), false),
+                        ])
+                    }
                 }
                 .into_any(),
             );

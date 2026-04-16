@@ -1,13 +1,11 @@
-//! Fully-ported prompt preview for v2.
+//! Prompt preview — distinctive section markers and aligned rows.
 //!
-//! Consumes the same `PromptPreview` data model as v1 (sections: scenario
-//! header, task, context) and renders with iocraft `MixedText` for inline
-//! styled spans. Section headers get the theme accent; metadata lines are
-//! muted; template errors use the danger color.
-//!
-//! This function returns a `Vec<AnyElement>` rather than being a component
-//! so the parent (`App`) can place it inside whatever containing view it
-//! wants (framed, padded, scrollable, etc.) without nesting constraints.
+//! Design language:
+//! - `▶ SCENARIO`, `≡ TASK`, `◆ CONTEXT` section headers (uppercase)
+//! - Subtle dividers `─────` between sections
+//! - Indexed badges for context items
+//! - Right-aligned token counts
+//! - Danger color for template errors with warning icon ⚠
 
 use crate::tui::preview::{PromptPreview, Section};
 use crate::tui2::theme::Theme;
@@ -21,62 +19,102 @@ fn format_tokens(n: usize) -> String {
     }
 }
 
-pub fn render_preview(preview: &PromptPreview, theme: &Theme) -> Vec<AnyElement<'static>> {
-    let mut lines: Vec<AnyElement<'static>> = Vec::new();
+fn span(text: String, color: Option<Color>, bold: bool) -> MixedTextContent {
+    let mut c = MixedTextContent::new(text);
+    if let Some(col) = color {
+        c = c.color(col);
+    }
+    if bold {
+        c = c.weight(Weight::Bold);
+    }
+    c
+}
 
-    for section in &preview.sections {
+fn span_light(text: String, color: Color) -> MixedTextContent {
+    MixedTextContent::new(text).color(color).weight(Weight::Light)
+}
+
+fn divider(theme: &Theme) -> AnyElement<'static> {
+    element! {
+        View(width: 100pct) {
+            Text(
+                content: "───────────────────────────────",
+                color: theme.muted,
+                weight: Weight::Light,
+            )
+        }
+    }
+    .into_any()
+}
+
+fn blank() -> AnyElement<'static> {
+    element! { Text(content: " ") }.into_any()
+}
+
+pub fn render_preview(preview: &PromptPreview, theme: &Theme) -> Vec<AnyElement<'static>> {
+    let mut out: Vec<AnyElement<'static>> = Vec::new();
+    let section_count = preview.sections.len();
+
+    for (idx, section) in preview.sections.iter().enumerate() {
         match section {
             Section::ScenarioHeader {
                 scenario,
                 prefix_lines,
                 suffix_lines,
             } => {
-                let scenario = scenario.clone();
-                let tmpl = format!(
-                    "{} line{} prefix · {} line{} suffix",
-                    prefix_lines,
-                    if *prefix_lines == 1 { "" } else { "s" },
-                    suffix_lines,
-                    if *suffix_lines == 1 { "" } else { "s" },
-                );
-                lines.push(
+                let scenario_name = scenario.clone();
+                let tmpl = format!("{}↑ prefix · {}↓ suffix", prefix_lines, suffix_lines);
+
+                out.push(
                     element! {
-                        MixedText(contents: vec![
-                            MixedTextContent::new("  scenario  ").color(theme.muted),
-                            MixedTextContent::new(scenario).color(theme.accent).weight(Weight::Bold),
-                        ])
+                        View(width: 100pct) {
+                            MixedText(contents: vec![
+                                span(" ▶ SCENARIO ".to_string(), Some(theme.accent), true),
+                                span(scenario_name, None, true),
+                            ])
+                        }
                     }
                     .into_any(),
                 );
-                lines.push(
+                out.push(
                     element! {
-                        MixedText(contents: vec![
-                            MixedTextContent::new("  template  ").color(theme.muted),
-                            MixedTextContent::new(tmpl),
-                        ])
+                        View(width: 100pct) {
+                            MixedText(contents: vec![
+                                span("   template  ".to_string(), Some(theme.muted), false),
+                                span(tmpl, Some(theme.muted), false),
+                            ])
+                        }
                     }
                     .into_any(),
                 );
-                lines.push(
+                out.push(
                     element! {
-                        Text(content: "  (P for full composed prompt)", weight: Weight::Light)
+                        Text(
+                            content: "   press P for full composed prompt",
+                            color: theme.muted,
+                            weight: Weight::Light,
+                        )
                     }
                     .into_any(),
                 );
-                lines.push(element! { Text(content: "") }.into_any());
             }
             Section::Task { text } => {
-                lines.push(
+                out.push(
                     element! {
-                        Text(content: "task", color: theme.accent, weight: Weight::Bold)
+                        View(width: 100pct) {
+                            MixedText(contents: vec![
+                                span(" ≡ TASK ".to_string(), Some(theme.accent), true),
+                            ])
+                        }
                     }
                     .into_any(),
                 );
                 if text.is_empty() {
-                    lines.push(
+                    out.push(
                         element! {
                             Text(
-                                content: "  (empty — press i to focus the prompt input)",
+                                content: "   empty — press i to focus prompt",
+                                color: theme.muted,
                                 weight: Weight::Light,
                             )
                         }
@@ -84,8 +122,8 @@ pub fn render_preview(preview: &PromptPreview, theme: &Theme) -> Vec<AnyElement<
                     );
                 } else {
                     for l in text.lines() {
-                        let line = format!("  {l}");
-                        lines.push(
+                        let line = format!("   {l}");
+                        out.push(
                             element! {
                                 Text(content: line.leak() as &str)
                             }
@@ -93,30 +131,32 @@ pub fn render_preview(preview: &PromptPreview, theme: &Theme) -> Vec<AnyElement<
                         );
                     }
                 }
-                lines.push(element! { Text(content: "") }.into_any());
             }
             Section::Context { items } => {
                 let total: usize = items.iter().map(|i| i.tokens).sum();
-                let header = format!(
-                    "  {} file{} · {} tokens",
+                let meta = format!(
+                    "{} file{} · {}",
                     items.len(),
                     if items.len() == 1 { "" } else { "s" },
                     format_tokens(total),
                 );
-                lines.push(
+                out.push(
                     element! {
-                        MixedText(contents: vec![
-                            MixedTextContent::new("context").color(theme.accent).weight(Weight::Bold),
-                            MixedTextContent::new(header).color(theme.muted),
-                        ])
+                        View(width: 100pct) {
+                            MixedText(contents: vec![
+                                span(" ◆ CONTEXT ".to_string(), Some(theme.accent), true),
+                                span(meta, Some(theme.muted), false),
+                            ])
+                        }
                     }
                     .into_any(),
                 );
                 if items.is_empty() {
-                    lines.push(
+                    out.push(
                         element! {
                             Text(
-                                content: "  (empty — space in tree, or @ in prompt)",
+                                content: "   empty — space in tree, or @ in prompt",
+                                color: theme.muted,
                                 weight: Weight::Light,
                             )
                         }
@@ -124,65 +164,92 @@ pub fn render_preview(preview: &PromptPreview, theme: &Theme) -> Vec<AnyElement<
                     );
                 } else {
                     for (i, item) in items.iter().enumerate() {
-                        let idx = format!("  {:>2}  ", i + 1);
-                        let path = format!("{:<40}", item.path.display());
-                        let toks = format!("  {}", format_tokens(item.tokens));
-                        lines.push(
+                        let badge = format!(" {:02} ", i + 1);
+                        let path_str = item.path.display().to_string();
+                        let path = if path_str.chars().count() > 24 {
+                            let chars: Vec<char> = path_str.chars().collect();
+                            let start = chars.len().saturating_sub(21);
+                            format!("…{}", chars[start..].iter().collect::<String>())
+                        } else {
+                            path_str
+                        };
+                        let path_padded = format!(" {:<24} ", path);
+                        let toks = format!("{:>5}", format_tokens(item.tokens));
+
+                        out.push(
                             element! {
-                                MixedText(contents: vec![
-                                    MixedTextContent::new(idx).color(theme.muted),
-                                    MixedTextContent::new(path),
-                                    MixedTextContent::new(toks).color(theme.muted),
-                                ])
+                                View(width: 100pct) {
+                                    MixedText(contents: vec![
+                                        span(badge, Some(theme.accent), true),
+                                        span(path_padded, None, false),
+                                        span(toks, Some(theme.muted), false),
+                                    ])
+                                }
                             }
                             .into_any(),
                         );
                     }
                 }
-                lines.push(element! { Text(content: "") }.into_any());
             }
             Section::NoScenarioPlaceholder => {
-                lines.push(
+                out.push(
                     element! {
-                        Text(content: "  no scenario selected", weight: Weight::Light)
+                        View(width: 100pct) {
+                            MixedText(contents: vec![
+                                span(" ▶ SCENARIO ".to_string(), Some(theme.muted), true),
+                                span_light("(none)".to_string(), theme.muted),
+                            ])
+                        }
                     }
                     .into_any(),
                 );
-                lines.push(element! { Text(content: "") }.into_any());
-                lines.push(
+                out.push(blank());
+                out.push(
                     element! {
                         Text(
-                            content: "  press / and type 'scenario' to pick one",
+                            content: "   / scenario  to pick one",
+                            color: theme.muted,
                             weight: Weight::Light,
                         )
                     }
                     .into_any(),
                 );
-                lines.push(
+                out.push(
                     element! {
-                        Text(content: "  built-in: bugfix · code-review · explain · refactor · migrate")
+                        View(width: 100pct) {
+                            MixedText(contents: vec![
+                                span_light("   built-in: ".to_string(), theme.muted),
+                                span("bugfix · code-review · explain · refactor · migrate".to_string(), Some(theme.muted), false),
+                            ])
+                        }
                     }
                     .into_any(),
                 );
             }
             Section::TemplateError { scenario, error } => {
-                let line1 = format!("  ⚠  scenario '{}' failed to load", scenario);
-                let line2 = format!("     {}", error);
-                lines.push(
+                let line1 = format!(" ⚠  scenario '{}' failed to load", scenario);
+                let line2 = format!("    {}", error);
+                out.push(
                     element! {
-                        Text(content: line1.leak() as &str, color: theme.danger)
+                        Text(content: line1.leak() as &str, color: theme.danger, weight: Weight::Bold)
                     }
                     .into_any(),
                 );
-                lines.push(
+                out.push(
                     element! {
-                        Text(content: line2.leak() as &str)
+                        Text(content: line2.leak() as &str, color: theme.muted)
                     }
                     .into_any(),
                 );
             }
         }
+
+        if idx + 1 < section_count {
+            out.push(blank());
+            out.push(divider(theme));
+            out.push(blank());
+        }
     }
 
-    lines
+    out
 }

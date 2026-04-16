@@ -284,7 +284,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         &s.bundled_paths,
         &theme,
     );
-    let tree_title = format!(" files ({}) ", total_entries);
+    let _ = total_entries; // tree title built inline below
     let tree_border = if cur_focus == Focus::FileTree {
         focus_color
     } else {
@@ -317,7 +317,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         theme.border
     };
 
-    // Header content
+    // Header content — wordmark + scenario + model + animated gradient gauge
     let pct = if s.model_window == 0 {
         0.0
     } else {
@@ -331,33 +331,47 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         crate::motion_core::ease_out_quad,
     );
     let scenario = s.bundle.scenario.clone().unwrap_or_default();
-    let header_label = format!(
-        " ctxforge │ scenario: {} │ {} │ ~{} / {} ({:.1}%) ",
-        if scenario.is_empty() {
-            "(none)"
-        } else {
-            scenario.as_str()
-        },
+
+    // Gradient gauge using ░▒▓█ — 4-step fill for finer visual granularity
+    let bar_width = 24u32;
+    let bar_color = gauge_color(pct, &theme);
+    let raw_fill = animated_ratio * bar_width as f32 * 4.0;
+    let full_cells = (raw_fill as u32) / 4;
+    let frac = ((raw_fill as u32) % 4) as usize;
+    let partial = ["", "░", "▒", "▓"][frac];
+    let empty = bar_width.saturating_sub(full_cells) as usize;
+    let empty = if partial.is_empty() { empty } else { empty.saturating_sub(1) };
+    let gauge = format!(
+        "{}{}{}",
+        "█".repeat(full_cells as usize),
+        partial,
+        "░".repeat(empty)
+    );
+
+    // Header pieces — wordmark, separator, meta, gauge
+    let scenario_chip = if scenario.is_empty() {
+        " · ".to_string()
+    } else {
+        format!(" · {} · ", scenario)
+    };
+    let meta = format!(
+        "{} · ~{} / {} · {:.1}% ",
         s.model_name,
         format_tokens(s.total_tokens),
         format_tokens(s.model_window),
         pct,
     );
-    let bar_width = 30u32;
-    let filled = ((animated_ratio * bar_width as f32) as u32).min(bar_width);
-    let empty = bar_width - filled;
-    let bar = format!(
-        "{}{}",
-        "█".repeat(filled as usize),
-        "░".repeat(empty as usize)
-    );
-    let bar_color = gauge_color(pct, &theme);
 
     let prompt_title = if scenario.is_empty() {
-        " prompt · (no scenario) ".to_string()
+        " ⌥ prompt ".to_string()
     } else {
-        format!(" prompt · scenario: {} ", scenario)
+        format!(" ⌥ prompt · {} ", scenario)
     };
+
+    // Renamed title strings — section markers + uppercase for hierarchy
+    let tree_title_styled = format!(" ▶ FILES · {} ", s.tree_entries.len());
+    let viewer_title_styled = " ≡ VIEWER ".to_string();
+    let preview_title_styled = " ◆ PREVIEW ".to_string();
 
     element! {
         View(
@@ -366,21 +380,26 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
             width: 100pct,
             height: 100pct,
         ) {
-            // ─── HEADER (height: 3 — 1 line + top/bottom border) ──
+            // ─── HEADER (height: 3) ──────────────────────────────
+            // Double-line border for the authoritative top bar
             View(
-                border_style: BorderStyle::Single,
-                border_color: theme.border,
+                border_style: BorderStyle::Double,
+                border_color: theme.accent,
                 background_color: theme.bg,
                 height: 3,
                 width: 100pct,
+                padding_left: 1,
+                padding_right: 1,
             ) {
                 MixedText(contents: vec![
-                    MixedTextContent::new(header_label),
-                    MixedTextContent::new(bar).color(bar_color),
+                    MixedTextContent::new("⚒ CTXFORGE").color(theme.accent).weight(Weight::Bold),
+                    MixedTextContent::new(scenario_chip).color(theme.muted),
+                    MixedTextContent::new(meta),
+                    MixedTextContent::new(gauge).color(bar_color).weight(Weight::Bold),
                 ])
             }
 
-            // ─── MAIN CONTENT ROW (flex_grow: 1) ──
+            // ─── MAIN CONTENT ROW ────────────────────────────────
             View(
                 flex_direction: FlexDirection::Row,
                 width: 100pct,
@@ -398,11 +417,14 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         border_color: tree_border,
                         background_color: theme.bg,
                         width: 100pct,
-                        height: 65pct,
+                        height: 60pct,
                         padding_left: 1,
                         padding_right: 1,
                     ) {
-                        Text(content: tree_title.leak() as &str, color: theme.muted, weight: Weight::Bold)
+                        MixedText(contents: vec![
+                            MixedTextContent::new(tree_title_styled).color(theme.accent).weight(Weight::Bold),
+                        ])
+                        Text(content: "")
                         #(tree_rows)
                     }
                     View(
@@ -411,11 +433,14 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         border_color: bundle_border,
                         background_color: theme.bg,
                         width: 100pct,
-                        height: 35pct,
+                        height: 40pct,
                         padding_left: 1,
                         padding_right: 1,
                     ) {
-                        Text(content: bundle_title.leak() as &str, color: theme.muted, weight: Weight::Bold)
+                        MixedText(contents: vec![
+                            MixedTextContent::new(bundle_title).color(theme.accent).weight(Weight::Bold),
+                        ])
+                        Text(content: "")
                         #(bundle_rows)
                     }
                 }
@@ -428,15 +453,19 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     background_color: theme.bg,
                     width: 42pct,
                     height: 100pct,
-                    padding: 2,
+                    padding_left: 2,
+                    padding_right: 2,
+                    padding_top: 1,
                 ) {
-                    Text(content: " viewer ", color: theme.muted, weight: Weight::Bold)
+                    MixedText(contents: vec![
+                        MixedTextContent::new(viewer_title_styled).color(theme.accent).weight(Weight::Bold),
+                    ])
                     Text(content: "")
-                    Text(content: "  (code viewer arrives in Phase 2)", color: theme.muted)
+                    Text(content: "  ∘ code viewer arrives in Phase 2", color: theme.muted)
                     Text(content: "")
-                    Text(content: "  • v toggles viewer pane", weight: Weight::Light)
-                    Text(content: "  • drag-select a range", weight: Weight::Light)
-                    Text(content: "  • a adds selection to bundle", weight: Weight::Light)
+                    Text(content: "  ▸ v  toggle viewer pane", color: theme.muted, weight: Weight::Light)
+                    Text(content: "  ▸ drag-select a range", color: theme.muted, weight: Weight::Light)
+                    Text(content: "  ▸ a  add selection to bundle", color: theme.muted, weight: Weight::Light)
                 }
 
                 // ── Right column: prompt preview ──
@@ -451,7 +480,9 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     padding_right: 1,
                     padding_top: 1,
                 ) {
-                    Text(content: " prompt preview ", color: theme.muted, weight: Weight::Bold)
+                    MixedText(contents: vec![
+                        MixedTextContent::new(preview_title_styled).color(theme.accent).weight(Weight::Bold),
+                    ])
                     Text(content: "")
                     #(preview_lines)
                 }
@@ -465,11 +496,13 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 background_color: theme.bg,
                 width: 100pct,
                 height: 3,
+                padding_left: 1,
+                padding_right: 1,
             ) {
                 MixedText(contents: vec![
                     MixedTextContent::new(prompt_title).color(theme.muted).weight(Weight::Bold),
+                    MixedTextContent::new(" press i to edit — full editor arrives in Phase 2").color(theme.muted).weight(Weight::Light),
                 ])
-                Text(content: " (press i to edit — full editor in Phase 2)", weight: Weight::Light)
             }
 
             // ─── FOOTER (height: 2) ──
@@ -478,23 +511,28 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 background_color: theme.bg,
                 width: 100pct,
                 height: 2,
+                padding_left: 1,
+                padding_right: 1,
             ) {
-                Text(content: " Ready", color: theme.muted)
                 MixedText(contents: vec![
-                    MixedTextContent::new(" Tab").color(theme.accent),
-                    MixedTextContent::new(" focus  "),
-                    MixedTextContent::new("j/k").color(theme.accent),
-                    MixedTextContent::new(" move  "),
-                    MixedTextContent::new("Space").color(theme.accent),
-                    MixedTextContent::new(" toggle  "),
-                    MixedTextContent::new("v").color(theme.accent),
-                    MixedTextContent::new(" viewer  "),
-                    MixedTextContent::new("d").color(theme.accent),
-                    MixedTextContent::new(" deliver  "),
-                    MixedTextContent::new("?").color(theme.accent),
-                    MixedTextContent::new(" help  "),
-                    MixedTextContent::new("q").color(theme.accent),
-                    MixedTextContent::new(" quit"),
+                    MixedTextContent::new("● ").color(theme.success).weight(Weight::Bold),
+                    MixedTextContent::new("ready").color(theme.muted),
+                ])
+                MixedText(contents: vec![
+                    MixedTextContent::new("tab").color(theme.accent).weight(Weight::Bold),
+                    MixedTextContent::new(" focus  ").color(theme.muted),
+                    MixedTextContent::new("j/k").color(theme.accent).weight(Weight::Bold),
+                    MixedTextContent::new(" move  ").color(theme.muted),
+                    MixedTextContent::new("space").color(theme.accent).weight(Weight::Bold),
+                    MixedTextContent::new(" toggle  ").color(theme.muted),
+                    MixedTextContent::new("v").color(theme.accent).weight(Weight::Bold),
+                    MixedTextContent::new(" viewer  ").color(theme.muted),
+                    MixedTextContent::new("d").color(theme.accent).weight(Weight::Bold),
+                    MixedTextContent::new(" deliver  ").color(theme.muted),
+                    MixedTextContent::new("?").color(theme.accent).weight(Weight::Bold),
+                    MixedTextContent::new(" help  ").color(theme.muted),
+                    MixedTextContent::new("q").color(theme.accent).weight(Weight::Bold),
+                    MixedTextContent::new(" quit").color(theme.muted),
                 ])
             }
         }
