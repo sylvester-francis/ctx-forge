@@ -1215,6 +1215,21 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             MixedTextContent::new(" close").color(theme.muted),
                         ])
                     }
+                } else if cur_focus == Focus::Viewer {
+                    element! {
+                        MixedText(contents: vec![
+                            MixedTextContent::new("j/k").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" scroll  ").color(theme.muted),
+                            MixedTextContent::new("g/G").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" top/bot  ").color(theme.muted),
+                            MixedTextContent::new("ctrl-u/d").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" page  ").color(theme.muted),
+                            MixedTextContent::new("v").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" close  ").color(theme.muted),
+                            MixedTextContent::new("tab").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" focus").color(theme.muted),
+                        ])
+                    }
                 } else if cur_focus == Focus::Prompt {
                     // Prompt focus: text-editing hints
                     element! {
@@ -1270,12 +1285,12 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             MixedTextContent::new(" toggle  ").color(theme.muted),
                             MixedTextContent::new("i").color(theme.accent).weight(Weight::Bold),
                             MixedTextContent::new(" edit  ").color(theme.muted),
+                            MixedTextContent::new("v").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" viewer  ").color(theme.muted),
                             MixedTextContent::new("/").color(theme.accent).weight(Weight::Bold),
                             MixedTextContent::new(" commands  ").color(theme.muted),
                             MixedTextContent::new("ctrl-f").color(theme.accent).weight(Weight::Bold),
                             MixedTextContent::new(" find  ").color(theme.muted),
-                            MixedTextContent::new("E/C").color(theme.accent).weight(Weight::Bold),
-                            MixedTextContent::new(" all  ").color(theme.muted),
                             MixedTextContent::new("q").color(theme.accent).weight(Weight::Bold),
                             MixedTextContent::new(" quit").color(theme.muted),
                         ])
