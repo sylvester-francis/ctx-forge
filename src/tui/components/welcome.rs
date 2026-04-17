@@ -140,12 +140,12 @@ pub fn render_splash(
                 width: card_w,
                 height: card_h,
                 flex_direction: FlexDirection::Column,
+                justify_content: JustifyContent::Center,
                 border_style: BorderStyle::Round,
                 border_color: theme.accent,
                 background_color: theme.bg,
                 padding_left: 4,
                 padding_right: 4,
-                padding_top: 1,
                 overflow: Overflow::Hidden,
             ) {
                 #(body)
