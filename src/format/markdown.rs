@@ -4,9 +4,9 @@
 //! When memory notes are provided, a `## Memory` section is emitted at
 //! the top of the output, before any items.
 
-use crate::bundle::ItemKind;
 use crate::memory::Note;
 use crate::resolve::ResolvedItem;
+use crate::source::Source;
 
 pub fn render(items: &[ResolvedItem], memory: &[Note]) -> String {
     let mut out = String::new();
@@ -37,36 +37,37 @@ fn write_memory(out: &mut String, memory: &[Note]) {
 }
 
 fn write_item(out: &mut String, r: &ResolvedItem) {
-    // Heading line.
-    match &r.item.kind {
-        ItemKind::File => {
-            out.push_str(&format!("## `{}`\n\n", r.item.path.display()));
+    match &r.item.source {
+        Source::File(f) => {
+            out.push_str(&format!("## `{}`\n\n", f.path.display()));
         }
-        ItemKind::Range(range) => {
+        Source::Range(range) => {
             out.push_str(&format!(
                 "## `{}` (lines {}-{})\n\n",
-                r.item.path.display(),
+                range.path.display(),
                 range.start,
                 range.end
             ));
         }
-        ItemKind::Function { name } => {
+        Source::Func(func) => {
             out.push_str(&format!(
                 "## `{}` — fn `{}`\n\n",
-                r.item.path.display(),
-                name
+                func.path.display(),
+                func.name
             ));
         }
-        ItemKind::Type { name } => {
+        Source::Type(t) => {
             out.push_str(&format!(
                 "## `{}` — type `{}`\n\n",
-                r.item.path.display(),
-                name
+                t.path.display(),
+                t.name
             ));
+        }
+        Source::Url(u) => {
+            out.push_str(&format!("## `{}`\n\n", u.url));
         }
     }
 
-    // Fenced code block.
     out.push_str("```");
     out.push_str(r.language);
     out.push('\n');
@@ -80,17 +81,24 @@ fn write_item(out: &mut String, r: &ResolvedItem) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bundle::{Item, ItemKind};
+    use crate::bundle::Item;
     use crate::memory::Note;
+    use crate::source::{FileSource, RangeSource};
     use std::path::PathBuf;
 
     fn sample_file(path: &str, content: &str, lang: &'static str) -> ResolvedItem {
-        ResolvedItem {
-            item: Item {
+        let item = Item {
+            source: Source::File(FileSource {
                 path: PathBuf::from(path),
-                kind: ItemKind::File,
-                label: None,
-            },
+            }),
+            label: None,
+        };
+        ResolvedItem {
+            provenance: crate::source::Provenance::local(
+                item.source.to_uri().to_string(),
+                String::new(),
+            ),
+            item,
             content: content.to_string(),
             language: lang,
         }
@@ -121,13 +129,17 @@ mod tests {
 
     #[test]
     fn range_item_shows_line_numbers_in_heading() {
+        let item = Item {
+            source: Source::Range(RangeSource::new("a.rs".into(), 5, 10).unwrap()),
+            label: None,
+        };
         let r = render(
             &[ResolvedItem {
-                item: Item {
-                    path: PathBuf::from("a.rs"),
-                    kind: ItemKind::Range(crate::bundle::Range { start: 5, end: 10 }),
-                    label: None,
-                },
+                provenance: crate::source::Provenance::local(
+                    item.source.to_uri().to_string(),
+                    String::new(),
+                ),
+                item,
                 content: "slice\n".into(),
                 language: "rust",
             }],

@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "items": [
+    {"path": "src/main.rs", "kind": {"kind": "file"}},
+    {"path": "src/lib.rs", "kind": {"kind": "file"}, "label": "entry"}
+  ],
+  "model": "claude-sonnet-4"
+}

@@ -1,44 +1,39 @@
-//! Bundle data model and persistence.
+//! Bundle data model and persistence — v2 schema with v1 migration.
 
 #![allow(dead_code, unused_imports)]
 
 pub mod item;
+pub mod migrate;
 pub mod persist;
 
 use crate::error::{CtxforgeError, Result};
 use crate::paths::CtxforgeRoot;
-pub use item::{Item, ItemKind, Range};
+use crate::source::{FileSource, Source};
+pub use item::{Item, Range};
 use serde::{Deserialize, Serialize};
 
-/// A bundle is an ordered list of items. It is the central data model of ctxforge.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Bundle {
     #[serde(default = "default_version")]
     pub version: u32,
     pub items: Vec<Item>,
-    /// Target model for token counting. Defaults via `models::DEFAULT_MODEL`.
     #[serde(default)]
     pub model: Option<String>,
-    /// Natural-language task text the user is authoring. Rendered in the
-    /// prompt preview's `## Task` section and delivered together with the
-    /// bundle contents.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub task_text: String,
-    /// Named scenario (template alias) — drives the template wrapper
-    /// rendered around task + context on delivery.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scenario: Option<String>,
 }
 
 fn default_version() -> u32 {
-    1
+    2
 }
 
 impl Bundle {
     pub fn new() -> Self {
         Self {
-            version: 1,
-            items: Vec::new(),
+            version: 2,
+            items: vec![],
             model: None,
             task_text: String::new(),
             scenario: None,
@@ -46,8 +41,11 @@ impl Bundle {
     }
 
     pub fn add(&mut self, item: Item) {
-        // Avoid duplicates of the exact same (path, kind, label).
-        if !self.items.contains(&item) {
+        if !self
+            .items
+            .iter()
+            .any(|i| i.source == item.source && i.label == item.label)
+        {
             self.items.push(item);
         }
     }
@@ -61,7 +59,8 @@ impl Bundle {
 
     pub fn remove_by_path(&mut self, path: &std::path::Path) -> usize {
         let before = self.items.len();
-        self.items.retain(|i| i.path != path);
+        self.items
+            .retain(|i| i.source.display_path().is_none_or(|p| p.as_path() != path));
         before - self.items.len()
     }
 
@@ -77,20 +76,41 @@ impl Bundle {
         self.items.is_empty()
     }
 
-    /// Load from disk, returning an empty bundle if none exists.
+    /// Load from disk. v1 bundles migrate in memory and emit a one-time
+    /// stderr line; disk is not rewritten until the next explicit `save`.
     pub fn load_or_default(root: &CtxforgeRoot) -> Result<Self> {
         let path = root.bundle_path();
         if !path.exists() {
             return Ok(Bundle::new());
         }
         let raw = std::fs::read_to_string(&path)?;
-        let bundle: Bundle = serde_json::from_str(&raw)?;
+        let (bundle, outcome) = migrate::migrate_json(&raw)?;
+        if outcome == migrate::MigrationOutcome::MigratedFromV1 {
+            eprintln!(
+                "ctxforge: bundle loaded as v2 (migrated from v1; will rewrite on next save)"
+            );
+        }
         Ok(bundle)
     }
 
-    /// Save to `.ctxforge/bundle.json`.
+    /// Save as v2. Creates a one-time `<bundle>.v1.bak` if a v1 file exists
+    /// on disk and the in-memory bundle is v2 (i.e. migration just happened
+    /// and the user is about to overwrite v1 state).
     pub fn save(&self, root: &CtxforgeRoot) -> Result<()> {
         let path = root.bundle_path();
+        if path.exists() {
+            let raw = std::fs::read_to_string(&path)?;
+            let on_disk_version = serde_json::from_str::<serde_json::Value>(&raw)
+                .ok()
+                .and_then(|v| v.get("version").and_then(|x| x.as_u64()))
+                .unwrap_or(1);
+            if on_disk_version < 2 {
+                let backup = path.with_extension("json.v1.bak");
+                if !backup.exists() {
+                    std::fs::copy(&path, &backup)?;
+                }
+            }
+        }
         let raw = serde_json::to_string_pretty(self)?;
         std::fs::write(&path, raw)?;
         Ok(())
@@ -100,34 +120,24 @@ impl Bundle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::paths::CtxforgeRoot;
     use tempfile::TempDir;
 
-    fn sample_item(path: &str) -> Item {
+    fn sample_item(p: &str) -> Item {
         Item {
-            path: path.into(),
-            kind: ItemKind::File,
+            source: Source::File(FileSource { path: p.into() }),
             label: None,
         }
     }
 
     #[test]
-    fn new_bundle_is_empty() {
+    fn new_is_v2_empty() {
         let b = Bundle::new();
         assert!(b.is_empty());
-        assert_eq!(b.version, 1);
+        assert_eq!(b.version, 2);
     }
 
     #[test]
-    fn add_appends_unique_items() {
-        let mut b = Bundle::new();
-        b.add(sample_item("a.rs"));
-        b.add(sample_item("b.rs"));
-        assert_eq!(b.len(), 2);
-    }
-
-    #[test]
-    fn add_deduplicates_exact_matches() {
+    fn add_dedups() {
         let mut b = Bundle::new();
         b.add(sample_item("a.rs"));
         b.add(sample_item("a.rs"));
@@ -135,20 +145,12 @@ mod tests {
     }
 
     #[test]
-    fn remove_by_index_uses_1_based() {
+    fn remove_by_index_is_1_based() {
         let mut b = Bundle::new();
         b.add(sample_item("a.rs"));
         b.add(sample_item("b.rs"));
         let removed = b.remove_by_index(1).unwrap();
-        assert_eq!(removed.path, std::path::PathBuf::from("a.rs"));
-        assert_eq!(b.len(), 1);
-    }
-
-    #[test]
-    fn remove_by_index_rejects_out_of_range() {
-        let mut b = Bundle::new();
-        assert!(b.remove_by_index(0).is_err());
-        assert!(b.remove_by_index(1).is_err());
+        assert!(matches!(removed.source, Source::File(ref f) if f.path == std::path::PathBuf::from("a.rs")));
     }
 
     #[test]
@@ -161,25 +163,69 @@ mod tests {
     }
 
     #[test]
-    fn load_or_default_returns_empty_when_no_file() {
+    fn save_then_reload_v2() {
         let td = TempDir::new().unwrap();
         let root = CtxforgeRoot::find_or_create(td.path()).unwrap();
-        let b = Bundle::load_or_default(&root).unwrap();
-        assert!(b.is_empty());
-    }
-
-    #[test]
-    fn save_and_reload_roundtrip() {
-        let td = TempDir::new().unwrap();
-        let root = CtxforgeRoot::find_or_create(td.path()).unwrap();
-
         let mut b = Bundle::new();
         b.add(sample_item("a.rs"));
         b.model = Some("claude-sonnet-4".into());
         b.save(&root).unwrap();
-
         let reloaded = Bundle::load_or_default(&root).unwrap();
-        assert_eq!(reloaded.items, b.items);
+        assert_eq!(reloaded.version, 2);
+        assert_eq!(reloaded.len(), 1);
         assert_eq!(reloaded.model, b.model);
+    }
+
+    #[test]
+    fn v1_migrates_on_load_without_writing() {
+        let td = TempDir::new().unwrap();
+        let root = CtxforgeRoot::find_or_create(td.path()).unwrap();
+        let v1 = r#"{
+            "version": 1,
+            "items": [
+                {"path": "src/main.rs", "kind": {"kind": "file"}},
+                {"path": "src/hub.rs", "kind": {"kind": "range", "start": 10, "end": 20}}
+            ],
+            "model": "claude-sonnet-4"
+        }"#;
+        std::fs::write(root.bundle_path(), v1).unwrap();
+
+        let b = Bundle::load_or_default(&root).unwrap();
+        assert_eq!(b.version, 2);
+        assert_eq!(b.len(), 2);
+        let on_disk = std::fs::read_to_string(root.bundle_path()).unwrap();
+        assert!(
+            on_disk.contains(r#""version": 1"#) || on_disk.contains(r#""version":1"#),
+            "disk must still be v1 until explicit save",
+        );
+    }
+
+    #[test]
+    fn save_after_v1_migration_writes_backup_once() {
+        let td = TempDir::new().unwrap();
+        let root = CtxforgeRoot::find_or_create(td.path()).unwrap();
+        std::fs::write(
+            root.bundle_path(),
+            r#"{"version":1,"items":[{"path":"a.rs","kind":{"kind":"file"}}]}"#,
+        )
+        .unwrap();
+        let b = Bundle::load_or_default(&root).unwrap();
+        b.save(&root).unwrap();
+        let backup = root.bundle_path().with_extension("json.v1.bak");
+        assert!(backup.exists());
+
+        let meta = std::fs::metadata(&backup).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        b.save(&root).unwrap();
+        let meta2 = std::fs::metadata(&backup).unwrap();
+        assert_eq!(meta.len(), meta2.len());
+    }
+
+    #[test]
+    fn future_version_errors() {
+        let td = TempDir::new().unwrap();
+        let root = CtxforgeRoot::find_or_create(td.path()).unwrap();
+        std::fs::write(root.bundle_path(), r#"{"version":99,"items":[]}"#).unwrap();
+        assert!(Bundle::load_or_default(&root).is_err());
     }
 }

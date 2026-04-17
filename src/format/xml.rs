@@ -22,9 +22,9 @@
 //! the literal sequence `]]>`, the standard split trick applies: replace
 //! `]]>` with `]]]]><![CDATA[>` so it is broken across two CDATA sections.
 
-use crate::bundle::ItemKind;
 use crate::memory::Note;
 use crate::resolve::ResolvedItem;
+use crate::source::Source;
 
 pub fn render(items: &[ResolvedItem], memory: &[Note]) -> String {
     let mut out = String::new();
@@ -70,24 +70,32 @@ fn write_item(out: &mut String, r: &ResolvedItem) {
         "source"
     };
 
+    let path_str = match &r.item.source {
+        Source::File(f) => f.path.display().to_string(),
+        Source::Range(r2) => r2.path.display().to_string(),
+        Source::Func(f) => f.path.display().to_string(),
+        Source::Type(t) => t.path.display().to_string(),
+        Source::Url(u) => u.url.clone(),
+    };
+
     out.push_str("  <");
     out.push_str(tag_name);
     out.push_str(&format!(
         " path=\"{}\" language=\"{}\"",
-        escape_attr(&r.item.path.display().to_string()),
+        escape_attr(&path_str),
         r.language
     ));
 
-    match &r.item.kind {
-        ItemKind::File => {}
-        ItemKind::Range(range) => {
+    match &r.item.source {
+        Source::File(_) | Source::Url(_) => {}
+        Source::Range(range) => {
             out.push_str(&format!(" lines=\"{}-{}\"", range.start, range.end));
         }
-        ItemKind::Function { name } => {
-            out.push_str(&format!(" fn=\"{}\"", escape_attr(name)));
+        Source::Func(f) => {
+            out.push_str(&format!(" fn=\"{}\"", escape_attr(&f.name)));
         }
-        ItemKind::Type { name } => {
-            out.push_str(&format!(" type=\"{}\"", escape_attr(name)));
+        Source::Type(t) => {
+            out.push_str(&format!(" type=\"{}\"", escape_attr(&t.name)));
         }
     }
 
@@ -123,17 +131,24 @@ fn cdata_escape(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bundle::{Item, ItemKind, Range};
+    use crate::bundle::Item;
     use crate::memory::Note;
+    use crate::source::{FileSource, RangeSource};
     use std::path::PathBuf;
 
     fn sample(path: &str, content: &str, lang: &'static str) -> ResolvedItem {
-        ResolvedItem {
-            item: Item {
+        let item = Item {
+            source: Source::File(FileSource {
                 path: PathBuf::from(path),
-                kind: ItemKind::File,
-                label: None,
-            },
+            }),
+            label: None,
+        };
+        ResolvedItem {
+            provenance: crate::source::Provenance::local(
+                item.source.to_uri().to_string(),
+                String::new(),
+            ),
+            item,
             content: content.to_string(),
             language: lang,
         }
@@ -163,19 +178,20 @@ mod tests {
 
     #[test]
     fn line_range_item_has_lines_attribute() {
-        let item = ResolvedItem {
-            item: Item {
-                path: PathBuf::from("src/hub.rs"),
-                kind: ItemKind::Range(Range {
-                    start: 45,
-                    end: 120,
-                }),
-                label: None,
-            },
+        let item = Item {
+            source: Source::Range(RangeSource::new("src/hub.rs".into(), 45, 120).unwrap()),
+            label: None,
+        };
+        let resolved = ResolvedItem {
+            provenance: crate::source::Provenance::local(
+                item.source.to_uri().to_string(),
+                String::new(),
+            ),
+            item,
             content: "slice\n".into(),
             language: "rust",
         };
-        let out = render(&[item], &[]);
+        let out = render(&[resolved], &[]);
         assert!(out.contains("lines=\"45-120\""));
     }
 

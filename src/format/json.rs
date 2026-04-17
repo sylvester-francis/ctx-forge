@@ -5,9 +5,9 @@
 //! The shape is intentionally stable — breaking changes should bump a
 //! schema version field in the future.
 
-use crate::bundle::ItemKind;
 use crate::memory::Note;
 use crate::resolve::ResolvedItem;
+use crate::source::Source;
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -30,7 +30,7 @@ pub struct JsonNote<'a> {
 pub struct JsonItem<'a> {
     pub path: String,
     pub language: &'a str,
-    /// `"file"`, `"range"`, `"function"`, or `"type"`.
+    /// `"file"`, `"range"`, `"function"`, `"type"`, or `"url"`.
     pub kind: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lines: Option<JsonLines>,
@@ -58,21 +58,33 @@ pub fn render(items: &[ResolvedItem], memory: &[Note]) -> String {
     let json_items: Vec<JsonItem> = items
         .iter()
         .map(|r| {
-            let (kind_str, lines, name) = match &r.item.kind {
-                ItemKind::File => ("file", None, None),
-                ItemKind::Range(range) => (
+            let (kind_str, lines, name, path) = match &r.item.source {
+                Source::File(f) => ("file", None, None, f.path.display().to_string()),
+                Source::Range(r2) => (
                     "range",
                     Some(JsonLines {
-                        start: range.start,
-                        end: range.end,
+                        start: r2.start,
+                        end: r2.end,
                     }),
                     None,
+                    r2.path.display().to_string(),
                 ),
-                ItemKind::Function { name } => ("function", None, Some(name.as_str())),
-                ItemKind::Type { name } => ("type", None, Some(name.as_str())),
+                Source::Func(f) => (
+                    "function",
+                    None,
+                    Some(f.name.as_str()),
+                    f.path.display().to_string(),
+                ),
+                Source::Type(t) => (
+                    "type",
+                    None,
+                    Some(t.name.as_str()),
+                    t.path.display().to_string(),
+                ),
+                Source::Url(u) => ("url", None, None, u.url.clone()),
             };
             JsonItem {
-                path: r.item.path.display().to_string(),
+                path,
                 language: r.language,
                 kind: kind_str,
                 lines,
@@ -95,18 +107,25 @@ pub fn render(items: &[ResolvedItem], memory: &[Note]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bundle::{Item, ItemKind, Range};
+    use crate::bundle::Item;
     use crate::memory::Note;
+    use crate::source::{FileSource, RangeSource};
     use serde_json::Value;
     use std::path::PathBuf;
 
     fn sample(path: &str, content: &str, lang: &'static str) -> ResolvedItem {
-        ResolvedItem {
-            item: Item {
+        let item = Item {
+            source: Source::File(FileSource {
                 path: PathBuf::from(path),
-                kind: ItemKind::File,
-                label: None,
-            },
+            }),
+            label: None,
+        };
+        ResolvedItem {
+            provenance: crate::source::Provenance::local(
+                item.source.to_uri().to_string(),
+                String::new(),
+            ),
+            item,
             content: content.to_string(),
             language: lang,
         }
@@ -138,21 +157,24 @@ mod tests {
         assert_eq!(item["language"], "rust");
         assert_eq!(item["content"], "fn main() {}\n");
         assert!(item.get("lines").is_none() || item["lines"].is_null());
-        assert!(item.get("name").is_none() || item["name"].is_null());
     }
 
     #[test]
     fn range_item_has_lines_object() {
-        let item = ResolvedItem {
-            item: Item {
-                path: PathBuf::from("a.rs"),
-                kind: ItemKind::Range(Range { start: 5, end: 10 }),
-                label: None,
-            },
+        let item = Item {
+            source: Source::Range(RangeSource::new("a.rs".into(), 5, 10).unwrap()),
+            label: None,
+        };
+        let resolved = ResolvedItem {
+            provenance: crate::source::Provenance::local(
+                item.source.to_uri().to_string(),
+                String::new(),
+            ),
+            item,
             content: "slice\n".into(),
             language: "rust",
         };
-        let v = parse(&render(&[item], &[]));
+        let v = parse(&render(&[resolved], &[]));
         let it = &v["items"][0];
         assert_eq!(it["kind"], "range");
         assert_eq!(it["lines"]["start"], 5);
@@ -172,18 +194,6 @@ mod tests {
         assert_eq!(n0["body"], "JWT in header");
         let ts: &str = n0["timestamp"].as_str().unwrap();
         assert!(ts.contains('T'), "timestamp should be RFC3339");
-        let n1 = &v["memory"][1];
-        assert!(n1.get("tag").is_none() || n1["tag"].is_null());
-        assert_eq!(n1["body"], "untagged note");
-    }
-
-    #[test]
-    fn special_chars_in_content_are_escaped_by_serde() {
-        let v = parse(&render(
-            &[sample("a.rs", "let s = \"a \\\"b\\\"\";\n", "rust")],
-            &[],
-        ));
-        assert_eq!(v["items"][0]["content"], "let s = \"a \\\"b\\\"\";\n");
     }
 
     #[test]

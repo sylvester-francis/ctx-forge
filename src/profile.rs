@@ -18,12 +18,18 @@ pub fn save(root: &CtxforgeRoot, name: &str, bundle: &Bundle) -> Result<()> {
 }
 
 pub fn load(root: &CtxforgeRoot, name: &str) -> Result<Bundle> {
+    use crate::bundle::migrate;
     let path = root.profile_path(name);
     if !path.exists() {
         return Err(CtxforgeError::ProfileNotFound(name.to_string()));
     }
     let raw = std::fs::read_to_string(&path)?;
-    let bundle: Bundle = serde_json::from_str(&raw)?;
+    let (bundle, outcome) = migrate::migrate_json(&raw)?;
+    if outcome == migrate::MigrationOutcome::MigratedFromV1 {
+        eprintln!(
+            "ctxforge: profile `{name}` migrated to v2 in memory (will rewrite on next save)"
+        );
+    }
     Ok(bundle)
 }
 
@@ -68,14 +74,16 @@ fn validate_name(name: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bundle::{Item, ItemKind};
+    use crate::bundle::Item;
+    use crate::source::{FileSource, Source};
     use tempfile::TempDir;
 
     fn sample_bundle() -> Bundle {
         let mut b = Bundle::new();
         b.add(Item {
-            path: "src/main.rs".into(),
-            kind: ItemKind::File,
+            source: Source::File(FileSource {
+                path: "src/main.rs".into(),
+            }),
             label: None,
         });
         b

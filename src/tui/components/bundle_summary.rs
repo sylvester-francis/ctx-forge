@@ -58,7 +58,7 @@ pub fn render_bundle_rows(
     } else {
         for (i, (item, tok)) in bundle.items.iter().zip(item_tokens.iter()).enumerate() {
             let badge = format!(" {:02} ", i + 1);
-            let path_str = item.path.display().to_string();
+            let path_str = item.source.display_label();
             let path = smart_truncate_path(&path_str, 28);
             let path_padded = format!(" {:<28} ", path);
             let toks = format!("{:>6}", format_tokens(*tok));

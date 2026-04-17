@@ -79,7 +79,11 @@ fn load_app_data(root: CtxforgeRoot) -> AppData {
         registry::by_name(&theme_name).unwrap_or_else(|| registry::default_theme());
     let theme = Theme::from_app_theme(raw);
 
-    let bundled_paths: HashSet<PathBuf> = bundle.items.iter().map(|i| i.path.clone()).collect();
+    let bundled_paths: HashSet<PathBuf> = bundle
+        .items
+        .iter()
+        .filter_map(|i| i.source.display_path().cloned())
+        .collect();
     let preview = build_preview(&root, &bundle, &item_tokens);
 
     AppData {
@@ -106,13 +110,14 @@ impl AppData {
     /// Only the affected item is resolved + tokenized — existing items keep
     /// their cached token counts.
     fn toggle_bundle(&mut self, rel_path: &std::path::Path) {
-        use crate::bundle::{Item, ItemKind};
+        use crate::bundle::Item;
+        use crate::source::{FileSource, Source};
         if self.bundled_paths.contains(rel_path) {
             // Remove path: drop the matching token entry too. Bundle stores
             // items ordered; find the first File-kind item matching the path
             // and remove its parallel token entry.
             if let Some(idx) = self.bundle.items.iter().position(|it| {
-                it.path == rel_path && matches!(it.kind, ItemKind::File)
+                matches!(&it.source, Source::File(f) if f.path == rel_path)
             }) {
                 self.bundle.items.remove(idx);
                 if idx < self.item_tokens.len() {
@@ -128,8 +133,9 @@ impl AppData {
             self.bundled_paths.remove(rel_path);
         } else {
             let item = Item {
-                path: rel_path.to_path_buf(),
-                kind: ItemKind::File,
+                source: Source::File(FileSource {
+                    path: rel_path.to_path_buf(),
+                }),
                 label: None,
             };
             let model = models::lookup(&self.model_name);
@@ -255,7 +261,8 @@ impl AppData {
     /// keep their cached token counts. Noticeably faster than a full
     /// `recompute_tokens()` call for large bundles.
     fn add_viewer_selection_to_bundle(&mut self) {
-        use crate::bundle::{Item, ItemKind};
+        use crate::bundle::Item;
+        use crate::source::{RangeSource, Source};
         let (start0, end0) = match self.viewer.selection {
             Some(range) => range,
             None => {
@@ -274,13 +281,15 @@ impl AppData {
             .strip_prefix(&self.project_root)
             .unwrap_or(&path)
             .to_path_buf();
-        let range = crate::bundle::Range {
-            start: start0 + 1,
-            end: end0 + 1,
+        let range_source = match RangeSource::new(rel_path.clone(), start0 + 1, end0 + 1) {
+            Ok(r) => r,
+            Err(e) => {
+                self.set_status(format!("invalid selection: {e}"));
+                return;
+            }
         };
         let item = Item {
-            path: rel_path.clone(),
-            kind: ItemKind::Range(range),
+            source: Source::Range(range_source),
             label: None,
         };
 
@@ -301,8 +310,8 @@ impl AppData {
         self.set_status(format!(
             "added {}:{}-{} (+{} tokens)",
             rel_path.display(),
-            range.start,
-            range.end,
+            start0 + 1,
+            end0 + 1,
             new_tokens,
         ));
     }
@@ -509,7 +518,11 @@ fn build_preview(root: &CtxforgeRoot, bundle: &Bundle, item_tokens: &[usize]) ->
                     .iter()
                     .zip(item_tokens.iter())
                     .map(|(it, tok)| ContextItem {
-                        path: it.path.clone(),
+                        path: it
+                            .source
+                            .display_path()
+                            .cloned()
+                            .unwrap_or_else(|| std::path::PathBuf::from(it.source.display_label())),
                         tokens: *tok,
                     })
                     .collect();

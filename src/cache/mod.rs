@@ -66,6 +66,7 @@ impl ContentCache {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn put(
         &self,
         key: &str,

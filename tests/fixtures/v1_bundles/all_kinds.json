@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "items": [
+    {"path": "src/main.rs", "kind": {"kind": "file"}},
+    {"path": "src/hub.rs", "kind": {"kind": "range", "start": 45, "end": 120}},
+    {"path": "src/parser.rs", "kind": {"kind": "function", "name": "parse_expr"}},
+    {"path": "src/models.rs", "kind": {"kind": "type", "name": "Config"}}
+  ],
+  "model": null
+}

@@ -1,7 +1,8 @@
 //! MCP tool implementations. Each function returns a serde_json::Value
 //! that becomes the `result.content` of the tool call response.
 
-use crate::bundle::{Bundle, Item, ItemKind};
+use crate::bundle::{Bundle, Item};
+use crate::source::{FileSource, FuncSource, Source, TypeSource};
 use crate::format::{self, Format};
 use crate::memory;
 use crate::models;
@@ -382,12 +383,7 @@ fn tool_list_items(root: &CtxforgeRoot) -> Result<Value, String> {
             json!({
                 "index": i + 1,
                 "path": r.item.display(),
-                "kind": match &r.item.kind {
-                    ItemKind::File => "file",
-                    ItemKind::Range(_) => "range",
-                    ItemKind::Function { .. } => "function",
-                    ItemKind::Type { .. } => "type",
-                },
+                "kind": r.item.source.scheme_name(),
                 "tokens": tc.tokens,
                 "percentage": format!("{:.1}%", pct),
             })
@@ -431,8 +427,7 @@ fn tool_add_files(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
         let paths = walk::expand(pat, &project_root, &[]).map_err(|e| e.to_string())?;
         for p in paths {
             bundle.add(Item {
-                path: p,
-                kind: ItemKind::File,
+                source: Source::File(FileSource { path: p }),
                 label: None,
             });
             added_count += 1;
@@ -470,10 +465,10 @@ fn tool_add_function(root: &CtxforgeRoot, args: &Value) -> Result<Value, String>
 
         let mut bundle = Bundle::load_or_default(root).map_err(|e| e.to_string())?;
         let item = Item {
-            path: std::path::PathBuf::from(file),
-            kind: ItemKind::Function {
+            source: Source::Func(FuncSource {
+                path: std::path::PathBuf::from(file),
                 name: name.to_string(),
-            },
+            }),
             label: None,
         };
         bundle.add(item);
@@ -509,10 +504,10 @@ fn tool_add_type(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
 
         let mut bundle = Bundle::load_or_default(root).map_err(|e| e.to_string())?;
         let item = Item {
-            path: std::path::PathBuf::from(file),
-            kind: ItemKind::Type {
+            source: Source::Type(TypeSource {
+                path: std::path::PathBuf::from(file),
                 name: name.to_string(),
-            },
+            }),
             label: None,
         };
         bundle.add(item);
