@@ -1,8 +1,5 @@
-//! Welcome/landing screen — shown in the preview panel when no scenario
-//! is set and the bundle is empty. First thing users see on launch.
-//!
-//! Design: distinctive ASCII wordmark + quick-start guide with the
-//! terminal-ui-design skill's aesthetic.
+//! Welcome/landing screen — always shown in the preview panel.
+//! ASCII wordmark + quick-start guide.
 
 use crate::tui::theme::Theme;
 use iocraft::prelude::*;
@@ -11,27 +8,15 @@ pub fn render_welcome(theme: &Theme, file_count: usize) -> Vec<AnyElement<'stati
     let mut body: Vec<AnyElement<'static>> = Vec::new();
 
     // ─── Wordmark ─────────────────────────────────────────────
-    let wordmark = [
-        "          ╔═╗ ╔╦╗ ═╗ ╔═ ╔═╗ ╦═╗ ╔═╗ ╔═╗",
-        "          ║   ║║║  ╠╣  ╠╣  ║ ║ ╠╦╝ ║ ╦ ╠╣ ",
-        "          ╚═╝ ╩ ╩ ╩ ╚ ╚   ╚═╝ ╩╚═ ╚═╝ ╚═╝",
-    ];
-
-    body.push(element! { Text(content: "") }.into_any());
-    for line in &wordmark {
-        body.push(
-            element! { Text(content: *line, color: theme.accent, weight: Weight::Bold) }
-                .into_any(),
-        );
-    }
     body.push(element! { Text(content: "") }.into_any());
     body.push(
         element! {
-            Text(
-                content: "          the prompt engineer for AI coding",
-                color: theme.muted,
-                weight: Weight::Light,
-            )
+            MixedText(contents: vec![
+                MixedTextContent::new("  ────── ").color(theme.muted).weight(Weight::Light),
+                MixedTextContent::new("⚒ ").color(theme.accent).weight(Weight::Bold),
+                MixedTextContent::new("c t x f o r g e").color(theme.accent).weight(Weight::Bold),
+                MixedTextContent::new(" ──────").color(theme.muted).weight(Weight::Light),
+            ])
         }
         .into_any(),
     );
@@ -39,7 +24,7 @@ pub fn render_welcome(theme: &Theme, file_count: usize) -> Vec<AnyElement<'stati
     body.push(
         element! {
             Text(
-                content: "─────────────────────────────────────────────",
+                content: "  the prompt engineer for AI coding",
                 color: theme.muted,
                 weight: Weight::Light,
             )
@@ -52,74 +37,61 @@ pub fn render_welcome(theme: &Theme, file_count: usize) -> Vec<AnyElement<'stati
     body.push(
         element! {
             MixedText(contents: vec![
-                MixedTextContent::new("  QUICK START").color(theme.accent).weight(Weight::Bold),
+                MixedTextContent::new("  ▍ ").color(theme.accent).weight(Weight::Bold),
+                MixedTextContent::new("QUICK START").color(theme.accent).weight(Weight::Bold),
             ])
         }
         .into_any(),
     );
     body.push(element! { Text(content: "") }.into_any());
 
-    let steps = [
-        ("S", "pick a scenario", "bugfix · code-review · explain · refactor · migrate"),
-        ("space", "add files to bundle", &format!("{file_count} files in project")),
-        ("i", "write your task", "describe what you need"),
-        ("P", "preview composed prompt", "see exactly what gets sent"),
-        ("d", "deliver", "copy · pipe · export"),
+    let steps: &[(&str, &str, String)] = &[
+        ("S", "pick a scenario", "bugfix · code-review · explain · refactor · migrate".to_string()),
+        ("space", "add files to bundle", format!("{file_count} files in project")),
+        ("i", "write your task", "describe what you need".to_string()),
+        ("P", "preview composed prompt", "see exactly what gets sent".to_string()),
+        ("d", "deliver", "copy · pipe · export".to_string()),
     ];
 
     for (i, (key, action, detail)) in steps.iter().enumerate() {
-        let step_num = format!("  {}  ", i + 1);
         body.push(
             element! {
                 MixedText(contents: vec![
-                    MixedTextContent::new(step_num).color(theme.muted).weight(Weight::Bold),
-                    MixedTextContent::new(*key).color(theme.accent).weight(Weight::Bold),
-                    MixedTextContent::new(format!("  {action}")).weight(Weight::Bold),
+                    MixedTextContent::new(format!("  {}  ", i + 1)).color(theme.muted),
+                    MixedTextContent::new(format!("{key:<6}")).color(theme.accent).weight(Weight::Bold),
+                    MixedTextContent::new(*action),
                 ])
             }
             .into_any(),
         );
         body.push(
             element! {
-                MixedText(contents: vec![
-                    MixedTextContent::new("       ").color(theme.muted),
-                    MixedTextContent::new(*detail).color(theme.muted).weight(Weight::Light),
-                ])
+                Text(
+                    content: format!("         {detail}").leak() as &str,
+                    color: theme.muted,
+                    weight: Weight::Light,
+                )
             }
             .into_any(),
         );
-        body.push(element! { Text(content: "") }.into_any());
     }
 
-    body.push(
-        element! {
-            Text(
-                content: "─────────────────────────────────────────────",
-                color: theme.muted,
-                weight: Weight::Light,
-            )
-        }
-        .into_any(),
-    );
     body.push(element! { Text(content: "") }.into_any());
+
+    // ─── Extra hints ──────────────────────────────────────────
     body.push(
         element! {
             MixedText(contents: vec![
                 MixedTextContent::new("  /").color(theme.accent).weight(Weight::Bold),
-                MixedTextContent::new("  open command palette for all commands").color(theme.muted),
+                MixedTextContent::new("  command palette").color(theme.muted),
+                MixedTextContent::new("     ").color(theme.muted),
+                MixedTextContent::new("?").color(theme.accent).weight(Weight::Bold),
+                MixedTextContent::new("  keybinding help").color(theme.muted),
             ])
         }
         .into_any(),
     );
-    body.push(
-        element! {
-            MixedText(contents: vec![
-                MixedTextContent::new("  ?").color(theme.accent).weight(Weight::Bold),
-                MixedTextContent::new("  show keybinding help").color(theme.muted),
-            ])
-        }
-        .into_any(),
-    );
+    body.push(element! { Text(content: "") }.into_any());
 
     body
 }
