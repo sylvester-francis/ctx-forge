@@ -89,19 +89,20 @@ pub fn render_splash(
         ("d", "deliver — copy · pipe · export"),
     ];
 
+    // Fixed-width block: each line is the same length so center-align
+    // shifts the whole block as a unit — columns stay straight.
+    let max_action = steps.iter().map(|(_, a)| a.len()).max().unwrap_or(0);
     for (i, (key, action)) in steps.iter().enumerate() {
-        let line = format!("  {}  {:<6} {}", i + 1, key, action);
         body.push(
             element! {
-                MixedText(contents: vec![
-                    MixedTextContent::new(format!("  {}  ", i + 1)).color(theme.muted),
+                MixedText(align: TextAlign::Center, contents: vec![
+                    MixedTextContent::new(format!("{}  ", i + 1)).color(theme.muted),
                     MixedTextContent::new(format!("{:<6}", key)).color(theme.accent).weight(Weight::Bold),
-                    MixedTextContent::new(*action),
+                    MixedTextContent::new(format!("{:<width$}", action, width = max_action)),
                 ])
             }
             .into_any(),
         );
-        let _ = line;
     }
 
     body.push(element! { Text(content: "") }.into_any());
