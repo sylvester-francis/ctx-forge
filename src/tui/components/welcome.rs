@@ -10,18 +10,28 @@ pub fn render_splash(
     term_w: u16,
     term_h: u16,
 ) -> Vec<AnyElement<'static>> {
-    // The splash is a centered card inside a full-screen backdrop.
-    // Card fills ~70% width and uses vertical centering via top padding.
-    let card_w = ((term_w as u32) * 70 / 100).clamp(50, 160);
-    let card_h = ((term_h as u32) * 70 / 100).clamp(18, 40);
+    // Card fills most of the terminal — 90% width, 90% height on small
+    // screens; slightly less on large ones so it doesn't feel stretched.
+    let card_w = if term_w < 100 {
+        ((term_w as u32) * 92 / 100).max(40)
+    } else {
+        ((term_w as u32) * 70 / 100).clamp(60, 160)
+    };
+    let card_h = if term_h < 30 {
+        ((term_h as u32) * 92 / 100).max(15)
+    } else {
+        ((term_h as u32) * 75 / 100).clamp(20, 44)
+    };
     let offset_left = (term_w as u32).saturating_sub(card_w) / 2;
     let offset_top = (term_h as u32).saturating_sub(card_h) / 2;
+    let compact = term_h < 30;
 
     let mut body: Vec<AnyElement<'static>> = Vec::new();
 
-    // ─── Wordmark — large spaced letters ──────────────────────
-    body.push(element! { Text(content: "") }.into_any());
-    body.push(element! { Text(content: "") }.into_any());
+    // ─── Wordmark ──────────────────────────────────────────────
+    if !compact {
+        body.push(element! { Text(content: "") }.into_any());
+    }
 
     // Block-letter wordmark — 3 rows tall, OpenCode-style pixel font.
     // "ctx" in muted, "forge" in accent for visual contrast.
@@ -49,7 +59,6 @@ pub fn render_splash(
         );
     }
 
-    body.push(element! { Text(content: "") }.into_any());
     body.push(
         element! {
             Text(
@@ -60,41 +69,33 @@ pub fn render_splash(
         }
         .into_any(),
     );
-    body.push(element! { Text(content: "") }.into_any());
-
-    let divider2 = "─".repeat((card_w as usize).saturating_sub(8).max(10));
-    body.push(
-        element! {
-            Text(content: divider2.leak() as &str, color: theme.muted, weight: Weight::Light, align: TextAlign::Center)
-        }
-        .into_any(),
-    );
-    body.push(element! { Text(content: "") }.into_any());
-
-    // ─── Quick start ──────────────────────────────────────────
-    body.push(
-        element! {
-            Text(content: "QUICK START", color: theme.accent, weight: Weight::Bold, align: TextAlign::Center)
-        }
-        .into_any(),
-    );
+    if !compact {
+        body.push(element! { Text(content: "") }.into_any());
+        let divider2 = "─".repeat((card_w as usize).saturating_sub(12).max(10));
+        body.push(
+            element! {
+                Text(content: divider2.leak() as &str, color: theme.muted, weight: Weight::Light, align: TextAlign::Center)
+            }
+            .into_any(),
+        );
+    }
     body.push(element! { Text(content: "") }.into_any());
 
     let steps: &[(&str, &str)] = &[
-        ("  S    ", "pick a scenario"),
-        ("  space", "add files to bundle"),
-        ("  i    ", "write your task"),
-        ("  P    ", "preview the composed prompt"),
-        ("  d    ", "deliver — copy · pipe · export"),
+        ("S    ", "pick a scenario"),
+        ("space", "add files to bundle"),
+        ("i    ", "write your task"),
+        ("P    ", "preview composed prompt"),
+        ("d    ", "deliver — copy · pipe · export"),
     ];
 
     for (i, (key, action)) in steps.iter().enumerate() {
         body.push(
             element! {
                 MixedText(align: TextAlign::Center, contents: vec![
-                    MixedTextContent::new(format!(" {}  ", i + 1)).color(theme.muted),
+                    MixedTextContent::new(format!("{}  ", i + 1)).color(theme.muted),
                     MixedTextContent::new(*key).color(theme.accent).weight(Weight::Bold),
-                    MixedTextContent::new(format!("  {action}")),
+                    MixedTextContent::new(format!(" {action}")),
                 ])
             }
             .into_any(),
@@ -102,22 +103,14 @@ pub fn render_splash(
     }
 
     body.push(element! { Text(content: "") }.into_any());
-
-    let file_hint = format!("{file_count} files in project");
-    body.push(
-        element! {
-            Text(content: file_hint.leak() as &str, color: theme.muted, weight: Weight::Light, align: TextAlign::Center)
-        }
-        .into_any(),
-    );
-    body.push(element! { Text(content: "") }.into_any());
     body.push(
         element! {
             MixedText(align: TextAlign::Center, contents: vec![
                 MixedTextContent::new("/").color(theme.accent).weight(Weight::Bold),
-                MixedTextContent::new(" commands     ").color(theme.muted),
+                MixedTextContent::new(" commands   ").color(theme.muted),
                 MixedTextContent::new("?").color(theme.accent).weight(Weight::Bold),
-                MixedTextContent::new(" help").color(theme.muted),
+                MixedTextContent::new(" help   ").color(theme.muted),
+                MixedTextContent::new(format!("{file_count} files")).color(theme.muted).weight(Weight::Light),
             ])
         }
         .into_any(),
