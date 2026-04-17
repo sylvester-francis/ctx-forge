@@ -1824,7 +1824,11 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                 MixedTextContent::new(preview_title_styled.clone()).color(theme.accent).weight(Weight::Bold),
                             ])
                             Text(content: "")
-                            #(render_preview(&data.preview, &theme))
+                            #(if data.bundle.is_empty() && data.bundle.scenario.is_none() {
+                                crate::tui::components::welcome::render_welcome(&theme, visible_count)
+                            } else {
+                                render_preview(&data.preview, &theme)
+                            })
                         }
                     }
                 }.into_any()
@@ -1856,7 +1860,11 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         Focus::Prompt => (
                             preview_title_styled.clone(),
                             preview_border,
-                            render_preview(&data.preview, &theme),
+                            if data.bundle.is_empty() && data.bundle.scenario.is_none() {
+                                crate::tui::components::welcome::render_welcome(&theme, visible_count)
+                            } else {
+                                render_preview(&data.preview, &theme)
+                            },
                         ),
                         Focus::FileTree => (
                             tree_title_styled.clone(),

@@ -6,6 +6,7 @@ pub mod search_bar;
 pub mod status_bar;
 pub mod tree;
 pub mod viewer;
+pub mod welcome;
 
 /// Shrink a path to fit `max` chars while keeping it readable.
 /// Strategy: full path if it fits, else `…/<filename>`, else truncate the
