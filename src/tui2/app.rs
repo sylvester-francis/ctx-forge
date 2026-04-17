@@ -195,7 +195,11 @@ impl AppData {
             }
             A::Deliver => Some(crate::tui2::mode::Mode::DeliveryPicker { cursor: 0 }),
             A::EditPrompt => {
-                self.set_status("coming in a follow-up phase (editor)".to_string());
+                let content = self
+                    .render_payload(crate::format::Format::Markdown)
+                    .unwrap_or_else(|e| format!("Error: {e}"));
+                self.pending_action =
+                    Some(crate::tui2::mode::PendingAction::Editor(content));
                 None
             }
             A::Copy => { self.set_status("use CLI: ctxforge copy".to_string()); None }
@@ -765,6 +769,47 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     return;
                 }
 
+                // ── Full prompt preview overlay ─────────────────
+                if matches!(*mode.read(), crate::tui2::mode::Mode::FullPromptPreview { .. }) {
+                    match k.code {
+                        KeyCode::Esc | KeyCode::Char('P') | KeyCode::Char('q') => {
+                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            if let crate::tui2::mode::Mode::FullPromptPreview { scroll, .. } =
+                                &mut *mode.write()
+                            {
+                                *scroll = scroll.saturating_sub(1);
+                            }
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            if let crate::tui2::mode::Mode::FullPromptPreview { scroll, .. } =
+                                &mut *mode.write()
+                            {
+                                *scroll += 1;
+                            }
+                        }
+                        KeyCode::Char('g') => {
+                            if let crate::tui2::mode::Mode::FullPromptPreview { scroll, .. } =
+                                &mut *mode.write()
+                            {
+                                *scroll = 0;
+                            }
+                        }
+                        KeyCode::Char('G') => {
+                            if let crate::tui2::mode::Mode::FullPromptPreview {
+                                scroll, content,
+                            } = &mut *mode.write()
+                            {
+                                let total = content.lines().count();
+                                *scroll = total.saturating_sub(20);
+                            }
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+
                 // ── Delivery picker overlay ─────────────────────
                 if matches!(*mode.read(), crate::tui2::mode::Mode::DeliveryPicker { .. }) {
                     let count = crate::tui::deliver::DeliverChoice::all().len();
@@ -933,6 +978,17 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     }
                     KeyCode::Char('S') => {
                         *mode.write() = crate::tui2::mode::Mode::ScenarioPicker { cursor: 0 };
+                    }
+                    KeyCode::Char('P') => {
+                        let content = {
+                            let d = app_data.read();
+                            d.render_payload(crate::format::Format::Markdown)
+                                .unwrap_or_else(|e| format!("Error: {e}"))
+                        };
+                        *mode.write() = crate::tui2::mode::Mode::FullPromptPreview {
+                            content,
+                            scroll: 0,
+                        };
                     }
                     KeyCode::Char('d') if !k.modifiers.contains(KeyModifiers::CONTROL) => {
                         *mode.write() = crate::tui2::mode::Mode::DeliveryPicker { cursor: 0 };
@@ -1735,6 +1791,33 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     Some(crate::tui2::overlays::card::render_card(
                         "DELIVER",
                         crate::tui2::overlays::delivery_picker::render_body(*cursor, &theme),
+                        &theme,
+                        term_w,
+                        term_h,
+                    ))
+                }
+                crate::tui2::mode::Mode::FullPromptPreview { content, scroll } => {
+                    let lines: Vec<&str> = content.lines().collect();
+                    let viewport = (term_h as usize).saturating_sub(8).max(5);
+                    let start = (*scroll).min(lines.len().saturating_sub(viewport));
+                    let end = (start + viewport).min(lines.len());
+                    let mut body: Vec<AnyElement<'static>> = Vec::new();
+                    for line in &lines[start..end] {
+                        body.push(
+                            element! { Text(content: line.to_string().leak() as &str) }
+                                .into_any(),
+                        );
+                    }
+                    if end < lines.len() {
+                        let hint = format!("  …{} more lines (j/k to scroll, esc to close)", lines.len() - end);
+                        body.push(
+                            element! { Text(content: hint.leak() as &str, color: theme.muted, weight: Weight::Light) }
+                                .into_any(),
+                        );
+                    }
+                    Some(crate::tui2::overlays::card::render_card(
+                        "COMPOSED PROMPT",
+                        body,
                         &theme,
                         term_w,
                         term_h,

@@ -21,6 +21,10 @@ pub enum Mode {
     DeliveryPicker {
         cursor: usize,
     },
+    FullPromptPreview {
+        content: String,
+        scroll: usize,
+    },
 }
 
 impl Mode {
@@ -32,6 +36,7 @@ impl Mode {
                 | Mode::CommandPalette { .. }
                 | Mode::ThemePicker { .. }
                 | Mode::DeliveryPicker { .. }
+                | Mode::FullPromptPreview { .. }
         )
     }
 }
