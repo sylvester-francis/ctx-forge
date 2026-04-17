@@ -18,6 +18,9 @@ pub enum Mode {
     ThemePicker {
         cursor: usize,
     },
+    DeliveryPicker {
+        cursor: usize,
+    },
 }
 
 impl Mode {
@@ -28,6 +31,20 @@ impl Mode {
                 | Mode::ScenarioPicker { .. }
                 | Mode::CommandPalette { .. }
                 | Mode::ThemePicker { .. }
+                | Mode::DeliveryPicker { .. }
         )
     }
+}
+
+/// An action that requires leaving the iocraft render loop — the outer
+/// `run()` function handles it between render-loop iterations.
+#[derive(Debug, Clone)]
+pub enum PendingAction {
+    /// Print content to stdout, wait for keypress, re-enter TUI.
+    Export(String),
+    /// Spawn a target binary and pipe content to its stdin.
+    Pipe { target: String, content: String },
+    /// Spawn $EDITOR with the given starting content. On save, the edited
+    /// text replaces the prompt override for the next delivery.
+    Editor(String),
 }

@@ -45,6 +45,8 @@ struct AppData {
     status: String,
     // Code viewer pane state.
     viewer: crate::tui2::viewer::ViewerState,
+    // Action that requires leaving the render loop (export / pipe / editor).
+    pending_action: Option<crate::tui2::mode::PendingAction>,
 }
 
 fn load_app_data(root: CtxforgeRoot) -> AppData {
@@ -93,6 +95,7 @@ fn load_app_data(root: CtxforgeRoot) -> AppData {
         project_root,
         status: String::new(),
         viewer: crate::tui2::viewer::ViewerState::new(),
+        pending_action: None,
     }
 }
 
