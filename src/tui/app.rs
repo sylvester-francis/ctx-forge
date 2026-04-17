@@ -1,1783 +1,2196 @@
-//! App state for the TUI.
+//! Root component and entry point for the v2 TUI.
+//!
+//! Loads bundle, tree, and theme at startup, computes token counts, and
+//! renders the full three-column layout with keyboard navigation (Tab
+//! cycles focus, j/k move the tree cursor, q quits) and animated focus
+//! borders via `use_animated`.
 
-use crate::bundle::{Bundle, Item, ItemKind, Range};
+use crate::bundle::Bundle;
+use crate::error::Result;
 use crate::models;
-use crate::paths::CtxforgeRoot;
+use crate::motion_core::{constants, ease_out_cubic};
+use crate::paths::{config_file_path, CtxforgeRoot};
 use crate::resolve;
 use crate::tokens;
-use crate::tui::mode;
-use crate::tui::motion::{AnimCtx, Clock, MotionLevel, SystemClock, constants};
-use crate::tui::tree::{self, TreeEntry};
-use fuzzy_matcher::FuzzyMatcher;
-use fuzzy_matcher::skim::SkimMatcherV2;
+use crate::preview::PromptPreview;
+use crate::prompt_input::PromptInput;
+use crate::theme::{config::resolve_theme_name, registry, AppTheme};
+use crate::tree::{self, TreeEntry};
+use crate::tui::components::{
+    bundle_summary::render_bundle_rows, prompt_preview::render_preview, tree::render_tree_rows,
+};
+use crate::tui::motion::use_animated;
+use crate::tui::theme::Theme;
+use iocraft::hooks::UseTerminalSize;
+use iocraft::prelude::*;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
 
-/// Which panel has focus.
+// ─── App state (mutable, held in use_state) ───────────────────────────
+
+struct AppData {
+    bundle: Bundle,
+    tree_entries: Vec<TreeEntry>,
+    item_tokens: Vec<usize>,
+    total_tokens: usize,
+    model_name: String,
+    model_window: usize,
+    theme: Theme,
+    preview: PromptPreview,
+    bundled_paths: HashSet<PathBuf>,
+    // Needed so mutations can persist to disk and recompute tokens.
+    root: CtxforgeRoot,
+    project_root: PathBuf,
+    // Transient status message shown in the footer. Auto-clears after 3s.
+    status: String,
+    status_set_at: Option<std::time::Instant>,
+    // Code viewer pane state.
+    viewer: crate::tui::viewer::ViewerState,
+    // Action that requires leaving the render loop (export / pipe / editor).
+    pending_action: Option<crate::tui::mode::PendingAction>,
+}
+
+fn load_app_data(root: CtxforgeRoot) -> AppData {
+    // Pre-warm the shared syntect highlighter so the first viewer toggle
+    // doesn't stall on SyntaxSet deserialization (~200ms).
+    let _ = crate::tui::viewer::highlight::shared();
+
+    let bundle = Bundle::load_or_default(&root).unwrap_or_default();
+    let project_root = root.project_root().to_path_buf();
+    let tree_entries = tree::build(&project_root);
+
+    let model_name = bundle
+        .model
+        .clone()
+        .unwrap_or_else(|| models::DEFAULT_MODEL.to_string());
+    let model = models::lookup(&model_name);
+
+    let resolved = resolve::resolve_all(&bundle.items, &project_root).unwrap_or_default();
+    let item_tokens: Vec<usize> = resolved
+        .iter()
+        .map(|r| tokens::count(&r.content, &model).tokens)
+        .collect();
+    let total_tokens: usize = item_tokens.iter().sum();
+
+    let theme_name = config_file_path()
+        .map(|p| resolve_theme_name(&p))
+        .unwrap_or_else(|| "ctxforge".to_string());
+    let raw: &'static AppTheme =
+        registry::by_name(&theme_name).unwrap_or_else(|| registry::default_theme());
+    let theme = Theme::from_app_theme(raw);
+
+    let bundled_paths: HashSet<PathBuf> = bundle.items.iter().map(|i| i.path.clone()).collect();
+    let preview = build_preview(&root, &bundle, &item_tokens);
+
+    AppData {
+        bundle,
+        tree_entries,
+        item_tokens,
+        total_tokens,
+        model_name,
+        model_window: model.window,
+        theme,
+        preview,
+        bundled_paths,
+        root,
+        project_root,
+        status: String::new(),
+        status_set_at: None,
+        viewer: crate::tui::viewer::ViewerState::new(),
+        pending_action: None,
+    }
+}
+
+impl AppData {
+    /// Toggle file at `rel_path` in/out of the bundle. No-op on directories.
+    /// Only the affected item is resolved + tokenized — existing items keep
+    /// their cached token counts.
+    fn toggle_bundle(&mut self, rel_path: &std::path::Path) {
+        use crate::bundle::{Item, ItemKind};
+        if self.bundled_paths.contains(rel_path) {
+            // Remove path: drop the matching token entry too. Bundle stores
+            // items ordered; find the first File-kind item matching the path
+            // and remove its parallel token entry.
+            if let Some(idx) = self.bundle.items.iter().position(|it| {
+                it.path == rel_path && matches!(it.kind, ItemKind::File)
+            }) {
+                self.bundle.items.remove(idx);
+                if idx < self.item_tokens.len() {
+                    let removed = self.item_tokens.remove(idx);
+                    self.total_tokens = self.total_tokens.saturating_sub(removed);
+                }
+            } else {
+                // Fallback: path exists but not a File-kind entry. Use the
+                // existing helper which scans for any path match, and recount.
+                self.bundle.remove_by_path(rel_path);
+                self.recompute_tokens();
+            }
+            self.bundled_paths.remove(rel_path);
+        } else {
+            let item = Item {
+                path: rel_path.to_path_buf(),
+                kind: ItemKind::File,
+                label: None,
+            };
+            let model = models::lookup(&self.model_name);
+            let new_tokens: usize =
+                resolve::resolve_all(std::slice::from_ref(&item), &self.project_root)
+                    .map(|res| res.iter().map(|r| tokens::count(&r.content, &model).tokens).sum())
+                    .unwrap_or(0);
+            self.bundle.add(item);
+            self.bundled_paths.insert(rel_path.to_path_buf());
+            self.item_tokens.push(new_tokens);
+            self.total_tokens += new_tokens;
+        }
+        self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
+        let _ = self.bundle.save(&self.root);
+    }
+
+    /// Toggle expanded state of the directory at `tree_idx` (absolute index
+    /// into `tree_entries`). No-op on files.
+    fn toggle_expanded(&mut self, tree_idx: usize) {
+        if let Some(entry) = self.tree_entries.get_mut(tree_idx) {
+            if entry.is_dir {
+                entry.expanded = !entry.expanded;
+            }
+        }
+    }
+
+    fn expand_all(&mut self) {
+        tree::expand_all(&mut self.tree_entries);
+    }
+
+    fn collapse_all(&mut self) {
+        tree::collapse_all(&mut self.tree_entries);
+    }
+
+    fn set_status(&mut self, msg: String) {
+        self.status = msg;
+        self.status_set_at = Some(std::time::Instant::now());
+    }
+
+    /// Dispatch a command action. Returns the new Mode to enter, or None
+    /// for actions that only set status / quit / stay in Normal mode.
+    fn dispatch_command(
+        &mut self,
+        action: crate::tui::command_registry::CommandAction,
+    ) -> Option<crate::tui::mode::Mode> {
+        use crate::tui::command_registry::CommandAction as A;
+        use crate::tui::mode::Mode;
+        match action {
+            A::Help => Some(Mode::Help),
+            A::Scenario => Some(Mode::ScenarioPicker { cursor: 0 }),
+            A::Find => Some(Mode::Search { query: String::new() }),
+            A::Quit => {
+                self.set_status("quit requested".to_string());
+                None
+            }
+            A::Theme => Some(crate::tui::mode::Mode::ThemePicker { cursor: 0 }),
+            A::ToggleViewer => {
+                self.viewer.toggle();
+                let enabled = self.viewer.enabled;
+                self.set_status(if enabled { "viewer on".to_string() } else { "viewer off".to_string() });
+                None
+            }
+            A::AddSelection => {
+                self.add_viewer_selection_to_bundle();
+                None
+            }
+            A::Deliver => Some(crate::tui::mode::Mode::DeliveryPicker { cursor: 0 }),
+            A::EditPrompt => {
+                let content = self
+                    .render_payload(crate::format::Format::Markdown)
+                    .unwrap_or_else(|e| format!("Error: {e}"));
+                self.pending_action =
+                    Some(crate::tui::mode::PendingAction::Editor(content));
+                None
+            }
+            A::Copy => { self.set_status("use CLI: ctxforge copy".to_string()); None }
+            A::CopyXml => { self.set_status("use CLI: ctxforge copy --xml".to_string()); None }
+            A::CopyJson => { self.set_status("use CLI: ctxforge copy --json".to_string()); None }
+            A::Export => { self.set_status("use CLI: ctxforge export".to_string()); None }
+            A::ExportXml => { self.set_status("use CLI: ctxforge export --xml".to_string()); None }
+            A::ExportJson => { self.set_status("use CLI: ctxforge export --json".to_string()); None }
+            A::Pipe => { self.set_status("use CLI: ctxforge copy | your-agent".to_string()); None }
+            A::SaveProfile => { self.set_status("use CLI: ctxforge profile save <name>".to_string()); None }
+            A::LoadProfile => { self.set_status("use CLI: ctxforge profile load <name>".to_string()); None }
+            A::Narrow => { self.set_status("use CLI: ctxforge narrow <path> <start> <end>".to_string()); None }
+            A::Model => { self.set_status("set model via --model flag or config.toml".to_string()); None }
+            A::Memory => { self.set_status("use CLI: ctxforge memory".to_string()); None }
+            A::Note => { self.set_status("use CLI: ctxforge memory note".to_string()); None }
+            A::FindFn => { self.set_status("use CLI: ctxforge add --fn <name> <path>".to_string()); None }
+            A::FindType => { self.set_status("use CLI: ctxforge add --type <name> <path>".to_string()); None }
+            A::FindDiff => { self.set_status("use CLI: ctxforge add --diff <branch>".to_string()); None }
+            A::Template => { self.set_status("use CLI: ctxforge template".to_string()); None }
+            A::TemplateNew => { self.set_status("use CLI: ctxforge template new <name>".to_string()); None }
+            A::TemplateRm => { self.set_status("use CLI: ctxforge template rm <name>".to_string()); None }
+            A::TemplateStarters => { self.set_status("use CLI: ctxforge template starters".to_string()); None }
+            A::TemplateList => { self.set_status("use CLI: ctxforge template list".to_string()); None }
+        }
+    }
+
+    /// Apply a theme by name. Swaps the active theme, rebuilds the preview
+    /// (so any theme-dependent colors re-render), and persists the selection
+    /// to `~/.config/ctxforge/config.toml`.
+    fn apply_theme(&mut self, name: &str) -> std::result::Result<(), String> {
+        let raw = crate::theme::registry::by_name(name)
+            .ok_or_else(|| format!("unknown theme '{name}'"))?;
+        self.theme = Theme::from_app_theme(raw);
+        self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
+
+        if let Some(path) = crate::paths::config_file_path() {
+            let existing = crate::theme::config::load_from(&path).unwrap_or_default();
+            let next = crate::theme::config::Config {
+                theme: name.to_string(),
+                default_send: existing.default_send,
+            };
+            let _ = crate::theme::config::save_to(&path, &next);
+        }
+        self.set_status(format!("theme → {name}"));
+        Ok(())
+    }
+
+    /// Add the viewer's current selection to the bundle as a Range item.
+    /// Only the NEW item is resolved and tokenized — existing bundle items
+    /// keep their cached token counts. Noticeably faster than a full
+    /// `recompute_tokens()` call for large bundles.
+    fn add_viewer_selection_to_bundle(&mut self) {
+        use crate::bundle::{Item, ItemKind};
+        let (start0, end0) = match self.viewer.selection {
+            Some(range) => range,
+            None => {
+                self.set_status("no selection — click-drag in the viewer first".to_string());
+                return;
+            }
+        };
+        let path = match &self.viewer.cached_path {
+            Some(p) => p.clone(),
+            None => {
+                self.set_status("viewer has no file loaded".to_string());
+                return;
+            }
+        };
+        let rel_path = path
+            .strip_prefix(&self.project_root)
+            .unwrap_or(&path)
+            .to_path_buf();
+        let range = crate::bundle::Range {
+            start: start0 + 1,
+            end: end0 + 1,
+        };
+        let item = Item {
+            path: rel_path.clone(),
+            kind: ItemKind::Range(range),
+            label: None,
+        };
+
+        // Tokenize ONLY the new item — resolve_all is O(items × file size).
+        let model = models::lookup(&self.model_name);
+        let new_tokens: usize =
+            resolve::resolve_all(std::slice::from_ref(&item), &self.project_root)
+                .map(|res| res.iter().map(|r| tokens::count(&r.content, &model).tokens).sum())
+                .unwrap_or(0);
+
+        self.bundle.add(item);
+        self.bundled_paths.insert(rel_path.clone());
+        self.item_tokens.push(new_tokens);
+        self.total_tokens += new_tokens;
+        self.viewer.clear_selection();
+        self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
+        let _ = self.bundle.save(&self.root);
+        self.set_status(format!(
+            "added {}:{}-{} (+{} tokens)",
+            rel_path.display(),
+            range.start,
+            range.end,
+            new_tokens,
+        ));
+    }
+
+    /// Render the delivery payload for the given format. Resolves the bundle,
+    /// wraps with the scenario template if active.
+    fn render_payload(&self, format: crate::format::Format) -> std::result::Result<String, String> {
+        let resolved = resolve::resolve_all(&self.bundle.items, &self.project_root)
+            .map_err(|e| format!("resolve bundle: {e}"))?;
+        let notes = crate::memory::index::read_all(&self.root).unwrap_or_default();
+        let bundle_rendered = crate::format::render(format, &resolved, &notes);
+
+        if let Some(scenario) = &self.bundle.scenario {
+            let body = crate::scenario::load_body(&self.root, scenario)
+                .map_err(|e| format!("load scenario: {e}"))?;
+            crate::template::substitute(scenario, &body, &bundle_rendered, &self.bundle.task_text)
+                .map_err(|e| format!("render template: {e}"))
+        } else {
+            Ok(bundle_rendered)
+        }
+    }
+
+    /// Execute a delivery choice. Copy goes to clipboard (no suspend needed).
+    /// Pipe/Export stash a PendingAction for the outer run() loop.
+    fn run_delivery(&mut self, choice: crate::deliver::DeliverChoice) {
+        use crate::deliver::DeliverChoice as DC;
+        use crate::tui::mode::PendingAction;
+
+        let format = match choice {
+            DC::PipeClaude | DC::CopyXml => crate::format::Format::Xml,
+            DC::CopyJson => crate::format::Format::Json,
+            _ => crate::format::Format::Markdown,
+        };
+
+        let content = match self.render_payload(format) {
+            Ok(c) => c,
+            Err(e) => {
+                self.set_status(format!("delivery failed: {e}"));
+                return;
+            }
+        };
+
+        match choice {
+            DC::CopyMarkdown | DC::CopyXml | DC::CopyJson => {
+                match crate::clipboard::set(&content) {
+                    Ok(()) => {
+                        let label = match choice {
+                            DC::CopyMarkdown => "markdown",
+                            DC::CopyXml => "XML",
+                            DC::CopyJson => "JSON",
+                            _ => "content",
+                        };
+                        self.set_status(format!(
+                            "copied as {} · {} chars",
+                            label,
+                            content.chars().count()
+                        ));
+                    }
+                    Err(e) => self.set_status(format!("clipboard: {e}")),
+                }
+            }
+            DC::PipeClaude => {
+                self.pending_action = Some(PendingAction::Pipe {
+                    target: "claude".to_string(),
+                    content,
+                });
+            }
+            DC::PipeAgent => {
+                self.pending_action = Some(PendingAction::Pipe {
+                    target: "agent".to_string(),
+                    content,
+                });
+            }
+            DC::PipeGemini => {
+                self.pending_action = Some(PendingAction::Pipe {
+                    target: "gemini".to_string(),
+                    content,
+                });
+            }
+            DC::Export => {
+                self.pending_action = Some(PendingAction::Export(content));
+            }
+        }
+    }
+
+    /// Set the active scenario and rebuild the preview. Persists to disk.
+    fn set_scenario(&mut self, name: Option<String>) {
+        self.bundle.scenario = name;
+        self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
+        let _ = self.bundle.save(&self.root);
+    }
+
+    /// Write task_text into the bundle and rebuild the preview. Persists to disk.
+    fn sync_task_text(&mut self, text: String) {
+        self.bundle.task_text = text;
+        self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
+        let _ = self.bundle.save(&self.root);
+    }
+
+    /// Recompute `item_tokens` and `total_tokens` from the current bundle.
+    fn recompute_tokens(&mut self) {
+        let model = models::lookup(&self.model_name);
+        self.model_window = model.window;
+        let resolved =
+            resolve::resolve_all(&self.bundle.items, &self.project_root).unwrap_or_default();
+        self.item_tokens = resolved
+            .iter()
+            .map(|r| tokens::count(&r.content, &model).tokens)
+            .collect();
+        self.total_tokens = self.item_tokens.iter().sum();
+    }
+}
+
+/// Payload written by a completed background viewer load. The generation
+/// tag lets `apply_bg_load` drop stale results (from files the user has
+/// since navigated past while the load was in flight).
+type ViewerBgResult = (u64, PathBuf, crate::tui::viewer::ViewerLoad);
+type ViewerBgSlot = State<Option<ViewerBgResult>>;
+
+/// Fire a background file load and return immediately. The task runs on
+/// smol's global executor; the blocking read+highlight runs on
+/// `blocking`'s dedicated thread pool via `smol::unblock`, so neither
+/// the render thread nor smol's worker thread blocks while the file is
+/// read and syntect-highlighted. Uses the shared LazyLock highlighter so
+/// the SyntaxSet deserialization is paid once across the app lifetime.
+///
+/// Multiple in-flight loads are safe because each task tags its result
+/// with its own generation; `apply_bg_load` drops stale ones. The task
+/// is detached so we don't hold the `Task` handle (dropping it would
+/// cancel the work before the result landed).
+fn spawn_viewer_load(path: PathBuf, generation: u64, mut result_slot: ViewerBgSlot) {
+    smol::spawn(async move {
+        let path_for_task = path.clone();
+        let load = smol::unblock(move || {
+            crate::tui::viewer::read_and_highlight(
+                &path_for_task,
+                crate::tui::viewer::highlight::shared(),
+            )
+        })
+        .await;
+        // Single `set()`, no retry: `State::set` uses `try_write` and
+        // silently drops on contention, which would lose this result.
+        // In practice the slot is virtually never contended (only during
+        // the render's drain, which is a few microseconds), and the
+        // user can retrigger by moving the cursor if a load does get
+        // lost. An earlier retry-loop version hung startup on some
+        // terminals.
+        result_slot.set(Some((generation, path, load)));
+    })
+    .detach();
+}
+
+/// Reload the viewer for the file at `new_cursor` in the visible tree.
+/// No-op on directories, on the cursor's current file, or when the viewer
+/// is disabled. Dispatches the load to a background task so the event
+/// thread stays responsive.
+fn reload_viewer(data: &mut AppData, new_cursor: usize, slot: ViewerBgSlot) {
+    if !data.viewer.enabled {
+        return;
+    }
+    let visible = tree::visible_indices(&data.tree_entries);
+    let Some(&idx) = visible.get(new_cursor) else {
+        return;
+    };
+    let Some(entry) = data.tree_entries.get(idx).cloned() else {
+        return;
+    };
+    if entry.is_dir {
+        return;
+    }
+    let abs = data.project_root.join(&entry.rel_path);
+    if data.viewer.cached_path.as_deref() == Some(abs.as_path()) {
+        return;
+    }
+    let generation = data.viewer.begin_load();
+    spawn_viewer_load(abs, generation, slot);
+}
+
+fn build_preview(root: &CtxforgeRoot, bundle: &Bundle, item_tokens: &[usize]) -> PromptPreview {
+    use crate::preview::{ContextItem, Section};
+    let mut sections = Vec::new();
+    match &bundle.scenario {
+        None => sections.push(Section::NoScenarioPlaceholder),
+        Some(name) => match crate::preview::render::load_wrapped(root, name) {
+            Ok(wrapped) => {
+                sections.push(Section::ScenarioHeader {
+                    scenario: name.clone(),
+                    prefix_lines: wrapped
+                        .prefix
+                        .lines()
+                        .filter(|l| !l.trim().is_empty())
+                        .count(),
+                    suffix_lines: wrapped
+                        .suffix
+                        .lines()
+                        .filter(|l| !l.trim().is_empty())
+                        .count(),
+                });
+                sections.push(Section::Task {
+                    text: bundle.task_text.clone(),
+                });
+                let items = bundle
+                    .items
+                    .iter()
+                    .zip(item_tokens.iter())
+                    .map(|(it, tok)| ContextItem {
+                        path: it.path.clone(),
+                        tokens: *tok,
+                    })
+                    .collect();
+                sections.push(Section::Context { items });
+            }
+            Err(e) => sections.push(Section::TemplateError {
+                scenario: name.clone(),
+                error: e,
+            }),
+        },
+    }
+    PromptPreview { sections }
+}
+
+// ─── Focus ────────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Focus {
+enum Focus {
     FileTree,
     Viewer,
     BundleList,
     Prompt,
 }
 
-/// Pending editor spawn, drained by the run loop. Keeping the content
-/// on the App (rather than spawning inline) lets the loop leave the
-/// alternate screen, run the editor cleanly, then re-enter ratatui.
-#[derive(Debug, Clone)]
-pub enum PendingEditor {
-    /// Edit just the prompt's task text. On save, replaces prompt_input.
-    TaskText(String),
-    /// Edit the full composed prompt. On save, stored as prompt_override
-    /// for the next deliver (one-shot override).
-    FullPrompt(String),
+fn focus_color_rgb(focus: Focus, theme: &Theme) -> (u8, u8, u8) {
+    let c = match focus {
+        Focus::FileTree => theme.focus_tree,
+        Focus::Viewer => theme.focus_viewer,
+        Focus::BundleList => theme.focus_bundle,
+        Focus::Prompt => theme.accent,
+    };
+    match c {
+        iocraft::Color::Rgb { r, g, b } => (r, g, b),
+        _ => (0, 255, 255),
+    }
 }
 
-/// In-flight mode transition — both the outgoing and incoming modes render
-/// simultaneously during this window.
-pub struct ModeTransition {
-    pub prev: mode::Mode,
-    pub started: Instant,
-    pub duration: Duration,
+fn format_tokens(n: usize) -> String {
+    if n >= 1_000 {
+        format!("{:.1}k", n as f64 / 1_000.0)
+    } else {
+        format!("{n}")
+    }
 }
 
-/// Full application state.
-pub struct App {
-    pub root: CtxforgeRoot,
-    pub project_root: PathBuf,
-    pub bundle: Bundle,
-    pub tree_entries: Vec<TreeEntry>,
-    /// Indices into `tree_entries` for currently visible (non-collapsed) entries.
-    pub visible_tree: Vec<usize>,
-    pub tree_cursor: usize,
-    pub bundle_cursor: usize,
-    pub focus: Focus,
-    pub model_name: String,
-    pub model_window: usize,
-    /// Per-item token counts, recalculated on every toggle.
-    pub item_tokens: Vec<usize>,
-    pub total_tokens: usize,
-    pub exact_tokens: bool,
-    /// Animated token gauge — smoothly tweens toward `total_tokens` on
-    /// bundle mutations. UI reads via `token_gauge.current(now)`.
-    pub token_gauge: crate::tui::motion::Gauge,
-    /// Darkens the Normal content underneath any visible overlay.
-    /// Fades in when an overlay opens, fades out when all overlays close.
-    pub backdrop_dim: crate::tui::motion::Fade,
-    /// Opacity of the status bar message. Fades in when `set_status` is
-    /// called, holds for STATUS_HOLD, then fades out.
-    pub status_fade: crate::tui::motion::Fade,
-    /// Timestamp of the most recent `set_status` call. Used by
-    /// `tick_status_fade` to schedule the fade-out.
-    pub status_set_at: Option<Instant>,
-    /// Persisted ratatui `ListState` so scroll offset survives across frames.
-    /// Kept as `RefCell` because the render code only has `&App` and
-    /// `StatefulWidget::render` needs `&mut ListState`.
-    pub tree_list_state: std::cell::RefCell<ratatui::widgets::ListState>,
-    pub bundle_list_state: std::cell::RefCell<ratatui::widgets::ListState>,
-    /// Animated border highlight — tweens between FileTree and BundleList
-    /// focus colors on Tab switch.
-    pub focus_highlight: crate::tui::motion::Highlight,
-    /// Fade-in applied to the entire TUI on first render.
-    pub startup_fade: crate::tui::motion::Fade,
-    /// Per-bundle-row fade animations keyed by path. Populated on add; each
-    /// entry is removed once its Fade settles at 1.0.
-    pub bundle_row_fades: std::collections::HashMap<PathBuf, crate::tui::motion::Fade>,
-    /// File preview pane state (toggle flag + cached highlighted lines).
-    pub viewer: crate::tui::viewer::ViewerState,
-    /// Last-rendered body height of the viewer pane. Cell<usize> because
-    /// `ui::draw` has only `&App` and needs to update this each frame so
-    /// key handlers can clamp scroll without knowing layout dimensions.
-    pub viewer_last_viewport_height: std::cell::Cell<usize>,
-    /// Last-rendered rect of the viewer pane (including borders), in
-    /// terminal-absolute coordinates. Used by mouse event handling to map
-    /// click positions to line indices. `None` before the first frame.
-    pub viewer_pane_rect: std::cell::Cell<Option<ratatui::layout::Rect>>,
-    /// Set of relative paths currently in the bundle, for fast lookup.
-    pub bundled_paths: HashSet<PathBuf>,
-    /// Indices into `tree_entries` for fuzzy-search results, ranked by score.
-    pub search_results: Vec<usize>,
-    /// Currently loaded/saved profile name (shown in header).
-    pub profile_name: Option<String>,
-    /// Pending stdout output (for `x` export). The TUI run loop drains this
-    /// each iteration: it restores the terminal, prints the content, waits
-    /// for a keypress, and re-initializes the alternate screen.
-    pub pending_stdout: Option<String>,
-    /// Pending pipe (target, content). Drained by the run loop the same way
-    /// as `pending_stdout` but spawns the target binary and writes to its stdin.
-    pub pending_pipe: Option<(String, String)>,
-    /// Active input/overlay mode. Drives key dispatch and overlay rendering.
-    /// Private — mutate only through `set_mode` so transitions are tracked.
-    mode: mode::Mode,
-    /// In-flight mode transition. `None` when no cross-fade is animating.
-    pub mode_transition: Option<ModeTransition>,
-    /// Time source. `SystemClock` in production; `MockClock` in tests.
-    pub clock: Box<dyn Clock>,
-    /// Whether animations play or snap. Detected once at startup.
-    pub motion: MotionLevel,
-    pub should_quit: bool,
-    pub status_message: String,
-    pub show_help: bool,
-    /// Last known height (in rows) of the file tree viewport, minus borders.
-    /// Captured during render; used by PageUp/PageDown and half-page scrolls.
-    /// `Cell<u16>` for interior mutability — `ui::draw` writes from `&App`.
-    pub tree_viewport_height: std::cell::Cell<u16>,
-    /// Last known height of the bundle list viewport, minus borders.
-    pub bundle_viewport_height: std::cell::Cell<u16>,
-    /// Active colour theme. Read from `~/.config/ctxforge/config.toml` at
-    /// startup (Task 7); defaults to the built-in `ctxforge` palette.
-    pub theme: &'static crate::tui::theme::AppTheme,
-    /// Multi-line prompt input widget. Displays at the bottom of the TUI;
-    /// focus moves to it on `i` from Normal mode, defocuses with Esc.
-    pub prompt_input: crate::tui::prompt_input::PromptInput,
-    /// Remembers which panel had focus before the user switched to Prompt,
-    /// so Esc can restore focus accurately.
-    pub last_panel_focus: Focus,
-    /// Last deliver choice this session. The picker uses this to pre-position
-    /// its cursor so repeated deliveries are single-Enter.
-    pub deliver_last: Option<crate::tui::deliver::DeliverChoice>,
-    /// One-shot override set by Task 27's full-prompt editor. When
-    /// `Some`, the next `deliver::run_choice` call uses this content
-    /// verbatim instead of rebuilding from the template + bundle.
-    pub prompt_override: Option<String>,
-    /// Pending $EDITOR spawn. Drained by `run_loop` (leaves alt-screen
-    /// -> spawn editor -> reads back -> re-enters alt-screen) so the
-    /// editor takes full control of the terminal.
-    pub pending_editor: Option<PendingEditor>,
+fn gauge_color(pct: f64, theme: &Theme) -> Color {
+    if pct > 90.0 {
+        theme.danger
+    } else if pct > 75.0 {
+        theme.hotspot
+    } else if pct > 40.0 {
+        theme.warning
+    } else {
+        theme.success
+    }
 }
 
-impl App {
-    /// Read-only accessor for the current mode.
-    pub fn mode(&self) -> &mode::Mode {
-        &self.mode
-    }
+// ─── Entry point ──────────────────────────────────────────────────────
 
-    /// Mutable accessor for in-place variant-field mutation only. DO NOT use
-    /// this to switch modes — call `set_mode` so transitions stay tracked.
-    pub fn mode_mut(&mut self) -> &mut mode::Mode {
-        &mut self.mode
-    }
+thread_local! {
+    static STARTUP: std::cell::RefCell<Option<AppData>> = const { std::cell::RefCell::new(None) };
+    static PENDING: std::cell::RefCell<Option<crate::tui::mode::PendingAction>> = const { std::cell::RefCell::new(None) };
+    static ROOT_STASH: std::cell::RefCell<Option<CtxforgeRoot>> = const { std::cell::RefCell::new(None) };
+}
 
-    /// Transition to a new mode. If the transition crosses an overlay
-    /// boundary, records a `ModeTransition` with the appropriate duration
-    /// (MODAL_IN for Normal→Overlay, MODAL_OUT for Overlay→Normal,
-    /// MODAL_CROSSFADE for Overlay→Overlay). Normal→Normal is a no-op.
-    ///
-    /// Also drives the backdrop-dim fade whenever overlay visibility
-    /// changes (Overlay→Overlay keeps the dim at full — no flicker).
-    pub fn set_mode(&mut self, next: mode::Mode) {
-        let now = self.clock.now();
-        let prev = std::mem::replace(&mut self.mode, next);
-        let prev_overlay = prev.is_overlay();
-        let next_overlay = self.mode.is_overlay();
-        let duration = match (prev_overlay, next_overlay) {
-            (false, false) => None,
-            (false, true) => Some(constants::MODAL_IN),
-            (true, false) => Some(constants::MODAL_OUT),
-            (true, true) => Some(constants::MODAL_CROSSFADE),
-        };
-        if let Some(duration) = duration {
-            self.mode_transition = Some(ModeTransition {
-                prev,
-                started: now,
-                duration,
-            });
-        }
+pub async fn run(root: CtxforgeRoot) -> Result<()> {
+    use crossterm::event::{DisableBracketedPaste, DisableMouseCapture};
 
-        // Backdrop dim tracks "any overlay visible?" — during overlay→overlay
-        // the dim stays at full (no animation), during Normal↔Overlay it
-        // fades in/out to match the modal's open/close timing.
-        let ctx = self.anim_ctx();
-        let target_dim = if next_overlay {
-            constants::BACKDROP_DIM
-        } else {
-            0.0
-        };
-        match (prev_overlay, next_overlay) {
-            (false, true) => self.backdrop_dim.set_over(
-                target_dim,
-                constants::MODAL_IN,
-                crate::tui::motion::ease_out_cubic,
-                &ctx,
-            ),
-            (true, false) => self.backdrop_dim.set_over(
-                target_dim,
-                constants::MODAL_OUT,
-                crate::tui::motion::ease_in_cubic,
-                &ctx,
-            ),
-            _ => {}
-        }
-    }
+    // Stash root so we can reload AppData between render-loop iterations.
+    ROOT_STASH.with(|r| *r.borrow_mut() = Some(root.clone()));
+    STARTUP.with(|s| *s.borrow_mut() = Some(load_app_data(root)));
 
-    /// Swap the active panel and tween the focus border color. Cycle order
-    /// depends on whether the viewer is enabled:
-    ///   viewer off: FileTree → BundleList → FileTree
-    ///   viewer on:  FileTree → Viewer → BundleList → FileTree
-    pub fn toggle_focus(&mut self) {
-        let next = match (self.focus, self.viewer.enabled) {
-            (Focus::FileTree, true) => Focus::Viewer,
-            (Focus::FileTree, false) => Focus::BundleList,
-            (Focus::Viewer, _) => Focus::BundleList,
-            (Focus::BundleList, _) => Focus::Prompt,
-            (Focus::Prompt, _) => Focus::FileTree,
-        };
-        self.focus = next;
-        // Track the last *panel* focus so Esc from Prompt restores the
-        // previous panel rather than snapping to FileTree.
-        if !matches!(next, Focus::Prompt) {
-            self.last_panel_focus = next;
-        }
-        let target = self.theme.focus_tint(next);
-        let ctx = self.anim_ctx();
-        self.focus_highlight.transition_to(target, &ctx);
-    }
+    loop {
+        let result = element!(App).render_loop().fullscreen().await;
 
-    /// Move focus to the prompt input surface. Records the current panel
-    /// focus so Esc can restore it.
-    pub fn focus_prompt(&mut self) {
-        if matches!(self.focus, Focus::Prompt) {
-            return;
-        }
-        self.last_panel_focus = self.focus;
-        self.focus = Focus::Prompt;
-        let target = self.theme.focus_tint(Focus::Prompt);
-        let ctx = self.anim_ctx();
-        self.focus_highlight.transition_to(target, &ctx);
-    }
-
-    /// Move focus back to the panel that had it before `focus_prompt`.
-    /// Persists the task text to disk at the same time so the prompt
-    /// content survives a TUI restart even if the user never runs an
-    /// explicit save command.
-    pub fn defocus_prompt(&mut self) {
-        if !matches!(self.focus, Focus::Prompt) {
-            return;
-        }
-        self.focus = self.last_panel_focus;
-        let target = self.theme.focus_tint(self.focus);
-        let ctx = self.anim_ctx();
-        self.focus_highlight.transition_to(target, &ctx);
-        let _ = self.bundle.save(&self.root);
-    }
-
-    /// Toggle the file viewer pane on/off. On transition to `on`, kicks a
-    /// load for whatever file the tree cursor is on and enables terminal
-    /// mouse capture so drag-selection works. On transition to `off`,
-    /// disables mouse capture (restores the terminal's native text
-    /// selection) and snaps focus to FileTree if it was on the viewer.
-    ///
-    /// Note: on terminals narrower than 100 cols, the viewer flag is still
-    /// set but the render layout suppresses it. Resizing wider activates it.
-    pub fn toggle_viewer(&mut self) {
-        self.viewer.toggle();
-        if self.viewer.enabled {
-            self.reload_viewer_for_cursor();
-            self.set_mouse_capture(true);
-        } else {
-            self.set_mouse_capture(false);
-            if self.focus == Focus::Viewer {
-                self.focus = Focus::FileTree;
-                let target = self.theme.focus_tint(Focus::FileTree);
-                let ctx = self.anim_ctx();
-                self.focus_highlight.transition_to(target, &ctx);
-            }
-        }
-    }
-
-    /// Enable or disable terminal mouse capture. Swallows I/O errors —
-    /// on failure the viewer still works via keyboard; the user just can't
-    /// drag-select.
-    fn set_mouse_capture(&self, enable: bool) {
-        use crossterm::execute;
-        use std::io::stdout;
-        let mut out = stdout();
-        if enable {
-            let _ = execute!(out, crossterm::event::EnableMouseCapture);
-        } else {
-            let _ = execute!(out, crossterm::event::DisableMouseCapture);
-        }
-    }
-
-    /// Sync the viewer cache with whatever file is currently under the tree
-    /// cursor. No-op when viewer is disabled.
-    pub fn reload_viewer_for_cursor(&mut self) {
-        if !self.viewer.enabled {
-            return;
-        }
-        let Some(&actual_idx) = self.visible_tree.get(self.tree_cursor) else {
-            self.viewer.clear();
-            return;
-        };
-        let Some(entry) = self.tree_entries.get(actual_idx) else {
-            self.viewer.clear();
-            return;
-        };
-        let path = self.project_root.join(&entry.rel_path);
-        if entry.is_dir {
-            // Force a reload for directories too (the path is a dir; load will
-            // set ViewerError::Directory). Reset cached_path first so the
-            // idempotency short-circuit doesn't skip.
-            self.viewer.cached_path = None;
-        }
-        self.viewer.load_for_path(&path);
-    }
-
-    pub fn move_viewer_scroll(&mut self, delta: i32) {
-        let vh = self.viewer_last_viewport_height.get().max(1);
-        self.viewer.scroll_by(delta, vh);
-    }
-
-    pub fn scroll_viewer_to_top(&mut self) {
-        self.viewer.scroll_to_top();
-    }
-
-    pub fn scroll_viewer_to_bottom(&mut self) {
-        let vh = self.viewer_last_viewport_height.get().max(1);
-        self.viewer.scroll_to_bottom(vh);
-    }
-
-    pub fn set_viewer_viewport_height(&self, h: usize) {
-        self.viewer_last_viewport_height.set(h);
-    }
-
-    pub fn set_viewer_pane_rect(&self, rect: ratatui::layout::Rect) {
-        self.viewer_pane_rect.set(Some(rect));
-    }
-
-    /// Translate an absolute (col, row) mouse position to a 0-based line
-    /// index into the viewer's cached lines. Returns `None` if the click
-    /// fell outside the viewer's content area (on a border, in another
-    /// pane, or below the last line).
-    pub fn viewer_line_at(&self, col: u16, row: u16) -> Option<usize> {
-        let rect = self.viewer_pane_rect.get()?;
-        // Outside the pane entirely.
-        if col < rect.x || col >= rect.x + rect.width || row < rect.y || row >= rect.y + rect.height
-        {
-            return None;
-        }
-        // Inside borders (skip top border and bottom border).
-        if row == rect.y || row == rect.y + rect.height - 1 {
-            return None;
-        }
-        let row_offset = (row - rect.y - 1) as usize;
-        let line_idx = self.viewer.scroll + row_offset;
-        if line_idx >= self.viewer.lines().len() {
-            return None;
-        }
-        Some(line_idx)
-    }
-
-    /// Called on a left-button mouse-down event within the viewer pane.
-    /// Clears any prior selection and anchors a new drag.
-    pub fn viewer_mouse_down(&mut self, col: u16, row: u16) {
-        if let Some(line) = self.viewer_line_at(col, row) {
-            self.viewer.begin_selection(line);
-        }
-    }
-
-    /// Extend the active drag as the mouse moves with the button held.
-    pub fn viewer_mouse_drag(&mut self, col: u16, row: u16) {
-        if let Some(line) = self.viewer_line_at(col, row) {
-            self.viewer.extend_selection(line);
-        }
-    }
-
-    /// Finalize the drag (selection stays visible until cleared or added).
-    pub fn viewer_mouse_up(&mut self, _col: u16, _row: u16) {
-        self.viewer.end_drag();
-    }
-
-    /// Add the current viewer selection to the bundle as a Range item.
-    /// No-op if no selection or no cached file.
-    pub fn add_viewer_selection_to_bundle(&mut self) {
-        let Some((a, b)) = self.viewer.selection() else {
-            self.set_status("no lines selected (drag in the viewer first)");
-            return;
-        };
-        let Some(path) = self.viewer.cached_path.clone() else {
-            self.set_status("no file in viewer");
-            return;
-        };
-        // Path is absolute; bundle stores relative paths from project_root.
-        let rel = path
-            .strip_prefix(&self.project_root)
-            .unwrap_or(&path)
-            .to_path_buf();
-        // Lines are 0-based internally; bundle Range is 1-based inclusive.
-        let start = a + 1;
-        let end = b + 1;
-        self.bundle.add(Item {
-            path: rel.clone(),
-            kind: ItemKind::Range(Range { start, end }),
-            label: None,
-        });
-        self.bundled_paths.insert(rel.clone());
-        self.recalculate_tokens();
-        let _ = self.bundle.save(&self.root);
-        self.viewer.clear_selection();
-        self.set_status(format!("added {} lines {start}-{end}", rel.display()));
-    }
-
-    /// Current animation context (clock time + motion level).
-    pub fn anim_ctx(&self) -> AnimCtx {
-        AnimCtx {
-            now: self.clock.now(),
-            motion: self.motion,
-        }
-    }
-
-    /// Opacity of the currently-visible overlay (incoming during cross-fade).
-    /// 0.0 = not visible, 1.0 = fully visible. Drives the overlay blend.
-    pub fn incoming_overlay_opacity(&self) -> f32 {
-        if !self.mode.is_overlay() {
-            return 0.0;
-        }
-        let now = self.clock.now();
-        match &self.mode_transition {
-            Some(t) => {
-                let elapsed = now.saturating_duration_since(t.started);
-                if elapsed >= t.duration {
-                    1.0
-                } else {
-                    crate::tui::motion::ease_in_out_cubic(
-                        elapsed.as_secs_f32() / t.duration.as_secs_f32(),
-                    )
-                }
-            }
-            None => 1.0,
-        }
-    }
-
-    /// Opacity of the outgoing overlay during a cross-fade. 0.0 when there's
-    /// no outgoing overlay (i.e. the previous mode was Normal, or no
-    /// transition is in flight).
-    pub fn outgoing_overlay_opacity(&self) -> f32 {
-        let now = self.clock.now();
-        match &self.mode_transition {
-            Some(t) if t.prev.is_overlay() => {
-                let elapsed = now.saturating_duration_since(t.started);
-                if elapsed >= t.duration {
-                    0.0
-                } else {
-                    1.0 - crate::tui::motion::ease_in_out_cubic(
-                        elapsed.as_secs_f32() / t.duration.as_secs_f32(),
-                    )
-                }
-            }
-            _ => 0.0,
-        }
-    }
-
-    /// The outgoing overlay mode, if one is mid-fade-out.
-    pub fn outgoing_overlay_mode(&self) -> Option<&mode::Mode> {
-        self.mode_transition
-            .as_ref()
-            .filter(|t| t.prev.is_overlay())
-            .map(|t| &t.prev)
-    }
-
-    /// True iff any animation is in flight. Drives the render-loop timeout.
-    /// Task 12+ extend this to include per-feature animations (gauge, status,
-    /// etc.).
-    pub fn has_active_animations(&self) -> bool {
-        let now = self.clock.now();
-        if let Some(t) = &self.mode_transition {
-            if now.saturating_duration_since(t.started) < t.duration {
-                return true;
-            }
-        }
-        if self.token_gauge.is_active(now) {
-            return true;
-        }
-        if self.backdrop_dim.is_active(now) {
-            return true;
-        }
-        if self.status_fade.is_active(now) {
-            return true;
-        }
-        if self.focus_highlight.is_active(now) {
-            return true;
-        }
-        if self.startup_fade.is_active(now) {
-            return true;
-        }
-        if self.bundle_row_fades.values().any(|f| f.is_active(now)) {
-            return true;
-        }
-        false
-    }
-
-    /// How long the render loop should wait before waking up to run the
-    /// next animation frame or scheduled tick. Returns `Duration::ZERO` to
-    /// tick immediately, a finite duration for scheduled events (e.g. the
-    /// status fade-out trigger), or an effectively-infinite duration when
-    /// idle so event polling blocks on input.
-    pub fn next_wake_delay(&self) -> Duration {
-        if self.has_active_animations() {
-            return Duration::from_millis(16);
-        }
-        // Status fade-out is scheduled for after STATUS_IN + STATUS_HOLD.
-        if let Some(set_at) = self.status_set_at {
-            use crate::tui::motion::constants;
-            let now = self.clock.now();
-            let held = now.saturating_duration_since(set_at);
-            let fade_out_starts = constants::STATUS_IN + constants::STATUS_HOLD;
-            if held < fade_out_starts {
-                return fade_out_starts - held;
-            }
-            // Hold expired; hint the loop to wake up now and trigger fade-out.
-            return Duration::ZERO;
-        }
-        Duration::from_secs(3600)
-    }
-
-    /// Clear any transition whose duration has elapsed. Called from the
-    /// render loop after each draw.
-    pub fn cleanup_finished_animations(&mut self) {
-        let now = self.clock.now();
-        if let Some(t) = &self.mode_transition {
-            if now.saturating_duration_since(t.started) >= t.duration {
-                self.mode_transition = None;
-            }
-        }
-        // Drop settled row fades so the map doesn't grow unbounded.
-        self.bundle_row_fades.retain(|_, fade| fade.is_active(now));
-    }
-
-    /// Test-only constructor that installs a mock clock and forces Full
-    /// motion (so animations are observable without depending on env vars).
-    #[cfg(test)]
-    pub fn with_clock(root: CtxforgeRoot, clock: Box<dyn Clock>) -> Self {
-        let mut app = Self::new(root);
-        app.clock = clock;
-        app.motion = MotionLevel::Full;
-        app
-    }
-
-    pub fn new(root: CtxforgeRoot) -> Self {
-        let project_root = root.project_root().to_path_buf();
-        let bundle = Bundle::load_or_default(&root).unwrap_or_default();
-        let tree_entries = tree::build(&project_root);
-        let visible_tree = tree::visible_indices(&tree_entries);
-
-        let model_name = bundle
-            .model
-            .clone()
-            .unwrap_or_else(|| models::DEFAULT_MODEL.to_string());
-
-        let mut app = App {
-            root,
-            project_root,
-            bundle,
-            tree_entries,
-            visible_tree,
-            tree_cursor: 0,
-            bundle_cursor: 0,
-            focus: Focus::FileTree,
-            model_name,
-            model_window: 0,
-            item_tokens: Vec::new(),
-            total_tokens: 0,
-            exact_tokens: false,
-            token_gauge: crate::tui::motion::Gauge::new(0.0),
-            backdrop_dim: crate::tui::motion::Fade::new_hidden(),
-            status_fade: crate::tui::motion::Fade::new_hidden(),
-            status_set_at: None,
-            tree_list_state: std::cell::RefCell::new(ratatui::widgets::ListState::default()),
-            bundle_list_state: std::cell::RefCell::new(ratatui::widgets::ListState::default()),
-            focus_highlight: crate::tui::motion::Highlight::new(
-                crate::tui::theme::registry::default_theme().focus_tint(Focus::FileTree),
-            ),
-            startup_fade: crate::tui::motion::Fade::new_hidden(),
-            bundle_row_fades: std::collections::HashMap::new(),
-            viewer: crate::tui::viewer::ViewerState::new(),
-            viewer_last_viewport_height: std::cell::Cell::new(10),
-            viewer_pane_rect: std::cell::Cell::new(None),
-            bundled_paths: HashSet::new(),
-            search_results: Vec::new(),
-            profile_name: None,
-            pending_stdout: None,
-            pending_pipe: None,
-            mode: mode::Mode::Normal,
-            mode_transition: None,
-            clock: Box::new(SystemClock),
-            motion: crate::tui::motion::detect_motion(),
-            should_quit: false,
-            status_message: String::new(),
-            show_help: false,
-            tree_viewport_height: std::cell::Cell::new(0),
-            bundle_viewport_height: std::cell::Cell::new(0),
-            theme: {
-                let name = crate::paths::config_file_path()
-                    .map(|p| crate::tui::theme::config::resolve_theme_name(&p))
-                    .unwrap_or_else(|| "ctxforge".to_string());
-                crate::tui::theme::registry::by_name(&name)
-                    .unwrap_or_else(|| crate::tui::theme::registry::default_theme())
-            },
-            prompt_input: crate::tui::prompt_input::PromptInput::new(),
-            last_panel_focus: Focus::FileTree,
-            deliver_last: None,
-            prompt_override: None,
-            pending_editor: None,
-        };
-        // Seed the prompt input from any task text the bundle already carries.
-        if !app.bundle.task_text.is_empty() {
-            app.prompt_input.set_text(app.bundle.task_text.clone());
-        }
-        app.rebuild_bundled_paths();
-        app.recalculate_tokens();
-        // Snap the gauge to current total so startup doesn't fade from 0.
-        app.token_gauge.snap(app.total_tokens as f32);
-        // Kick the startup fade — the whole TUI fades in over STARTUP duration.
-        let ctx = app.anim_ctx();
-        app.startup_fade.set_over(
-            1.0,
-            crate::tui::motion::constants::STARTUP,
-            crate::tui::motion::ease_out_cubic,
-            &ctx,
+        // Clean terminal state after render loop exits.
+        let _ = crossterm::execute!(
+            std::io::stdout(),
+            DisableMouseCapture,
+            DisableBracketedPaste,
         );
-        app
-    }
 
-    /// Number of currently visible (non-collapsed) tree rows.
-    pub fn visible_tree_len(&self) -> usize {
-        self.visible_tree.len()
-    }
+        result?;
 
-    /// Run fuzzy search across all tree entries (files only) and populate
-    /// `search_results` ranked by score (best first). An empty query falls
-    /// back to the current visible tree so the result list is never empty
-    /// when the user first opens search.
-    pub fn run_search(&mut self, query: &str) {
-        if query.is_empty() {
-            self.search_results = self.visible_tree.clone();
-            return;
-        }
-        let matcher = SkimMatcherV2::default();
-        let mut scored: Vec<(usize, i64)> = self
-            .tree_entries
-            .iter()
-            .enumerate()
-            .filter(|(_, e)| !e.is_dir)
-            .filter_map(|(i, e)| {
-                let path_str = e.rel_path.to_string_lossy();
-                matcher
-                    .fuzzy_match(&path_str, query)
-                    .map(|score| (i, score))
-            })
-            .collect();
-        scored.sort_by(|a, b| b.1.cmp(&a.1));
-        self.search_results = scored.into_iter().map(|(i, _)| i).collect();
-    }
-
-    /// Toggle expand/collapse for the directory at the current tree cursor.
-    /// No-op if the cursor is on a file.
-    pub fn toggle_expand(&mut self) {
-        let Some(&actual_idx) = self.visible_tree.get(self.tree_cursor) else {
-            return;
-        };
-        let Some(entry) = self.tree_entries.get_mut(actual_idx) else {
-            return;
-        };
-        if !entry.is_dir {
-            return;
-        }
-        entry.expanded = !entry.expanded;
-        self.visible_tree = tree::visible_indices(&self.tree_entries);
-        // Clamp cursor to new visible range.
-        if !self.visible_tree.is_empty() && self.tree_cursor >= self.visible_tree.len() {
-            self.tree_cursor = self.visible_tree.len() - 1;
-        }
-        self.reload_viewer_for_cursor();
-    }
-
-    /// Toggle selection of the file at the current tree cursor.
-    pub fn toggle_current(&mut self) {
-        let Some(&actual_idx) = self.visible_tree.get(self.tree_cursor) else {
-            return;
-        };
-        let Some(entry) = self.tree_entries.get(actual_idx) else {
-            return;
-        };
-        if entry.is_dir {
-            return; // Can't select directories.
-        }
-
-        let path = entry.rel_path.clone();
-        if self.bundled_paths.contains(&path) {
-            // Remove from bundle.
-            self.bundle.remove_by_path(&path);
-            self.bundled_paths.remove(&path);
-            self.bundle_row_fades.remove(&path);
-            self.set_status(format!("removed {}", path.display()));
-        } else {
-            // Add to bundle.
-            let item = Item {
-                path: path.clone(),
-                kind: ItemKind::File,
-                label: None,
-            };
-            self.bundle.add(item);
-            self.bundled_paths.insert(path.clone());
-            // Kick a per-row fade-in.
-            let ctx = self.anim_ctx();
-            use crate::tui::motion::{Fade, constants, ease_out_cubic};
-            let mut fade = Fade::new_hidden();
-            fade.set_over(1.0, constants::ROW_IN, ease_out_cubic, &ctx);
-            self.bundle_row_fades.insert(path.clone(), fade);
-            self.set_status(format!("added {}", path.display()));
-        }
-
-        self.recalculate_tokens();
-        let _ = self.bundle.save(&self.root);
-    }
-
-    /// Copy bundle to clipboard.
-    pub fn copy_to_clipboard(&mut self) {
-        let resolved = resolve::resolve_all(&self.bundle.items, &self.project_root);
-        match resolved {
-            Ok(items) => {
-                let memory = crate::memory::collect_for_attach(&self.root, false, None, 10)
-                    .unwrap_or_default();
-                let rendered =
-                    crate::format::render(crate::format::Format::Markdown, &items, &memory);
-                match crate::clipboard::set(&rendered) {
-                    Ok(()) => {
-                        self.set_status(format!(
-                            "Copied {} items ({} tokens) to clipboard",
-                            self.bundle.len(),
-                            self.total_tokens
-                        ));
+        // Check if the render loop exited because of a PendingAction.
+        let action = PENDING.with(|p| p.borrow_mut().take());
+        match action {
+            None => return Ok(()), // Normal quit — no action, exit app.
+            Some(crate::tui::mode::PendingAction::Export(content)) => {
+                println!("{content}");
+                eprintln!("\nPress any key to return to ctxforge...");
+                let _ = crossterm::event::read();
+            }
+            Some(crate::tui::mode::PendingAction::Pipe { target, content }) => {
+                match std::process::Command::new(&target)
+                    .stdin(std::process::Stdio::piped())
+                    .spawn()
+                {
+                    Ok(mut child) => {
+                        if let Some(mut stdin) = child.stdin.take() {
+                            use std::io::Write;
+                            let _ = stdin.write_all(content.as_bytes());
+                        }
+                        let _ = child.wait();
                     }
                     Err(e) => {
-                        self.set_status(format!("Clipboard error: {e}"));
+                        eprintln!("Failed to start `{target}`: {e}");
+                        eprintln!("Press any key to return...");
+                        let _ = crossterm::event::read();
                     }
                 }
             }
-            Err(e) => {
-                self.set_status(format!("Resolve error: {e}"));
-            }
-        }
-    }
-
-    pub fn move_tree_cursor(&mut self, delta: i32) {
-        if self.visible_tree.is_empty() {
-            return;
-        }
-        let new = self.tree_cursor as i32 + delta;
-        self.tree_cursor = new.clamp(0, self.visible_tree.len() as i32 - 1) as usize;
-        self.reload_viewer_for_cursor();
-    }
-
-    /// Page-sized movement for the file tree. Uses the last captured viewport
-    /// height; falls back to 10 rows if nothing has been rendered yet.
-    pub fn page_tree_cursor(&mut self, direction: i32) {
-        let page = if self.tree_viewport_height.get() > 0 {
-            self.tree_viewport_height.get() as i32
-        } else {
-            10
-        };
-        self.move_tree_cursor(direction * page);
-    }
-
-    /// Half-page movement (Ctrl-D / Ctrl-U style) for the file tree.
-    pub fn half_page_tree_cursor(&mut self, direction: i32) {
-        let half = if self.tree_viewport_height.get() > 0 {
-            (self.tree_viewport_height.get() as i32 / 2).max(1)
-        } else {
-            5
-        };
-        self.move_tree_cursor(direction * half);
-    }
-
-    /// Page-sized movement for the bundle list.
-    pub fn page_bundle_cursor(&mut self, direction: i32) {
-        let page = if self.bundle_viewport_height.get() > 0 {
-            self.bundle_viewport_height.get() as i32
-        } else {
-            10
-        };
-        self.move_bundle_cursor(direction * page);
-    }
-
-    /// Half-page movement for the bundle list.
-    pub fn half_page_bundle_cursor(&mut self, direction: i32) {
-        let half = if self.bundle_viewport_height.get() > 0 {
-            (self.bundle_viewport_height.get() as i32 / 2).max(1)
-        } else {
-            5
-        };
-        self.move_bundle_cursor(direction * half);
-    }
-
-    /// Expand every directory in the tree. Keeps the cursor on the same file
-    /// (by relative path) when possible.
-    pub fn expand_all_dirs(&mut self) {
-        let anchor = self.cursor_anchor_path();
-        tree::expand_all(&mut self.tree_entries);
-        self.visible_tree = tree::visible_indices(&self.tree_entries);
-        self.restore_cursor_from_anchor(anchor);
-        self.reload_viewer_for_cursor();
-        self.set_status("expanded all directories");
-    }
-
-    /// Collapse every directory in the tree. Cursor is kept on the same file
-    /// if it's still visible, otherwise clamped to the last visible row.
-    pub fn collapse_all_dirs(&mut self) {
-        let anchor = self.cursor_anchor_path();
-        tree::collapse_all(&mut self.tree_entries);
-        self.visible_tree = tree::visible_indices(&self.tree_entries);
-        self.restore_cursor_from_anchor(anchor);
-        self.reload_viewer_for_cursor();
-        self.set_status("collapsed all directories");
-    }
-
-    fn cursor_anchor_path(&self) -> Option<PathBuf> {
-        self.visible_tree
-            .get(self.tree_cursor)
-            .and_then(|&idx| self.tree_entries.get(idx))
-            .map(|e| e.rel_path.clone())
-    }
-
-    fn restore_cursor_from_anchor(&mut self, anchor: Option<PathBuf>) {
-        if self.visible_tree.is_empty() {
-            self.tree_cursor = 0;
-            return;
-        }
-        if let Some(path) = anchor {
-            if let Some(pos) = self
-                .visible_tree
-                .iter()
-                .position(|&i| self.tree_entries.get(i).map(|e| &e.rel_path) == Some(&path))
-            {
-                self.tree_cursor = pos;
-                return;
-            }
-        }
-        if self.tree_cursor >= self.visible_tree.len() {
-            self.tree_cursor = self.visible_tree.len() - 1;
-        }
-    }
-
-    pub fn move_bundle_cursor(&mut self, delta: i32) {
-        if self.bundle.is_empty() {
-            return;
-        }
-        let new = self.bundle_cursor as i32 + delta;
-        self.bundle_cursor = new.clamp(0, self.bundle.len() as i32 - 1) as usize;
-    }
-
-    pub fn window_pct(&self) -> f64 {
-        if self.model_window == 0 {
-            return 0.0;
-        }
-        (self.total_tokens as f64 / self.model_window as f64) * 100.0
-    }
-
-    /// Start narrow mode for the current bundle item. No-op unless the
-    /// BundleList panel is focused and the cursor is on a `File` item.
-    pub fn start_narrow(&mut self) {
-        if self.focus != Focus::BundleList {
-            return;
-        }
-        if let Some(item) = self.bundle.items.get(self.bundle_cursor) {
-            if matches!(item.kind, ItemKind::File) {
-                self.set_mode(mode::Mode::Narrow {
-                    start: String::new(),
-                    end: String::new(),
-                    field: mode::InputField::First,
-                });
-            }
-        }
-    }
-
-    /// Confirm narrow: replace the current bundle item's kind with a Range.
-    /// Validates that both inputs parse and that start <= end.
-    pub fn confirm_narrow(&mut self) {
-        // Pull start/end out of the mode before mutating self further.
-        let (start_str, end_str) = match self.mode() {
-            mode::Mode::Narrow { start, end, .. } => (start.clone(), end.clone()),
-            _ => return,
-        };
-
-        let start_num: usize = match start_str.parse() {
-            Ok(n) if n >= 1 => n,
-            _ => {
-                self.set_status("Invalid start line");
-                return;
-            }
-        };
-        let end_num: usize = match end_str.parse() {
-            Ok(n) if n >= start_num => n,
-            _ => {
-                self.set_status("Invalid end line (must be >= start)");
-                return;
-            }
-        };
-
-        if let Some(item) = self.bundle.items.get_mut(self.bundle_cursor) {
-            item.kind = ItemKind::Range(Range {
-                start: start_num,
-                end: end_num,
-            });
-        }
-        self.recalculate_tokens();
-        let _ = self.bundle.save(&self.root);
-        self.set_status(format!("Narrowed to lines {start_num}-{end_num}"));
-        self.set_mode(mode::Mode::Normal);
-    }
-
-    /// Save current bundle as a named profile under `.ctxforge/profiles/`.
-    pub fn save_profile(&mut self, name: &str) {
-        match crate::profile::save(&self.root, name, &self.bundle) {
-            Ok(()) => {
-                self.profile_name = Some(name.to_string());
-                self.set_status(format!("Saved profile '{name}'"));
-            }
-            Err(e) => {
-                self.set_status(format!("Save error: {e}"));
-            }
-        }
-        self.set_mode(mode::Mode::Normal);
-    }
-
-    /// Open the load-profile picker. If no profiles exist, sets a status
-    /// message and returns to Normal mode without entering LoadProfile mode.
-    pub fn start_load_profile(&mut self) {
-        match crate::profile::list(&self.root) {
-            Ok(profiles) => {
-                if profiles.is_empty() {
-                    self.set_status("No profiles saved yet");
-                } else {
-                    self.set_mode(mode::Mode::LoadProfile {
-                        cursor: 0,
-                        profiles,
-                    });
-                }
-            }
-            Err(e) => {
-                self.set_status(format!("Profile list error: {e}"));
-            }
-        }
-    }
-
-    /// Load whichever profile the cursor is on inside `LoadProfile` mode.
-    pub fn load_selected_profile(&mut self) {
-        // Pull the chosen name out of the mode before mutating self.
-        let chosen = if let mode::Mode::LoadProfile { cursor, profiles } = self.mode() {
-            profiles.get(*cursor).cloned()
-        } else {
-            None
-        };
-        if let Some(name) = chosen {
-            match crate::profile::load(&self.root, &name) {
-                Ok(bundle) => {
-                    self.bundle = bundle;
-                    self.rebuild_bundled_paths();
-                    self.recalculate_tokens();
-                    let _ = self.bundle.save(&self.root);
-                    self.profile_name = Some(name.clone());
-                    self.set_status(format!("Loaded profile '{name}'"));
-                }
-                Err(e) => {
-                    self.set_status(format!("Load error: {e}"));
+            Some(crate::tui::mode::PendingAction::Editor(starting)) => {
+                match crate::editor::spawn_editor(&starting) {
+                    Ok(_updated) => {
+                        // TODO: apply the edited text as a prompt override
+                    }
+                    Err(e) => {
+                        eprintln!("editor: {e}");
+                        eprintln!("Press any key to return...");
+                        let _ = crossterm::event::read();
+                    }
                 }
             }
         }
-        self.set_mode(mode::Mode::Normal);
-    }
 
-    /// Render the bundle as XML and stash it in `pending_stdout` so the run
-    /// loop can drain the alternate screen before printing.
-    pub fn export_xml_to_stdout(&mut self) {
-        match resolve::resolve_all(&self.bundle.items, &self.project_root) {
-            Ok(items) => {
-                let memory = crate::memory::collect_for_attach(&self.root, false, None, 10)
-                    .unwrap_or_default();
-                let rendered = crate::format::render(crate::format::Format::Xml, &items, &memory);
-                self.pending_stdout = Some(rendered);
-                self.set_status("Exported XML to stdout");
+        // Reload AppData from disk so the next render-loop iteration
+        // picks up any changes the external action made (e.g. editor).
+        let root = ROOT_STASH.with(|r| r.borrow().clone())
+            .expect("ROOT_STASH should be set");
+        STARTUP.with(|s| *s.borrow_mut() = Some(load_app_data(root)));
+    }
+}
+
+// Max tree rows rendered per frame. Phase 1 does no scrolling; we clip to
+// a reasonable viewport so the layout doesn't overflow. Phase 2 adds
+// proper viewport tracking + scrolling.
+// Chrome rows: header (3) + prompt input min (4) + footer (2) = 9.
+const CHROME_ROWS: usize = 9;
+
+/// Height available for the tree panel's scrollable content.
+/// Tree panel is 60% of the left column's main-row height; subtract the
+/// panel's own 4 rows of chrome (2 borders + title + blank).
+fn tree_viewport(term_h: u16) -> usize {
+    ((term_h as usize).saturating_sub(CHROME_ROWS) * 60 / 100)
+        .saturating_sub(4)
+        .max(6)
+}
+
+/// Height available for the viewer panel's scrollable content.
+/// Viewer takes the full main-row height when enabled.
+fn viewer_viewport(term_h: u16) -> usize {
+    (term_h as usize)
+        .saturating_sub(CHROME_ROWS)
+        .saturating_sub(4)
+        .max(6)
+}
+
+// ─── App component ───────────────────────────────────────────────────
+
+#[component]
+fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
+    let mut app_data = hooks.use_state(|| {
+        STARTUP
+            .with(|s| s.borrow_mut().take())
+            .unwrap_or_else(|| panic!("tui2 app data missing"))
+    });
+
+    let mut focus: State<Focus> = hooks.use_state(|| Focus::FileTree);
+    let mut cursor: State<usize> = hooks.use_state(|| 0usize);
+    let mut should_quit: State<bool> = hooks.use_state(|| false);
+    let mut mode: State<crate::tui::mode::Mode> = hooks.use_state(crate::tui::mode::Mode::default);
+    let mut prompt_input: State<PromptInput> = hooks.use_state(|| {
+        let initial = app_data.read().bundle.task_text.clone();
+        PromptInput::with_text(initial)
+    });
+    let viewer_events: State<Vec<crate::tui::components::viewer::ViewerMouseEvent>> =
+        hooks.use_state(Vec::new);
+
+    // Auto-clear status message after 3 seconds. The future polls the
+    // status_set_at timestamp; when 3s have elapsed, it clears the message.
+    {
+        let mut app_data_for_timer = app_data;
+        hooks.use_future(async move {
+            loop {
+                smol::Timer::after(std::time::Duration::from_secs(1)).await;
+                let should_clear = {
+                    let d = app_data_for_timer.read();
+                    d.status_set_at
+                        .map(|t| t.elapsed() >= std::time::Duration::from_secs(3) && !d.status.is_empty())
+                        .unwrap_or(false)
+                };
+                if should_clear {
+                    let mut d = app_data_for_timer.write();
+                    d.status.clear();
+                    d.status_set_at = None;
+                }
             }
-            Err(e) => {
-                self.set_status(format!("Export error: {e}"));
-            }
-        }
-    }
-
-    /// Switch to a different model and recompute token counts. Persists the
-    /// new model on the bundle so it survives restart.
-    pub fn switch_model(&mut self, model_name: &str) {
-        self.model_name = model_name.to_string();
-        self.bundle.model = Some(model_name.to_string());
-        self.recalculate_tokens();
-        let _ = self.bundle.save(&self.root);
-        self.set_status(format!("Switched to {model_name}"));
-        self.set_mode(mode::Mode::Normal);
-    }
-
-    /// Start function pick mode (extract feature only). Performs a project-wide
-    /// tree-sitter scan synchronously — fast on small projects, slower on
-    /// large ones. Sets a status message instead of opening if no functions
-    /// are found in any supported language.
-    #[cfg(feature = "extract")]
-    pub fn start_function_pick(&mut self) {
-        let items = crate::extract::scan::scan_functions(&self.project_root);
-        if items.is_empty() {
-            self.set_status("No functions found in project");
-        } else {
-            self.set_mode(mode::Mode::FunctionPick { cursor: 0, items });
-        }
-    }
-
-    /// Start type pick mode (extract feature only). Same semantics as
-    /// `start_function_pick` but scans for type/struct/class/interface defs.
-    #[cfg(feature = "extract")]
-    pub fn start_type_pick(&mut self) {
-        let items = crate::extract::scan::scan_types(&self.project_root);
-        if items.is_empty() {
-            self.set_status("No types found in project");
-        } else {
-            self.set_mode(mode::Mode::TypePick { cursor: 0, items });
-        }
-    }
-
-    /// Add the function under the FunctionPick cursor to the bundle.
-    #[cfg(feature = "extract")]
-    pub fn add_picked_function(&mut self) {
-        let chosen = if let mode::Mode::FunctionPick { cursor, items } = self.mode() {
-            items.get(*cursor).cloned()
-        } else {
-            None
-        };
-        if let Some((name, path)) = chosen {
-            let item = Item {
-                path,
-                kind: ItemKind::Function { name: name.clone() },
-                label: None,
-            };
-            self.bundle.add(item);
-            self.rebuild_bundled_paths();
-            self.recalculate_tokens();
-            let _ = self.bundle.save(&self.root);
-            self.set_status(format!("Added fn:{name}"));
-        }
-        self.set_mode(mode::Mode::Normal);
-    }
-
-    /// Add the type under the TypePick cursor to the bundle.
-    #[cfg(feature = "extract")]
-    pub fn add_picked_type(&mut self) {
-        let chosen = if let mode::Mode::TypePick { cursor, items } = self.mode() {
-            items.get(*cursor).cloned()
-        } else {
-            None
-        };
-        if let Some((name, path)) = chosen {
-            let item = Item {
-                path,
-                kind: ItemKind::Type { name: name.clone() },
-                label: None,
-            };
-            self.bundle.add(item);
-            self.rebuild_bundled_paths();
-            self.recalculate_tokens();
-            let _ = self.bundle.save(&self.root);
-            self.set_status(format!("Added type:{name}"));
-        }
-        self.set_mode(mode::Mode::Normal);
-    }
-
-    /// Start diff pick mode — opens a branch-name input first, then a
-    /// multi-select list of changed files.
-    pub fn start_diff_pick(&mut self) {
-        self.set_mode(mode::Mode::DiffPick {
-            branch: "main".into(),
-            files: Vec::new(),
-            selected: std::collections::HashSet::new(),
-            cursor: 0,
-            entering_branch: true,
         });
     }
+    // Background file-load result slot. `spawn_viewer_load` writes a
+    // (generation, path, ViewerLoad) tuple here when done; the render
+    // body below reads it and applies only if the generation still
+    // matches the current viewer load (so an old slow load can't clobber
+    // a newer one).
+    let viewer_bg_result: ViewerBgSlot = hooks.use_state(|| None);
 
-    /// Load the changed files for the entered branch and switch to the
-    /// file-selection phase. On error or empty diff, drops back to Normal
-    /// with a status message.
-    pub fn load_diff_files(&mut self) {
-        let branch = if let mode::Mode::DiffPick { branch, .. } = self.mode() {
-            branch.clone()
-        } else {
-            return;
-        };
-        match crate::git::changed_files(&self.project_root, &branch) {
-            Ok(changed) => {
-                if changed.is_empty() {
-                    self.set_status(format!("No changes vs {branch}"));
-                    self.set_mode(mode::Mode::Normal);
+    // Startup fade: animate opacity 0→1 over 260ms. On first render the
+    // flag is false → target 0 → invisible. Flag flips to true on first
+    // render → target 1 → tween fires on the second render.
+    let mut startup_flag = hooks.use_state(|| false);
+    if !startup_flag.get() {
+        startup_flag.set(true);
+    }
+    let startup_target = if startup_flag.get() { 1.0f32 } else { 0.0f32 };
+    let _startup_opacity = use_animated(
+        hooks,
+        startup_target,
+        crate::motion_core::constants::STARTUP,
+        crate::motion_core::ease_out_cubic,
+    );
+
+    let (raw_term_w, raw_term_h) = hooks.use_terminal_size();
+    // Fall back to a live `terminal::size()` query only when iocraft
+    // still reports zero, which happens on some terminals for one frame
+    // at startup. If that also fails we leave raw as-is (never synthesize
+    // dimensions that might mismatch the real terminal and paint into
+    // a corner).
+    let (term_w, term_h) = if raw_term_w == 0 || raw_term_h == 0 {
+        crossterm::terminal::size()
+            .ok()
+            .filter(|(w, h)| *w > 0 && *h > 0)
+            .unwrap_or((raw_term_w, raw_term_h))
+    } else {
+        (raw_term_w, raw_term_h)
+    };
+
+    let data = app_data.read();
+    // Only show entries that aren't inside a collapsed directory
+    let visible_indices = tree::visible_indices(&data.tree_entries);
+    let visible_count = visible_indices.len();
+    let max_cursor = visible_count.saturating_sub(1);
+
+    hooks.use_terminal_events({
+        move |event| {
+            if let TerminalEvent::Key(k) = event {
+                if k.kind != KeyEventKind::Press {
                     return;
                 }
-                if let mode::Mode::DiffPick {
-                    files,
-                    entering_branch,
-                    ..
-                } = self.mode_mut()
-                {
-                    *files = changed;
-                    *entering_branch = false;
-                }
-            }
-            Err(e) => {
-                self.set_status(format!("Diff error: {e}"));
-                self.set_mode(mode::Mode::Normal);
-            }
-        }
-    }
-
-    /// Add all selected diff files to the bundle.
-    pub fn add_selected_diff_files(&mut self) {
-        let to_add: Vec<PathBuf> = if let mode::Mode::DiffPick {
-            files, selected, ..
-        } = &self.mode
-        {
-            selected
-                .iter()
-                .filter_map(|&idx| files.get(idx).cloned())
-                .collect()
-        } else {
-            Vec::new()
-        };
-        let count = to_add.len();
-        for path in to_add {
-            self.bundle.add(Item {
-                path,
-                kind: ItemKind::File,
-                label: None,
-            });
-        }
-        if count > 0 {
-            self.rebuild_bundled_paths();
-            self.recalculate_tokens();
-            let _ = self.bundle.save(&self.root);
-            self.set_status(format!("Added {count} changed file(s)"));
-        }
-        self.set_mode(mode::Mode::Normal);
-    }
-
-    /// Open or close the memory recall panel. Reads notes from the JSONL
-    /// index — sets a status message instead of opening if there are none.
-    pub fn toggle_memory_panel(&mut self) {
-        if matches!(self.mode(), mode::Mode::MemoryPanel { .. }) {
-            self.set_mode(mode::Mode::Normal);
-            return;
-        }
-        match crate::memory::index::read_all(&self.root) {
-            Ok(notes) => {
-                let count = notes.len();
-                if count == 0 {
-                    self.set_status("No memory notes yet");
-                } else {
-                    self.set_mode(mode::Mode::MemoryPanel { cursor: 0, count });
-                }
-            }
-            Err(e) => {
-                self.set_status(format!("Memory error: {e}"));
-            }
-        }
-    }
-
-    /// Persist the inline note from `Mode::AddNote`. Validates the body is
-    /// not empty before writing. An empty tag becomes `None` (untagged → goes
-    /// to `decisions.md`).
-    pub fn write_note_inline(&mut self) {
-        let (tag, body) = if let mode::Mode::AddNote { tag, body, .. } = self.mode() {
-            (tag.clone(), body.clone())
-        } else {
-            return;
-        };
-
-        if body.trim().is_empty() {
-            self.set_status("Note body cannot be empty");
-            self.set_mode(mode::Mode::Normal);
-            return;
-        }
-        let tag_opt = if tag.trim().is_empty() {
-            None
-        } else {
-            Some(tag)
-        };
-        match crate::memory::write_note(&self.root, body, tag_opt) {
-            Ok(note) => {
-                let ts = note.timestamp.format("%Y-%m-%d %H:%M");
-                self.set_status(format!("Noted: [{ts}] {}", note.body));
-            }
-            Err(e) => {
-                self.set_status(format!("Note error: {e}"));
-            }
-        }
-        self.set_mode(mode::Mode::Normal);
-    }
-
-    /// Pipe the rendered bundle to a local agent CLI. Targets `claude` get
-    /// XML; everything else gets markdown. The actual subprocess spawn is
-    /// deferred to the run loop via `pending_pipe`.
-    pub fn pipe_to_agent(&mut self, target: &str) {
-        let fmt = match target {
-            "claude" => crate::format::Format::Xml,
-            _ => crate::format::Format::Markdown,
-        };
-        match resolve::resolve_all(&self.bundle.items, &self.project_root) {
-            Ok(items) => {
-                let memory = crate::memory::collect_for_attach(&self.root, false, None, 10)
-                    .unwrap_or_default();
-                let rendered = crate::format::render(fmt, &items, &memory);
-                self.pending_pipe = Some((target.to_string(), rendered));
-            }
-            Err(e) => {
-                self.set_status(format!("Pipe error: {e}"));
-            }
-        }
-        self.set_mode(mode::Mode::Normal);
-    }
-
-    pub(crate) fn rebuild_bundled_paths(&mut self) {
-        self.bundled_paths = self.bundle.items.iter().map(|i| i.path.clone()).collect();
-    }
-
-    /// Switch to a named scenario. Validates against the available list
-    /// (built-in starters + project/global templates) and persists to
-    /// `.ctxforge/bundle.json`. Returns `Ok(())` on success; callers set
-    /// the status message based on the outcome.
-    pub fn set_scenario(&mut self, name: &str) -> Result<(), String> {
-        let available = crate::tui::scenario::available(&self.root);
-        if !available.iter().any(|s| s.name == name) {
-            return Err(format!("unknown scenario: {name}"));
-        }
-        self.bundle.scenario = Some(name.to_string());
-        self.bundle
-            .save(&self.root)
-            .map_err(|e| format!("save bundle: {e}"))?;
-        self.set_status(format!("scenario: {name}"));
-        Ok(())
-    }
-
-    /// Open the scenario picker exactly once, if the bundle has no scenario
-    /// recorded. Called by the run loop before the first draw so new users
-    /// are prompted to pick a scenario; returning users with a saved
-    /// scenario see a no-op.
-    pub fn auto_open_scenario_picker_if_needed(&mut self) {
-        if self.bundle.scenario.is_none() {
-            self.open_scenario_picker();
-        }
-    }
-
-    /// Open the scenario picker overlay. If a scenario is already set, the
-    /// cursor starts on it; otherwise on the first built-in starter.
-    pub fn open_scenario_picker(&mut self) {
-        let scenarios = crate::tui::scenario::available(&self.root);
-        if scenarios.is_empty() {
-            // Built-ins are always present so this really only fires if the
-            // binary was trimmed to zero starters at build time — warn loudly.
-            self.set_status("no scenarios available");
-            return;
-        }
-        let cursor = self
-            .bundle
-            .scenario
-            .as_deref()
-            .and_then(|active| scenarios.iter().position(|s| s.name == active))
-            .unwrap_or(0);
-        self.set_mode(crate::tui::mode::Mode::ScenarioPick { cursor, scenarios });
-    }
-
-    /// Switch to a named theme and persist the choice to
-    /// `~/.config/ctxforge/config.toml`. Falls back with an error status
-    /// message if the name does not match a known theme.
-    pub fn set_theme_by_name(&mut self, name: &str) {
-        let Some(theme) = crate::tui::theme::registry::by_name(name) else {
-            self.set_status(format!("unknown theme: {name}"));
-            return;
-        };
-        self.theme = theme;
-        if let Some(path) = crate::paths::config_file_path() {
-            let mut cfg = crate::tui::theme::config::load_from(&path).unwrap_or_default();
-            cfg.theme = name.to_string();
-            if let Err(e) = crate::tui::theme::config::save_to(&path, &cfg) {
-                self.set_status(format!("theme set but config save failed: {e}"));
-                return;
-            }
-        }
-        self.set_status(format!("theme: {name}"));
-    }
-
-    /// Short status message setter. Kicks off a fade-in animation; the
-    /// render loop handles the fade-out after STATUS_HOLD via
-    /// `tick_status_fade`.
-    pub fn set_status(&mut self, msg: impl Into<String>) {
-        self.status_message = msg.into();
-        if self.status_message.is_empty() {
-            self.status_set_at = None;
-            self.status_fade.snap(0.0);
-            return;
-        }
-        let now = self.clock.now();
-        self.status_set_at = Some(now);
-        let ctx = self.anim_ctx();
-        use crate::tui::motion::{constants, ease_out_cubic};
-        self.status_fade
-            .set_over(1.0, constants::STATUS_IN, ease_out_cubic, &ctx);
-    }
-
-    /// Advance the status-message fade state machine. Should be called each
-    /// render-loop iteration. After STATUS_IN + STATUS_HOLD, triggers the
-    /// fade-out; after the fade-out completes, clears the message text.
-    pub fn tick_status_fade(&mut self) {
-        use crate::tui::motion::{constants, ease_in_cubic};
-        let Some(set_at) = self.status_set_at else {
-            return;
-        };
-        let now = self.clock.now();
-        let held = now.saturating_duration_since(set_at);
-        let fade_out_starts_at = constants::STATUS_IN + constants::STATUS_HOLD;
-        let fully_gone_at = fade_out_starts_at + constants::STATUS_OUT;
-
-        if held >= fade_out_starts_at
-            && self.status_fade.opacity(now) > 0.0
-            && !self.status_fade.is_active(now)
-        {
-            let ctx = self.anim_ctx();
-            self.status_fade
-                .set_over(0.0, constants::STATUS_OUT, ease_in_cubic, &ctx);
-        }
-        if held >= fully_gone_at {
-            self.status_message.clear();
-            self.status_set_at = None;
-        }
-    }
-
-    /// Open the template flow: if a name is given inline, jump to task input;
-    /// otherwise open the template picker.
-    pub fn start_template_flow(&mut self, name: Option<String>) {
-        if let Some(n) = name {
-            if !n.is_empty() {
-                match crate::template::resolve_template_path(&self.root, &n) {
-                    Ok(_) => {
-                        self.set_mode(mode::Mode::TemplateTask {
-                            template_name: n,
-                            task: String::new(),
-                        });
-                        return;
+                // ── Welcome splash: q quits, any other key enters the app ──
+                if matches!(*mode.read(), crate::tui::mode::Mode::Welcome) {
+                    if matches!(k.code, KeyCode::Char('q')) {
+                        *should_quit.write() = true;
+                    } else {
+                        *mode.write() = crate::tui::mode::Mode::Normal;
                     }
-                    Err(e) => {
-                        self.set_status(format!("template error: {e}"));
-                        return;
+                    return;
+                }
+
+                // ── Search mode: accumulate chars, Esc cancels, Enter confirms ──
+                if matches!(*mode.read(), crate::tui::mode::Mode::Search { .. }) {
+                    match k.code {
+                        KeyCode::Esc | KeyCode::Enter => {
+                            *mode.write() = crate::tui::mode::Mode::Normal;
+                            return;
+                        }
+                        KeyCode::Backspace => {
+                            if let crate::tui::mode::Mode::Search { query } = &mut *mode.write() {
+                                query.pop();
+                            }
+                            return;
+                        }
+                        KeyCode::Char(c) => {
+                            if let crate::tui::mode::Mode::Search { query } = &mut *mode.write() {
+                                query.push(c);
+                            }
+                            return;
+                        }
+                        _ => return,
                     }
                 }
+
+                // ── Help overlay ────────────────────────────────
+                if matches!(*mode.read(), crate::tui::mode::Mode::Help) {
+                    match k.code {
+                        KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
+                            *mode.write() = crate::tui::mode::Mode::Normal;
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+
+                // ── Scenario picker overlay ─────────────────────
+                if matches!(*mode.read(), crate::tui::mode::Mode::ScenarioPicker { .. }) {
+                    let scenarios = crate::tui::overlays::scenario_picker::load(&app_data.read().root);
+                    let count = scenarios.len();
+                    match k.code {
+                        KeyCode::Esc => {
+                            *mode.write() = crate::tui::mode::Mode::Normal;
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            if let crate::tui::mode::Mode::ScenarioPicker { cursor } = &mut *mode.write() {
+                                if *cursor > 0 {
+                                    *cursor -= 1;
+                                }
+                            }
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            if let crate::tui::mode::Mode::ScenarioPicker { cursor } = &mut *mode.write() {
+                                if *cursor + 1 < count {
+                                    *cursor += 1;
+                                }
+                            }
+                        }
+                        KeyCode::Enter => {
+                            let cur = match *mode.read() {
+                                crate::tui::mode::Mode::ScenarioPicker { cursor } => cursor,
+                                _ => 0,
+                            };
+                            if let Some(picked) = scenarios.get(cur) {
+                                let name = picked.name.clone();
+                                app_data.write().set_scenario(Some(name));
+                            }
+                            *mode.write() = crate::tui::mode::Mode::Normal;
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+
+                // ── Theme picker overlay ────────────────────────
+                if matches!(*mode.read(), crate::tui::mode::Mode::ThemePicker { .. }) {
+                    let themes = crate::tui::overlays::theme_picker::all();
+                    let count = themes.len();
+                    match k.code {
+                        KeyCode::Esc => {
+                            *mode.write() = crate::tui::mode::Mode::Normal;
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            if let crate::tui::mode::Mode::ThemePicker { cursor } = &mut *mode.write() {
+                                if *cursor > 0 {
+                                    *cursor -= 1;
+                                }
+                            }
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            if let crate::tui::mode::Mode::ThemePicker { cursor } = &mut *mode.write() {
+                                if *cursor + 1 < count {
+                                    *cursor += 1;
+                                }
+                            }
+                        }
+                        KeyCode::Enter => {
+                            let cur = match *mode.read() {
+                                crate::tui::mode::Mode::ThemePicker { cursor } => cursor,
+                                _ => 0,
+                            };
+                            if let Some(picked) = themes.get(cur) {
+                                let name = picked.name.to_string();
+                                let _ = app_data.write().apply_theme(&name);
+                            }
+                            *mode.write() = crate::tui::mode::Mode::Normal;
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+
+                // ── @ file picker ──────────────────────────────
+                if matches!(*mode.read(), crate::tui::mode::Mode::AtPicker { .. }) {
+                    match k.code {
+                        KeyCode::Esc => {
+                            // Cancel — remove the '@' we inserted
+                            prompt_input.write().backspace();
+                            let text = prompt_input.read().text().to_string();
+                            app_data.write().sync_task_text(text);
+                            *mode.write() = crate::tui::mode::Mode::Normal;
+                        }
+                        KeyCode::Backspace => {
+                            let query_empty = matches!(
+                                &*mode.read(),
+                                crate::tui::mode::Mode::AtPicker { query, .. } if query.is_empty()
+                            );
+                            if query_empty {
+                                prompt_input.write().backspace();
+                                let text = prompt_input.read().text().to_string();
+                                app_data.write().sync_task_text(text);
+                                *mode.write() = crate::tui::mode::Mode::Normal;
+                            } else {
+                                if let crate::tui::mode::Mode::AtPicker { query, cursor, .. } =
+                                    &mut *mode.write()
+                                {
+                                    query.pop();
+                                    *cursor = 0;
+                                }
+                                prompt_input.write().backspace();
+                                let text = prompt_input.read().text().to_string();
+                                app_data.write().sync_task_text(text);
+                            }
+                        }
+                        KeyCode::Up => {
+                            if let crate::tui::mode::Mode::AtPicker { cursor, .. } =
+                                &mut *mode.write()
+                            {
+                                if *cursor > 0 {
+                                    *cursor -= 1;
+                                }
+                            }
+                        }
+                        KeyCode::Down => {
+                            if let crate::tui::mode::Mode::AtPicker {
+                                cursor,
+                                query,
+                                files,
+                            } = &mut *mode.write()
+                            {
+                                let ranked = crate::prompt_input::at_picker::rank(
+                                    files,
+                                    query,
+                                    crate::prompt_input::at_picker::RESULT_LIMIT,
+                                );
+                                if *cursor + 1 < ranked.len() {
+                                    *cursor += 1;
+                                }
+                            }
+                        }
+                        KeyCode::Enter => {
+                            let picked = {
+                                let m = mode.read();
+                                if let crate::tui::mode::Mode::AtPicker {
+                                    cursor,
+                                    query,
+                                    files,
+                                } = &*m
+                                {
+                                    let ranked = crate::prompt_input::at_picker::rank(
+                                        files,
+                                        query,
+                                        crate::prompt_input::at_picker::RESULT_LIMIT,
+                                    );
+                                    ranked.get(*cursor).cloned()
+                                } else {
+                                    None
+                                }
+                            };
+                            if let Some(path) = picked {
+                                // Replace the @query with @full_path
+                                let cursor_pos = prompt_input.read().cursor();
+                                let text = prompt_input.read().text().to_string();
+                                let query_len = match &*mode.read() {
+                                    crate::tui::mode::Mode::AtPicker { query, .. } => query.len(),
+                                    _ => 0,
+                                };
+                                // The prompt text has "@<query>" before the cursor.
+                                // Replace the query portion with the full path.
+                                let at_start = cursor_pos.saturating_sub(query_len);
+                                let path_str = path.display().to_string();
+                                let mut new_text = text;
+                                new_text.replace_range(at_start..cursor_pos, &path_str);
+                                let new_cursor = at_start + path_str.len();
+                                prompt_input.write().set_text(new_text.clone());
+                                prompt_input.write().set_cursor(new_cursor);
+                                app_data.write().sync_task_text(
+                                    prompt_input.read().text().to_string(),
+                                );
+                                // Add to bundle if not already there
+                                if !app_data.read().bundled_paths.contains(&path) {
+                                    app_data.write().toggle_bundle(&path);
+                                }
+                            }
+                            *mode.write() = crate::tui::mode::Mode::Normal;
+                        }
+                        KeyCode::Char(c) => {
+                            if let crate::tui::mode::Mode::AtPicker { query, cursor, .. } =
+                                &mut *mode.write()
+                            {
+                                query.push(c);
+                                *cursor = 0;
+                            }
+                            prompt_input.write().insert_char(c);
+                            let text = prompt_input.read().text().to_string();
+                            app_data.write().sync_task_text(text);
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+
+                // ── Full prompt preview overlay ─────────────────
+                if matches!(*mode.read(), crate::tui::mode::Mode::FullPromptPreview { .. }) {
+                    match k.code {
+                        KeyCode::Esc | KeyCode::Char('P') | KeyCode::Char('q') => {
+                            *mode.write() = crate::tui::mode::Mode::Normal;
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            if let crate::tui::mode::Mode::FullPromptPreview { scroll, .. } =
+                                &mut *mode.write()
+                            {
+                                *scroll = scroll.saturating_sub(1);
+                            }
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            if let crate::tui::mode::Mode::FullPromptPreview { scroll, .. } =
+                                &mut *mode.write()
+                            {
+                                *scroll += 1;
+                            }
+                        }
+                        KeyCode::Char('g') => {
+                            if let crate::tui::mode::Mode::FullPromptPreview { scroll, .. } =
+                                &mut *mode.write()
+                            {
+                                *scroll = 0;
+                            }
+                        }
+                        KeyCode::Char('G') => {
+                            if let crate::tui::mode::Mode::FullPromptPreview {
+                                scroll, content,
+                            } = &mut *mode.write()
+                            {
+                                let total = content.lines().count();
+                                *scroll = total.saturating_sub(20);
+                            }
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+
+                // ── Delivery picker overlay ─────────────────────
+                if matches!(*mode.read(), crate::tui::mode::Mode::DeliveryPicker { .. }) {
+                    let count = crate::deliver::DeliverChoice::all().len();
+                    match k.code {
+                        KeyCode::Esc => {
+                            *mode.write() = crate::tui::mode::Mode::Normal;
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            if let crate::tui::mode::Mode::DeliveryPicker { cursor } =
+                                &mut *mode.write()
+                            {
+                                if *cursor > 0 {
+                                    *cursor -= 1;
+                                }
+                            }
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            if let crate::tui::mode::Mode::DeliveryPicker { cursor } =
+                                &mut *mode.write()
+                            {
+                                if *cursor + 1 < count {
+                                    *cursor += 1;
+                                }
+                            }
+                        }
+                        KeyCode::Enter => {
+                            let cur = match *mode.read() {
+                                crate::tui::mode::Mode::DeliveryPicker { cursor } => cursor,
+                                _ => 0,
+                            };
+                            let choices = crate::deliver::DeliverChoice::all();
+                            if let Some(&choice) = choices.get(cur) {
+                                app_data.write().run_delivery(choice);
+                                // If a pending action was set (pipe/export), need
+                                // to exit the render loop. The outer run() handles it.
+                                if app_data.read().pending_action.is_some() {
+                                    *should_quit.write() = true;
+                                }
+                            }
+                            *mode.write() = crate::tui::mode::Mode::Normal;
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+
+                // ── Command palette overlay ────────────────────
+                if matches!(*mode.read(), crate::tui::mode::Mode::CommandPalette { .. }) {
+                    match k.code {
+                        KeyCode::Esc => {
+                            *mode.write() = crate::tui::mode::Mode::Normal;
+                        }
+                        KeyCode::Up => {
+                            if let crate::tui::mode::Mode::CommandPalette { cursor, .. } =
+                                &mut *mode.write()
+                            {
+                                if *cursor > 0 {
+                                    *cursor -= 1;
+                                }
+                            }
+                        }
+                        KeyCode::Down => {
+                            let count = {
+                                let m = mode.read();
+                                if let crate::tui::mode::Mode::CommandPalette { query, .. } = &*m {
+                                    crate::tui::command_registry::filter(query).len()
+                                } else {
+                                    0
+                                }
+                            };
+                            if let crate::tui::mode::Mode::CommandPalette { cursor, .. } =
+                                &mut *mode.write()
+                            {
+                                if *cursor + 1 < count {
+                                    *cursor += 1;
+                                }
+                            }
+                        }
+                        KeyCode::Backspace => {
+                            if let crate::tui::mode::Mode::CommandPalette { query, cursor } =
+                                &mut *mode.write()
+                            {
+                                query.pop();
+                                *cursor = 0;
+                            }
+                        }
+                        KeyCode::Char(c) => {
+                            if let crate::tui::mode::Mode::CommandPalette { query, cursor } =
+                                &mut *mode.write()
+                            {
+                                query.push(c);
+                                *cursor = 0;
+                            }
+                        }
+                        KeyCode::Enter => {
+                            let (query_owned, cursor_idx) = match &*mode.read() {
+                                crate::tui::mode::Mode::CommandPalette { query, cursor } => {
+                                    (query.clone(), *cursor)
+                                }
+                                _ => (String::new(), 0),
+                            };
+                            let results = crate::tui::command_registry::filter(&query_owned);
+                            if let Some(cmd) = results.get(cursor_idx) {
+                                let action = cmd.action;
+                                let next_mode = app_data.write().dispatch_command(action);
+                                match next_mode {
+                                    Some(m) => *mode.write() = m,
+                                    None => {
+                                        if matches!(
+                                            action,
+                                            crate::tui::command_registry::CommandAction::Quit
+                                        ) {
+                                            *should_quit.write() = true;
+                                        }
+                                        *mode.write() = crate::tui::mode::Mode::Normal;
+                                    }
+                                }
+                            } else {
+                                *mode.write() = crate::tui::mode::Mode::Normal;
+                            }
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+
+                // ── Prompt focus: route text keys into PromptInput ──
+                if *focus.read() == Focus::Prompt {
+                    let mut handled = true;
+                    match k.code {
+                        KeyCode::Esc => {
+                            *focus.write() = Focus::FileTree;
+                        }
+                        KeyCode::Enter => {
+                            prompt_input.write().insert_newline();
+                        }
+                        KeyCode::Backspace => {
+                            prompt_input.write().backspace();
+                        }
+                        KeyCode::Left => prompt_input.write().move_left(),
+                        KeyCode::Right => prompt_input.write().move_right(),
+                        KeyCode::Home => prompt_input.write().move_home(),
+                        KeyCode::End => prompt_input.write().move_end(),
+                        KeyCode::Char('w') if k.modifiers.contains(KeyModifiers::CONTROL) => {
+                            prompt_input.write().delete_word_back();
+                        }
+                        KeyCode::Char('@') => {
+                            prompt_input.write().insert_char('@');
+                            // Open the @ file picker
+                            let files = crate::prompt_input::at_picker::walk_files(
+                                &app_data.read().project_root,
+                            );
+                            *mode.write() = crate::tui::mode::Mode::AtPicker {
+                                query: String::new(),
+                                cursor: 0,
+                                files,
+                            };
+                        }
+                        KeyCode::Char(c) => {
+                            prompt_input.write().insert_char(c);
+                        }
+                        _ => {
+                            handled = false;
+                        }
+                    }
+                    if handled {
+                        let text = prompt_input.read().text().to_string();
+                        app_data.write().sync_task_text(text);
+                        return;
+                    }
+                    // Fall through: Tab, BackTab, etc. bubble to normal dispatch below
+                }
+
+                match k.code {
+                    KeyCode::Char('q') => *should_quit.write() = true,
+                    KeyCode::Char('?') => {
+                        *mode.write() = crate::tui::mode::Mode::Help;
+                    }
+                    KeyCode::Char('S') => {
+                        *mode.write() = crate::tui::mode::Mode::ScenarioPicker { cursor: 0 };
+                    }
+                    KeyCode::Char('P') => {
+                        let content = {
+                            let d = app_data.read();
+                            d.render_payload(crate::format::Format::Markdown)
+                                .unwrap_or_else(|e| format!("Error: {e}"))
+                        };
+                        *mode.write() = crate::tui::mode::Mode::FullPromptPreview {
+                            content,
+                            scroll: 0,
+                        };
+                    }
+                    KeyCode::Char('d') if !k.modifiers.contains(KeyModifiers::CONTROL) => {
+                        *mode.write() = crate::tui::mode::Mode::DeliveryPicker { cursor: 0 };
+                    }
+                    // x = export to stdout (shortcut for /deliver → export)
+                    KeyCode::Char('x') => {
+                        app_data.write().run_delivery(crate::deliver::DeliverChoice::Export);
+                        if app_data.read().pending_action.is_some() {
+                            *should_quit.write() = true;
+                        }
+                    }
+                    KeyCode::Char('/') => {
+                        *mode.write() = crate::tui::mode::Mode::CommandPalette {
+                            query: String::new(),
+                            cursor: 0,
+                        };
+                    }
+                    KeyCode::Char('f') if k.modifiers.contains(KeyModifiers::CONTROL) => {
+                        *mode.write() = crate::tui::mode::Mode::Search { query: String::new() };
+                    }
+                    KeyCode::Char('i') if *focus.read() != Focus::Prompt => {
+                        *focus.write() = Focus::Prompt;
+                    }
+                    KeyCode::Char('v') => {
+                        // Toggle viewer and kick off a background file load
+                        // if the cursor's file isn't already cached. The
+                        // toggle itself is instant — the load runs on smol's
+                        // blocking pool via `spawn_viewer_load` and wakes
+                        // the render loop when done (see the bg-drain below).
+                        let (now_enabled, load_target) = {
+                            let mut d = app_data.write();
+                            d.viewer.toggle();
+                            let enabled = d.viewer.enabled;
+                            let mut target: Option<(PathBuf, u64)> = None;
+                            if enabled {
+                                let visible = tree::visible_indices(&d.tree_entries);
+                                if let Some(&idx) = visible.get(*cursor.read()) {
+                                    if let Some(entry) = d.tree_entries.get(idx).cloned() {
+                                        if !entry.is_dir {
+                                            let abs = d.project_root.join(&entry.rel_path);
+                                            if d.viewer.cached_path.as_deref() != Some(abs.as_path()) {
+                                                let generation = d.viewer.begin_load();
+                                                target = Some((abs, generation));
+                                            }
+                                        }
+                                    }
+                                }
+                                d.set_status("viewer on".to_string());
+                            } else {
+                                d.set_status("viewer off".to_string());
+                            }
+                            (enabled, target)
+                        };
+                        if let Some((abs, generation)) = load_target {
+                            spawn_viewer_load(abs, generation, viewer_bg_result);
+                        }
+                        if now_enabled {
+                            focus.set(Focus::Viewer);
+                        } else if *focus.read() == Focus::Viewer {
+                            focus.set(Focus::FileTree);
+                        }
+                    }
+                    KeyCode::Tab => {
+                        let viewer_on = app_data.read().viewer.enabled;
+                        let next = match *focus.read() {
+                            Focus::FileTree => {
+                                if viewer_on { Focus::Viewer } else { Focus::BundleList }
+                            }
+                            Focus::Viewer => Focus::BundleList,
+                            Focus::BundleList => Focus::Prompt,
+                            Focus::Prompt => Focus::FileTree,
+                        };
+                        *focus.write() = next;
+                    }
+                    KeyCode::BackTab => {
+                        let viewer_on = app_data.read().viewer.enabled;
+                        let prev = match *focus.read() {
+                            Focus::FileTree => Focus::Prompt,
+                            Focus::Viewer => Focus::FileTree,
+                            Focus::BundleList => {
+                                if viewer_on { Focus::Viewer } else { Focus::FileTree }
+                            }
+                            Focus::Prompt => Focus::BundleList,
+                        };
+                        *focus.write() = prev;
+                    }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        match *focus.read() {
+                            Focus::Viewer => {
+                                app_data.write().viewer.scroll_by(-1, viewer_viewport(term_h));
+                            }
+                            _ => {
+                                let c = *cursor.read();
+                                if c > 0 {
+                                    let new = c - 1;
+                                    cursor.set(new);
+                                    reload_viewer(&mut app_data.write(), new, viewer_bg_result);
+                                }
+                            }
+                        }
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        match *focus.read() {
+                            Focus::Viewer => {
+                                app_data.write().viewer.scroll_by(1, viewer_viewport(term_h));
+                            }
+                            _ => {
+                                let c = *cursor.read();
+                                if c < max_cursor {
+                                    let new = c + 1;
+                                    cursor.set(new);
+                                    reload_viewer(&mut app_data.write(), new, viewer_bg_result);
+                                }
+                            }
+                        }
+                    }
+                    // Space: toggle bundle (on file) or expand/collapse (on dir).
+                    KeyCode::Char(' ') if *focus.read() == Focus::FileTree => {
+                        let (actual_idx, is_dir, rel_path) = {
+                            let d = app_data.read();
+                            let visible = tree::visible_indices(&d.tree_entries);
+                            let Some(&actual) = visible.get(*cursor.read()) else {
+                                return;
+                            };
+                            match d.tree_entries.get(actual) {
+                                Some(e) => (actual, e.is_dir, e.rel_path.clone()),
+                                None => return,
+                            }
+                        };
+                        let mut d = app_data.write();
+                        if is_dir {
+                            d.toggle_expanded(actual_idx);
+                        } else {
+                            d.toggle_bundle(&rel_path);
+                        }
+                    }
+                    // Enter: expand/collapse directory only.
+                    KeyCode::Enter if *focus.read() == Focus::FileTree => {
+                        let (actual_idx, is_dir) = {
+                            let d = app_data.read();
+                            let visible = tree::visible_indices(&d.tree_entries);
+                            let Some(&actual) = visible.get(*cursor.read()) else {
+                                return;
+                            };
+                            let is_dir = d.tree_entries.get(actual).map(|e| e.is_dir).unwrap_or(false);
+                            (actual, is_dir)
+                        };
+                        if is_dir {
+                            app_data.write().toggle_expanded(actual_idx);
+                        }
+                    }
+                    KeyCode::Char('E') if *focus.read() == Focus::FileTree => {
+                        app_data.write().expand_all();
+                    }
+                    KeyCode::Char('C') if *focus.read() == Focus::FileTree => {
+                        app_data.write().collapse_all();
+                    }
+                    // Viewer: a adds selection, Esc clears selection.
+                    KeyCode::Char('a') if *focus.read() == Focus::Viewer => {
+                        app_data.write().add_viewer_selection_to_bundle();
+                    }
+                    KeyCode::Esc
+                        if *focus.read() == Focus::Viewer
+                            && app_data.read().viewer.selection.is_some() =>
+                    {
+                        app_data.write().viewer.clear_selection();
+                    }
+                    // Navigation: g/G top/bottom, Ctrl-U/D half-page
+                    KeyCode::Char('g') if *focus.read() == Focus::FileTree => {
+                        cursor.set(0);
+                        reload_viewer(&mut app_data.write(), 0, viewer_bg_result);
+                    }
+                    KeyCode::Char('g') if *focus.read() == Focus::Viewer => {
+                        app_data.write().viewer.scroll_to_top();
+                    }
+                    KeyCode::Char('G') if *focus.read() == Focus::FileTree => {
+                        let d = app_data.read();
+                        let visible = tree::visible_indices(&d.tree_entries);
+                        if !visible.is_empty() {
+                            let last = visible.len() - 1;
+                            drop(d);
+                            cursor.set(last);
+                            reload_viewer(&mut app_data.write(), last, viewer_bg_result);
+                        }
+                    }
+                    KeyCode::Char('G') if *focus.read() == Focus::Viewer => {
+                        app_data.write().viewer.scroll_to_bottom(viewer_viewport(term_h));
+                    }
+                    KeyCode::Char('u')
+                        if k.modifiers.contains(KeyModifiers::CONTROL)
+                            && *focus.read() == Focus::FileTree =>
+                    {
+                        let half = tree_viewport(term_h) / 2;
+                        let c = *cursor.read();
+                        let new = c.saturating_sub(half);
+                        cursor.set(new);
+                        reload_viewer(&mut app_data.write(), new, viewer_bg_result);
+                    }
+                    KeyCode::Char('u')
+                        if k.modifiers.contains(KeyModifiers::CONTROL)
+                            && *focus.read() == Focus::Viewer =>
+                    {
+                        app_data.write().viewer.scroll_by(-(viewer_viewport(term_h) as i32 / 2), viewer_viewport(term_h));
+                    }
+                    KeyCode::Char('d')
+                        if k.modifiers.contains(KeyModifiers::CONTROL)
+                            && *focus.read() == Focus::FileTree =>
+                    {
+                        let d = app_data.read();
+                        let visible = tree::visible_indices(&d.tree_entries);
+                        let half = tree_viewport(term_h) / 2;
+                        let c = *cursor.read();
+                        let new = (c + half).min(visible.len().saturating_sub(1));
+                        drop(d);
+                        cursor.set(new);
+                        reload_viewer(&mut app_data.write(), new, viewer_bg_result);
+                    }
+                    KeyCode::Char('d')
+                        if k.modifiers.contains(KeyModifiers::CONTROL)
+                            && *focus.read() == Focus::Viewer =>
+                    {
+                        app_data.write().viewer.scroll_by(viewer_viewport(term_h) as i32 / 2, viewer_viewport(term_h));
+                    }
+                    _ => {}
+                }
             }
         }
-        let templates = scan_all_templates(&self.root);
-        if templates.is_empty() {
-            self.set_status("no templates found; create one with `ctxforge templates new <name>`");
-            return;
+    });
+
+    // Re-read app_data after the event handler may have mutated it, and
+    // clamp the cursor so it stays within the (possibly shrunken) visible
+    // range — relevant after collapse-all.
+    drop(data);
+
+    if *should_quit.read() {
+        // Stash pending action into thread_local so the outer run() loop
+        // can drain it after the render loop exits.
+        {
+            let mut d = app_data.write();
+            let pending = d.pending_action.take();
+            if let Some(action) = pending {
+                PENDING.with(|p| *p.borrow_mut() = Some(action));
+            }
+            let _ = d.bundle.save(&d.root);
         }
-        self.set_mode(mode::Mode::TemplatePick {
-            cursor: 0,
-            templates,
-        });
+
+        let mut system = hooks.use_context_mut::<iocraft::SystemContext>();
+        system.exit();
     }
 
-    /// Show available templates in a status message.
-    pub fn show_template_list(&mut self) {
-        let templates = scan_all_templates(&self.root);
-        if templates.is_empty() {
-            self.set_status("no templates found");
+    // Drain a completed background file load (if any). Peek via
+    // `try_read` first: if the slot is empty (the common case, every
+    // frame with no load in flight) we don't touch it. This matters
+    // because a `StateMutRef::DerefMut` flips `did_change` on drop,
+    // which wakes the render loop again — unconditionally touching
+    // the slot each frame produces an infinite self-wake loop that
+    // starves terminal-event polling (seen as "app stuck at startup").
+    // We only grab `try_write` when there's real work to apply.
+    let has_load = viewer_bg_result
+        .try_read()
+        .map(|g| g.is_some())
+        .unwrap_or(false);
+    if has_load {
+        let taken: Option<ViewerBgResult> = {
+            let mut slot = viewer_bg_result;
+            slot.try_write().and_then(|mut g| g.take())
+        };
+        if let Some((generation, path, load)) = taken {
+            app_data.write().viewer.apply_bg_load(generation, path, load);
+        }
+    }
+
+    // Drain viewer mouse events batched since last render (wheel, drag,
+    // click). Peek via `try_read` first — `DerefMut` on an empty queue
+    // still flips `did_change=true` and keeps `root.wait()` Ready,
+    // producing an infinite render loop that starves terminal-event
+    // polling (sample trace shows 100% CPU pinned in taffy). We only
+    // take `try_write` when there's real work to do, and `std::mem::take`
+    // leaves the state as the default Vec so the next frame's peek
+    // sees empty again.
+    let has_mouse = viewer_events
+        .try_read()
+        .map(|g| !g.is_empty())
+        .unwrap_or(false);
+    let pending_mouse: Vec<crate::tui::components::viewer::ViewerMouseEvent> = if has_mouse {
+        let mut events = viewer_events;
+        match events.try_write() {
+            Some(mut guard) => std::mem::take(&mut *guard),
+            None => Vec::new(),
+        }
+    } else {
+        Vec::new()
+    };
+    if !pending_mouse.is_empty() {
+        let viewport = viewer_viewport(term_h);
+        let mut d = app_data.write();
+        for ev in pending_mouse {
+            use crate::tui::components::viewer::ViewerMouseEvent as VE;
+            match ev {
+                VE::ScrollUp => d.viewer.scroll_by(-3, viewport),
+                VE::ScrollDown => d.viewer.scroll_by(3, viewport),
+                VE::Down { line } => d.viewer.drag_start(line),
+                VE::Drag { line } => d.viewer.drag_extend(line),
+                VE::Up => d.viewer.drag_end(),
+            }
+        }
+    }
+
+    let data = app_data.read();
+    let visible_indices = tree::visible_indices(&data.tree_entries);
+    let visible_count = visible_indices.len();
+    let max_cursor = visible_count.saturating_sub(1);
+    if *cursor.read() > max_cursor {
+        cursor.set(max_cursor);
+    }
+
+    let cur_focus = *focus.read();
+    let cur = *cursor.read();
+    let theme = data.theme;
+
+    // Search query — cloned to &'static String so we can use it in both the
+    // search bar and the tree branch selection.
+    let search_query: Option<String> = match &*mode.read() {
+        crate::tui::mode::Mode::Search { query } => Some(query.clone()),
+        _ => None,
+    };
+    let search_active = search_query.as_ref().is_some_and(|q| !q.is_empty());
+
+    // Animated focus-border RGB
+    let (tr, tg, tb) = focus_color_rgb(cur_focus, &theme);
+    let anim_r = use_animated(hooks, tr, constants::FOCUS_BORDER, ease_out_cubic);
+    let anim_g = use_animated(hooks, tg, constants::FOCUS_BORDER, ease_out_cubic);
+    let anim_b = use_animated(hooks, tb, constants::FOCUS_BORDER, ease_out_cubic);
+    let focus_color = Color::Rgb {
+        r: anim_r,
+        g: anim_g,
+        b: anim_b,
+    };
+
+    // Clip visible entries to viewport centered around the cursor
+    let start = cur.saturating_sub(tree_viewport(term_h) / 2);
+    let end = (start + tree_viewport(term_h)).min(visible_count);
+    let visible: Vec<(usize, TreeEntry)> = visible_indices
+        .iter()
+        .enumerate()
+        .skip(start)
+        .take(end.saturating_sub(start))
+        .filter_map(|(vi, &idx)| data.tree_entries.get(idx).map(|e| (vi, e.clone())))
+        .collect();
+
+    // Focus-aware border colors. Content rendering is done per-branch below
+    // so `AnyElement` vectors (which aren't Clone) don't need to be duplicated.
+    let tree_border = if cur_focus == Focus::FileTree {
+        focus_color
+    } else {
+        theme.border
+    };
+    let bundle_border = if cur_focus == Focus::BundleList {
+        focus_color
+    } else {
+        theme.border
+    };
+    let preview_border = if cur_focus == Focus::Viewer {
+        focus_color
+    } else {
+        theme.border
+    };
+    let viewer_border = if cur_focus == Focus::Viewer {
+        focus_color
+    } else {
+        theme.border
+    };
+    let prompt_border = if cur_focus == Focus::Prompt {
+        focus_color
+    } else {
+        theme.border
+    };
+
+    // Compute the bundle title once — it's cheap and Clone.
+    let bundle_title = {
+        let total: usize = data.item_tokens.iter().sum();
+        if data.bundle.is_empty() {
+            "BUNDLE · empty".to_string()
         } else {
-            let names: Vec<String> = templates.iter().map(|(n, _)| n.clone()).collect();
-            self.set_status(format!("templates: {}", names.join(", ")));
+            let tokens = if total >= 1_000 {
+                format!("{:.1}k", total as f64 / 1_000.0)
+            } else {
+                total.to_string()
+            };
+            format!("BUNDLE · {} · {} tokens", data.bundle.len(), tokens)
         }
-    }
+    };
 
-    /// Scaffold a new project-local template via the command palette.
-    pub fn run_template_new(&mut self, name: Option<String>) {
-        let name = match name {
-            Some(n) if !n.is_empty() => n,
-            _ => {
-                self.set_status("usage: /template-new <name>");
-                return;
+    // Header content — wordmark + scenario + model + animated gradient gauge
+    let pct = if data.model_window == 0 {
+        0.0
+    } else {
+        (data.total_tokens as f64 / data.model_window as f64) * 100.0
+    };
+    let ratio = (data.total_tokens as f32) / (data.model_window.max(1) as f32);
+    let animated_ratio = use_animated(
+        hooks,
+        ratio.clamp(0.0, 1.0),
+        constants::GAUGE_FILL,
+        crate::motion_core::ease_out_quad,
+    );
+    let scenario = data.bundle.scenario.clone().unwrap_or_default();
+
+    // Gradient gauge using ░▒▓█ — 4-step fill for finer visual granularity
+    let bar_width = 24u32;
+    let bar_color = gauge_color(pct, &theme);
+    let raw_fill = animated_ratio * bar_width as f32 * 4.0;
+    let full_cells = (raw_fill as u32) / 4;
+    let frac = ((raw_fill as u32) % 4) as usize;
+    let partial = ["", "░", "▒", "▓"][frac];
+    let empty = bar_width.saturating_sub(full_cells) as usize;
+    let empty = if partial.is_empty() { empty } else { empty.saturating_sub(1) };
+    let gauge = format!(
+        "{}{}{}",
+        "█".repeat(full_cells as usize),
+        partial,
+        "░".repeat(empty)
+    );
+
+    // Header pieces — wordmark, separator, meta, gauge
+    let scenario_chip = if scenario.is_empty() {
+        " · ".to_string()
+    } else {
+        format!(" · {} · ", scenario)
+    };
+    let meta = format!(
+        "{} · ~{} / {} · {:.1}% ",
+        data.model_name,
+        format_tokens(data.total_tokens),
+        format_tokens(data.model_window),
+        pct,
+    );
+
+    // Section-marker titles — left bar + uppercase label for consistent hierarchy
+    let tree_title_styled = format!("FILES  {}", visible_count);
+    let preview_title_styled = "PREVIEW".to_string();
+
+    // Width-adaptive layout breakpoints.
+    // Phase 1 does not ship the code viewer, so two-column is the default.
+    // Three-column layout (with viewer) will come in Phase 2 when opt-in via `v`.
+    let wide = term_w >= 100; // two-column for anything ≥ 100
+    let _narrow = term_w < 100; // handled by the else branch below
+
+    // Use explicit terminal dimensions instead of 100pct so the root View
+    // actually fills the whole terminal. iocraft's fullscreen mode doesn't
+    // force the root to match terminal size — we have to pin it ourselves.
+    let w = term_w as u32;
+    let h = term_h as u32;
+
+    // ─── Welcome splash: full-screen, dismisses on any key ──
+    if matches!(&*mode.read(), crate::tui::mode::Mode::Welcome) {
+        return element! {
+            View(
+                flex_direction: FlexDirection::Column,
+                background_color: theme.bg,
+                width: w,
+                height: h,
+            ) {
+                #(crate::tui::components::welcome::render_splash(
+                    &theme,
+                    visible_count,
+                    term_w,
+                    term_h,
+                ))
             }
         };
-        let dir = self.root.templates_dir();
-        let _ = std::fs::create_dir_all(&dir);
-        let path = dir.join(format!("{name}.md"));
-        if path.exists() {
-            self.set_status(format!("template '{name}' already exists"));
-            return;
-        }
-        let content = format!(
-            "# Template: {name}\n\n\
-             You are an expert software engineer. Below is the relevant code and notes.\n\n\
-             ## Task\n\n{{{{task}}}}\n\n\
-             ## Code and notes\n\n{{{{bundle}}}}\n"
-        );
-        match std::fs::write(&path, content) {
-            Ok(()) => {
-                self.set_status(format!("created template '{name}' at {}", path.display()));
-            }
-            Err(e) => {
-                self.set_status(format!("error creating template: {e}"));
-            }
-        }
     }
 
-    /// Delete a project-local template via the command palette.
-    pub fn run_template_rm(&mut self, name: Option<String>) {
-        let name = match name {
-            Some(n) if !n.is_empty() => n,
-            _ => {
-                self.set_status("usage: /template-rm <name>");
-                return;
-            }
-        };
-        let stem = name.strip_suffix(".md").unwrap_or(&name);
-        let path = self.root.template_path(stem);
-        if !path.exists() {
-            self.set_status(format!("template '{stem}' not found"));
-            return;
-        }
-        match std::fs::remove_file(&path) {
-            Ok(()) => {
-                self.set_status(format!("deleted template '{stem}'"));
-            }
-            Err(e) => {
-                self.set_status(format!("error deleting template: {e}"));
-            }
-        }
-    }
-
-    /// List built-in starter templates in a status message.
-    pub fn run_template_starters(&mut self) {
-        self.set_status("starters: bugfix, code-review, explain, refactor, migrate (use CLI: ctxforge templates new <name> --from <starter>)");
-    }
-
-    /// Confirm template task: render bundle, apply template, copy to clipboard.
-    pub fn confirm_template_task(&mut self) {
-        let (template_name, task) = match self.mode() {
-            mode::Mode::TemplateTask {
-                template_name,
-                task,
-            } => (template_name.clone(), task.clone()),
-            _ => return,
-        };
-        let resolved = match crate::resolve::resolve_all(&self.bundle.items, &self.project_root) {
-            Ok(r) => r,
-            Err(e) => {
-                self.set_status(format!("resolve error: {e}"));
-                self.set_mode(mode::Mode::Normal);
-                return;
-            }
-        };
-        let memory =
-            crate::memory::collect_for_attach(&self.root, false, None, 10).unwrap_or_default();
-        let rendered = crate::format::render(crate::format::Format::Markdown, &resolved, &memory);
-
-        let final_content = match crate::template::apply_template(
-            &self.root,
-            &template_name,
-            &rendered,
-            Some(&task),
+    element! {
+        View(
+            flex_direction: FlexDirection::Column,
+            background_color: theme.bg,
+            width: w,
+            height: h,
         ) {
-            Ok(c) => c,
-            Err(e) => {
-                self.set_status(format!("template error: {e}"));
-                self.set_mode(mode::Mode::Normal);
-                return;
+            // ─── HEADER (height: 3) ──────────────────────────────
+            View(
+                border_style: BorderStyle::Round,
+                border_color: theme.border,
+                background_color: theme.bg,
+                height: 3,
+                width: 100pct,
+                padding_left: 1,
+                padding_right: 1,
+            ) {
+                MixedText(contents: vec![
+                    MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
+                    MixedTextContent::new("ctxforge").color(theme.accent).weight(Weight::Bold),
+                    MixedTextContent::new(scenario_chip).color(theme.muted),
+                    MixedTextContent::new(meta).color(theme.muted),
+                    MixedTextContent::new(gauge).color(bar_color).weight(Weight::Bold),
+                ])
             }
-        };
 
-        match crate::clipboard::set(&final_content) {
-            Ok(()) => {
-                self.set_status(format!(
-                    "copied template '{template_name}' with bundle + task"
-                ));
-            }
-            Err(e) => {
-                self.set_status(format!("clipboard error: {e}"));
-            }
-        }
-        self.set_mode(mode::Mode::Normal);
-    }
+            // ─── MAIN CONTENT ROW ────────────────────────────────
+            // Two-column by default; three-column when viewer is enabled.
+            #(if wide {
+                let viewer_on = data.viewer.enabled;
+                let viewer_file_title = data.viewer.cached_path.as_ref()
+                    .and_then(|p| p.file_name())
+                    .and_then(|n| n.to_str())
+                    .map(|s| format!("VIEWER · {}", s))
+                    .unwrap_or_else(|| "VIEWER".to_string());
 
-    pub(crate) fn recalculate_tokens(&mut self) {
-        let model = models::lookup(&self.model_name);
-        self.model_window = model.window;
+                let (left_w, center_w, right_w) = if viewer_on {
+                    (iocraft::Percent(25.0), iocraft::Percent(45.0), iocraft::Percent(30.0))
+                } else {
+                    (iocraft::Percent(35.0), iocraft::Percent(0.0), iocraft::Percent(65.0))
+                };
 
-        let resolved =
-            resolve::resolve_all(&self.bundle.items, &self.project_root).unwrap_or_default();
-
-        self.item_tokens = resolved
-            .iter()
-            .map(|r| tokens::count(&r.content, &model).tokens)
-            .collect();
-
-        self.total_tokens = self.item_tokens.iter().sum();
-        self.exact_tokens = matches!(model.tokenizer, models::Tokenizer::Estimate)
-            .then_some(false)
-            .unwrap_or(true);
-        // Animate the gauge toward the new total.
-        let ctx = self.anim_ctx();
-        self.token_gauge.set(self.total_tokens as f32, &ctx);
-    }
-}
-
-/// Scan project-local and global template directories for available templates.
-fn scan_all_templates(root: &CtxforgeRoot) -> Vec<(String, mode::TemplateSource)> {
-    let mut result = Vec::new();
-    let project_dir = root.templates_dir();
-    if project_dir.is_dir() {
-        for entry in std::fs::read_dir(&project_dir)
-            .into_iter()
-            .flatten()
-            .flatten()
-        {
-            if let Some(name) = entry
-                .path()
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .map(String::from)
-            {
-                result.push((name, mode::TemplateSource::Project));
-            }
-        }
-    }
-    if let Some(global_dir) = crate::paths::global_templates_dir() {
-        if global_dir.is_dir() {
-            for entry in std::fs::read_dir(&global_dir)
-                .into_iter()
-                .flatten()
-                .flatten()
-            {
-                if let Some(name) = entry
-                    .path()
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .map(String::from)
-                {
-                    if !result.iter().any(|(n, _)| n == &name) {
-                        result.push((name, mode::TemplateSource::Global));
+                element! {
+                    View(
+                        flex_direction: FlexDirection::Row,
+                        width: 100pct,
+                        flex_grow: 1.0,
+                    ) {
+                        // Left: tree + bundle
+                        View(
+                            flex_direction: FlexDirection::Column,
+                            width: left_w,
+                            height: 100pct,
+                        ) {
+                            #(search_query.as_ref().map(|q| {
+                                crate::tui::components::search_bar::render_search_bar(q, &theme)
+                            }))
+                            View(
+                                flex_direction: FlexDirection::Column,
+                                border_style: BorderStyle::Round,
+                                border_color: tree_border,
+                                background_color: theme.bg,
+                                width: 100pct,
+                                height: 60pct,
+                                padding_left: 1,
+                                padding_right: 1,
+                            ) {
+                                MixedText(contents: vec![
+                                    MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
+                                    MixedTextContent::new(tree_title_styled.clone()).color(theme.accent).weight(Weight::Bold),
+                                ])
+                                Text(content: "")
+                                #(if search_active {
+                                    crate::tui::components::tree::render_search_rows(
+                                        &data.tree_entries,
+                                        search_query.as_deref().unwrap_or(""),
+                                        cur,
+                                        &data.bundled_paths,
+                                        &theme,
+                                        tree_viewport(term_h),
+                                    )
+                                } else {
+                                    render_tree_rows(&visible, cur, cur_focus == Focus::FileTree, &data.bundled_paths, &theme)
+                                })
+                            }
+                            View(
+                                flex_direction: FlexDirection::Column,
+                                border_style: BorderStyle::Round,
+                                border_color: bundle_border,
+                                background_color: theme.bg,
+                                width: 100pct,
+                                height: 40pct,
+                                padding_left: 1,
+                                padding_right: 1,
+                            ) {
+                                MixedText(contents: vec![
+                                    MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
+                                    MixedTextContent::new(bundle_title.clone()).color(theme.accent).weight(Weight::Bold),
+                                ])
+                                Text(content: "")
+                                #(render_bundle_rows(&data.bundle, &data.item_tokens, &theme).1)
+                            }
+                        }
+                        // Center: viewer (only when enabled)
+                        #(if viewer_on {
+                            Some(element! {
+                                View(
+                                    flex_direction: FlexDirection::Column,
+                                    border_style: BorderStyle::Round,
+                                    border_color: viewer_border,
+                                    background_color: theme.bg,
+                                    width: center_w,
+                                    height: 100pct,
+                                    padding_left: 1,
+                                    padding_right: 1,
+                                    padding_top: 1,
+                                ) {
+                                    MixedText(contents: vec![
+                                        MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
+                                        MixedTextContent::new(viewer_file_title).color(theme.accent).weight(Weight::Bold),
+                                    ])
+                                    Text(content: "")
+                                    crate::tui::components::viewer::Viewer(
+                                        viewer: crate::tui::components::viewer::ViewerStateSnapshot::from_state(&data.viewer),
+                                        theme: Some(theme),
+                                        events: Some(viewer_events),
+                                    )
+                                }
+                            })
+                        } else {
+                            None
+                        })
+                        // Right: preview
+                        View(
+                            flex_direction: FlexDirection::Column,
+                            border_style: BorderStyle::Round,
+                            border_color: preview_border,
+                            background_color: theme.bg,
+                            width: right_w,
+                            height: 100pct,
+                            padding_left: 2,
+                            padding_right: 2,
+                            padding_top: 1,
+                        ) {
+                            MixedText(contents: vec![
+                                MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
+                                MixedTextContent::new(preview_title_styled.clone()).color(theme.accent).weight(Weight::Bold),
+                            ])
+                            Text(content: "")
+                            #(render_preview(&data.preview, &theme))
+                        }
                     }
+                }.into_any()
+            } else {
+                // Narrow: single-column focus-based — show just the focused panel
+                let (panel_label, panel_border, panel_body): (String, Color, Vec<AnyElement<'static>>) =
+                    match cur_focus {
+                        Focus::BundleList => (
+                            bundle_title.clone(),
+                            bundle_border,
+                            render_bundle_rows(&data.bundle, &data.item_tokens, &theme).1,
+                        ),
+                        Focus::Viewer => {
+                            let title = data.viewer.cached_path.as_ref()
+                                .and_then(|p| p.file_name())
+                                .and_then(|n| n.to_str())
+                                .map(|s| format!("VIEWER · {}", s))
+                                .unwrap_or_else(|| "VIEWER".to_string());
+                            let viewer_element = element! {
+                                crate::tui::components::viewer::Viewer(
+                                    viewer: crate::tui::components::viewer::ViewerStateSnapshot::from_state(&data.viewer),
+                                    theme: Some(theme),
+                                    events: Some(viewer_events),
+                                )
+                            }
+                            .into_any();
+                            (title, viewer_border, vec![viewer_element])
+                        }
+                        Focus::Prompt => (
+                            preview_title_styled.clone(),
+                            preview_border,
+                            render_preview(&data.preview, &theme),
+                        ),
+                        Focus::FileTree => (
+                            tree_title_styled.clone(),
+                            tree_border,
+                            if search_active {
+                                crate::tui::components::tree::render_search_rows(
+                                    &data.tree_entries,
+                                    search_query.as_deref().unwrap_or(""),
+                                    cur,
+                                    &data.bundled_paths,
+                                    &theme,
+                                    tree_viewport(term_h),
+                                )
+                            } else {
+                                render_tree_rows(&visible, cur, cur_focus == Focus::FileTree, &data.bundled_paths, &theme)
+                            },
+                        ),
+                    };
+
+                element! {
+                    View(
+                        flex_direction: FlexDirection::Column,
+                        border_style: BorderStyle::Round,
+                        border_color: panel_border,
+                        background_color: theme.bg,
+                        width: 100pct,
+                        flex_grow: 1.0,
+                        padding_left: 1,
+                        padding_right: 1,
+                    ) {
+                        MixedText(contents: vec![
+                            MixedTextContent::new("▍ ").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(panel_label).color(theme.accent).weight(Weight::Bold),
+                        ])
+                        Text(content: "")
+                        #(panel_body)
+                    }
+                }.into_any()
+            })
+
+            // ─── PROMPT INPUT (auto-grow 4..=10 rows) ──
+            #(crate::tui::components::prompt_input::render_prompt_input(
+                &prompt_input.read(),
+                cur_focus == Focus::Prompt,
+                prompt_border,
+                scenario.as_str(),
+                &theme,
+            ))
+
+            // ─── FOOTER (height: 2) ──
+            View(
+                flex_direction: FlexDirection::Column,
+                background_color: theme.bg,
+                width: 100pct,
+                height: 2,
+                padding_left: 1,
+                padding_right: 1,
+            ) {
+                MixedText(contents: vec![
+                    MixedTextContent::new("● ").color(theme.success).weight(Weight::Bold),
+                    MixedTextContent::new(
+                        if data.status.is_empty() { "ready".to_string() } else { data.status.clone() }
+                    ).color(theme.muted),
+                ])
+                #(if mode.read().is_overlay() {
+                    element! {
+                        MixedText(contents: vec![
+                            MixedTextContent::new("↑/↓").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" navigate  ").color(theme.muted),
+                            MixedTextContent::new("enter").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" select  ").color(theme.muted),
+                            MixedTextContent::new("esc").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" close").color(theme.muted),
+                        ])
+                    }
+                } else if cur_focus == Focus::Viewer {
+                    element! {
+                        MixedText(contents: vec![
+                            MixedTextContent::new("j/k").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" scroll  ").color(theme.muted),
+                            MixedTextContent::new("drag").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" select  ").color(theme.muted),
+                            MixedTextContent::new("a").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" add  ").color(theme.muted),
+                            MixedTextContent::new("esc").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" clear  ").color(theme.muted),
+                            MixedTextContent::new("v").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" close").color(theme.muted),
+                        ])
+                    }
+                } else if cur_focus == Focus::Prompt {
+                    // Prompt focus: text-editing hints
+                    element! {
+                        MixedText(contents: vec![
+                            MixedTextContent::new("type").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" text  ").color(theme.muted),
+                            MixedTextContent::new("enter").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" newline  ").color(theme.muted),
+                            MixedTextContent::new("ctrl-w").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" del word  ").color(theme.muted),
+                            MixedTextContent::new("tab").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" focus  ").color(theme.muted),
+                            MixedTextContent::new("esc").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" done").color(theme.muted),
+                        ])
+                    }
+                } else if matches!(*mode.read(), crate::tui::mode::Mode::Search { .. }) {
+                    // Search mode: typing into query
+                    element! {
+                        MixedText(contents: vec![
+                            MixedTextContent::new("type").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" query  ").color(theme.muted),
+                            MixedTextContent::new("enter").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" confirm  ").color(theme.muted),
+                            MixedTextContent::new("esc").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" cancel").color(theme.muted),
+                        ])
+                    }
+                } else if term_w < 100 {
+                    // Narrow mode: show only essential bindings
+                    element! {
+                        MixedText(contents: vec![
+                            MixedTextContent::new("tab").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" switch  ").color(theme.muted),
+                            MixedTextContent::new("j/k").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" move  ").color(theme.muted),
+                            MixedTextContent::new("space").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" toggle  ").color(theme.muted),
+                            MixedTextContent::new("/").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" cmds  ").color(theme.muted),
+                            MixedTextContent::new("q").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" quit").color(theme.muted),
+                        ])
+                    }
+                } else {
+                    element! {
+                        MixedText(contents: vec![
+                            MixedTextContent::new("tab").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" focus  ").color(theme.muted),
+                            MixedTextContent::new("j/k").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" move  ").color(theme.muted),
+                            MixedTextContent::new("space").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" toggle  ").color(theme.muted),
+                            MixedTextContent::new("i").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" edit  ").color(theme.muted),
+                            MixedTextContent::new("v").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" viewer  ").color(theme.muted),
+                            MixedTextContent::new("/").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" commands  ").color(theme.muted),
+                            MixedTextContent::new("ctrl-f").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" find  ").color(theme.muted),
+                            MixedTextContent::new("q").color(theme.accent).weight(Weight::Bold),
+                            MixedTextContent::new(" quit").color(theme.muted),
+                        ])
+                    }
+                })
+            }
+
+            // ─── OVERLAY LAYER (rendered above main layout) ──
+            #(match &*mode.read() {
+                crate::tui::mode::Mode::Help => Some(
+                    crate::tui::overlays::card::render_card(
+                        "HELP",
+                        crate::tui::overlays::help::render_body(&theme),
+                        &theme,
+                        term_w,
+                        term_h,
+                    )
+                ),
+                crate::tui::mode::Mode::ScenarioPicker { cursor } => {
+                    let scenarios = crate::tui::overlays::scenario_picker::load(&data.root);
+                    let current = data.bundle.scenario.as_deref();
+                    Some(crate::tui::overlays::card::render_card(
+                        "SCENARIO",
+                        crate::tui::overlays::scenario_picker::render_body(&scenarios, *cursor, current, &theme),
+                        &theme,
+                        term_w,
+                        term_h,
+                    ))
                 }
-            }
+                crate::tui::mode::Mode::CommandPalette { query, cursor } => {
+                    let results = crate::tui::command_registry::filter(query);
+                    Some(crate::tui::overlays::card::render_card(
+                        "COMMANDS",
+                        crate::tui::overlays::command_palette::render_body(query, &results, *cursor, &theme),
+                        &theme,
+                        term_w,
+                        term_h,
+                    ))
+                }
+                crate::tui::mode::Mode::ThemePicker { cursor } => {
+                    let themes = crate::tui::overlays::theme_picker::all();
+                    Some(crate::tui::overlays::card::render_card(
+                        "THEME",
+                        crate::tui::overlays::theme_picker::render_body(themes, *cursor, data.theme.name, &theme),
+                        &theme,
+                        term_w,
+                        term_h,
+                    ))
+                }
+                crate::tui::mode::Mode::DeliveryPicker { cursor } => {
+                    Some(crate::tui::overlays::card::render_card(
+                        "DELIVER",
+                        crate::tui::overlays::delivery_picker::render_body(*cursor, &theme),
+                        &theme,
+                        term_w,
+                        term_h,
+                    ))
+                }
+                crate::tui::mode::Mode::AtPicker {
+                    query, cursor, files,
+                } => {
+                    let ranked = crate::prompt_input::at_picker::rank(
+                        files, query, 10,
+                    );
+                    let mut body: Vec<AnyElement<'static>> = Vec::new();
+                    let display_query = format!("@{query}▏");
+                    body.push(
+                        element! {
+                            MixedText(contents: vec![
+                                MixedTextContent::new(display_query).color(theme.accent),
+                            ])
+                        }
+                        .into_any(),
+                    );
+                    body.push(
+                        element! {
+                            Text(content: "─────────────────────────", color: theme.muted, weight: Weight::Light)
+                        }
+                        .into_any(),
+                    );
+                    if ranked.is_empty() {
+                        body.push(
+                            element! { Text(content: "  no matches", color: theme.muted) }
+                                .into_any(),
+                        );
+                    } else {
+                        for (i, path) in ranked.iter().enumerate() {
+                            let selected = i == *cursor;
+                            let gutter = if selected { "▶ " } else { "  " };
+                            let path_str = path.display().to_string();
+                            let (fg, bg) = if selected {
+                                (Some(theme.selected_fg), Some(theme.selected_bg))
+                            } else {
+                                (None, None)
+                            };
+                            body.push(
+                                element! {
+                                    View(background_color: bg, width: 100pct) {
+                                        MixedText(contents: vec![
+                                            {
+                                                let mut c = MixedTextContent::new(gutter);
+                                                if let Some(col) = fg { c = c.color(col); }
+                                                else { c = c.color(theme.accent); }
+                                                c.weight(Weight::Bold)
+                                            },
+                                            {
+                                                let mut c = MixedTextContent::new(path_str);
+                                                if let Some(col) = fg { c = c.color(col); }
+                                                c
+                                            },
+                                        ])
+                                    }
+                                }
+                                .into_any(),
+                            );
+                        }
+                    }
+                    Some(crate::tui::overlays::card::render_card(
+                        "@ FILE",
+                        body,
+                        &theme,
+                        term_w,
+                        term_h,
+                    ))
+                }
+                crate::tui::mode::Mode::FullPromptPreview { content, scroll } => {
+                    let lines: Vec<&str> = content.lines().collect();
+                    let viewport = (term_h as usize).saturating_sub(8).max(5);
+                    let start = (*scroll).min(lines.len().saturating_sub(viewport));
+                    let end = (start + viewport).min(lines.len());
+                    let mut body: Vec<AnyElement<'static>> = Vec::new();
+                    for line in &lines[start..end] {
+                        body.push(
+                            element! { Text(content: line.to_string().leak() as &str) }
+                                .into_any(),
+                        );
+                    }
+                    if end < lines.len() {
+                        let hint = format!("  …{} more lines (j/k to scroll, esc to close)", lines.len() - end);
+                        body.push(
+                            element! { Text(content: hint.leak() as &str, color: theme.muted, weight: Weight::Light) }
+                                .into_any(),
+                        );
+                    }
+                    Some(crate::tui::overlays::card::render_card(
+                        "COMPOSED PROMPT",
+                        body,
+                        &theme,
+                        term_w,
+                        term_h,
+                    ))
+                }
+                _ => None,
+            })
         }
-    }
-    result.sort_by(|a, b| a.0.cmp(&b.0));
-    result
-}
-
-#[cfg(test)]
-mod mode_transition_tests {
-    use super::*;
-    use crate::tui::mode::Mode;
-    use crate::tui::motion::{MockClock, constants};
-    use std::time::Duration;
-    use tempfile::TempDir;
-
-    fn test_app() -> (App, MockClock, TempDir) {
-        let tmp = TempDir::new().unwrap();
-        let root = CtxforgeRoot::find_or_create(tmp.path()).unwrap();
-        let clock = MockClock::new();
-        let app = App::with_clock(root, Box::new(clock.clone()));
-        (app, clock, tmp)
-    }
-
-    #[test]
-    fn normal_to_normal_has_no_transition() {
-        let (mut app, _clock, _tmp) = test_app();
-        app.set_mode(Mode::Normal);
-        assert!(app.mode_transition.is_none());
-    }
-
-    #[test]
-    fn normal_to_overlay_sets_modal_in_duration() {
-        let (mut app, _clock, _tmp) = test_app();
-        app.set_mode(Mode::Help);
-        let t = app.mode_transition.as_ref().unwrap();
-        assert_eq!(t.duration, constants::MODAL_IN);
-    }
-
-    #[test]
-    fn overlay_to_normal_sets_modal_out_duration() {
-        let (mut app, _clock, _tmp) = test_app();
-        app.set_mode(Mode::Help);
-        app.set_mode(Mode::Normal);
-        let t = app.mode_transition.as_ref().unwrap();
-        assert_eq!(t.duration, constants::MODAL_OUT);
-    }
-
-    #[test]
-    fn overlay_to_overlay_sets_crossfade_duration() {
-        let (mut app, _clock, _tmp) = test_app();
-        app.set_mode(Mode::Help);
-        app.set_mode(Mode::PipeMenu);
-        let t = app.mode_transition.as_ref().unwrap();
-        assert_eq!(t.duration, constants::MODAL_CROSSFADE);
-    }
-
-    #[test]
-    fn has_active_animations_false_by_default() {
-        let (mut app, clock, _tmp) = test_app();
-        // The startup fade is active right after construction; advance past it.
-        clock.advance(Duration::from_millis(500));
-        app.cleanup_finished_animations();
-        assert!(!app.has_active_animations());
-    }
-
-    #[test]
-    fn has_active_animations_true_during_transition() {
-        let (mut app, _clock, _tmp) = test_app();
-        app.set_mode(Mode::Help);
-        assert!(app.has_active_animations());
-    }
-
-    #[test]
-    fn cleanup_clears_finished_transition() {
-        let (mut app, clock, _tmp) = test_app();
-        app.set_mode(Mode::Help);
-        assert!(app.has_active_animations());
-        clock.advance(Duration::from_millis(500));
-        app.cleanup_finished_animations();
-        assert!(!app.has_active_animations());
-        assert!(app.mode_transition.is_none());
-    }
-}
-
-#[cfg(test)]
-mod viewer_integration_tests {
-    use super::*;
-    use crate::paths::CtxforgeRoot;
-    use crate::tui::motion::MockClock;
-    use tempfile::TempDir;
-
-    fn test_app_with_files(files: &[(&str, &[u8])]) -> (App, TempDir) {
-        let tmp = TempDir::new().unwrap();
-        for (name, content) in files {
-            std::fs::write(tmp.path().join(name), content).unwrap();
-        }
-        let root = CtxforgeRoot::find_or_create(tmp.path()).unwrap();
-        let clock = MockClock::new();
-        let app = App::with_clock(root, Box::new(clock));
-        (app, tmp)
-    }
-
-    #[test]
-    fn toggle_viewer_flips_enabled() {
-        let (mut app, _tmp) = test_app_with_files(&[]);
-        assert!(!app.viewer.enabled);
-        app.toggle_viewer();
-        assert!(app.viewer.enabled);
-        app.toggle_viewer();
-        assert!(!app.viewer.enabled);
-    }
-
-    #[test]
-    fn toggle_viewer_on_triggers_load_for_current_cursor() {
-        let (mut app, _tmp) =
-            test_app_with_files(&[("a.rs", b"fn a() {}\n"), ("b.rs", b"fn b() {}\n")]);
-        assert!(!app.visible_tree.is_empty());
-        app.toggle_viewer();
-        assert!(app.viewer.cached_path.is_some());
-    }
-
-    #[test]
-    fn move_tree_cursor_reloads_viewer_when_enabled() {
-        let (mut app, _tmp) =
-            test_app_with_files(&[("a.rs", b"fn a() {}\n"), ("b.rs", b"fn b() {}\n")]);
-        app.toggle_viewer();
-        let first_path = app.viewer.cached_path.clone();
-        app.move_tree_cursor(1);
-        let second_path = app.viewer.cached_path.clone();
-        assert_ne!(first_path, second_path);
-    }
-
-    #[test]
-    fn move_tree_cursor_when_viewer_disabled_does_not_load() {
-        let (mut app, _tmp) =
-            test_app_with_files(&[("a.rs", b"fn a() {}\n"), ("b.rs", b"fn b() {}\n")]);
-        assert!(!app.viewer.enabled);
-        app.move_tree_cursor(1);
-        assert!(app.viewer.cached_path.is_none());
-    }
-
-    #[test]
-    fn disable_viewer_while_focused_snaps_focus_to_tree() {
-        let (mut app, _tmp) = test_app_with_files(&[("a.rs", b"fn a() {}\n")]);
-        app.toggle_viewer();
-        app.focus = Focus::Viewer;
-        app.toggle_viewer();
-        assert_eq!(app.focus, Focus::FileTree);
-    }
-
-    #[test]
-    fn tab_cycle_with_viewer_off_skips_viewer() {
-        let (mut app, _tmp) = test_app_with_files(&[]);
-        assert_eq!(app.focus, Focus::FileTree);
-        app.toggle_focus();
-        assert_eq!(app.focus, Focus::BundleList);
-        app.toggle_focus();
-        assert_eq!(app.focus, Focus::Prompt);
-        app.toggle_focus();
-        assert_eq!(app.focus, Focus::FileTree);
-    }
-
-    #[test]
-    fn tab_cycle_with_viewer_on_includes_viewer() {
-        let (mut app, _tmp) = test_app_with_files(&[]);
-        app.toggle_viewer();
-        assert_eq!(app.focus, Focus::FileTree);
-        app.toggle_focus();
-        assert_eq!(app.focus, Focus::Viewer);
-        app.toggle_focus();
-        assert_eq!(app.focus, Focus::BundleList);
-        app.toggle_focus();
-        assert_eq!(app.focus, Focus::Prompt);
-        app.toggle_focus();
-        assert_eq!(app.focus, Focus::FileTree);
-    }
-
-    #[test]
-    fn add_selection_with_no_selection_sets_status_and_no_bundle_change() {
-        let (mut app, _tmp) = test_app_with_files(&[("a.rs", b"fn a() {}\n")]);
-        app.toggle_viewer();
-        let before = app.bundle.len();
-        app.add_viewer_selection_to_bundle();
-        assert_eq!(app.bundle.len(), before);
-        assert!(app.status_message.contains("no lines selected"));
-    }
-
-    #[test]
-    fn add_selection_appends_range_item_to_bundle() {
-        let (mut app, _tmp) = test_app_with_files(&[(
-            "big.rs",
-            b"fn one() {}\nfn two() {}\nfn three() {}\nfn four() {}\n",
-        )]);
-        app.toggle_viewer();
-        // Select lines 1-2 (0-based) → stored as 1-based 2-3.
-        app.viewer.begin_selection(1);
-        app.viewer.extend_selection(2);
-
-        let before = app.bundle.len();
-        app.add_viewer_selection_to_bundle();
-        assert_eq!(app.bundle.len(), before + 1);
-
-        let last = app.bundle.items.last().unwrap();
-        match &last.kind {
-            crate::bundle::ItemKind::Range(r) => {
-                assert_eq!(r.start, 2);
-                assert_eq!(r.end, 3);
-            }
-            other => panic!("expected Range, got {other:?}"),
-        }
-        // Selection clears after add.
-        assert!(app.viewer.selection().is_none());
     }
 }

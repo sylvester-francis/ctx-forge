@@ -2,9 +2,9 @@ use ctxforge::cli::Cli;
 use ctxforge::error::{CtxforgeError, Result};
 use ctxforge::{commands, output, paths};
 
-#[cfg(feature = "tui")]
+#[cfg(feature = "tui-v2")]
 use ctxforge::tui;
-#[cfg(feature = "tui")]
+#[cfg(feature = "tui-v2")]
 use std::io::IsTerminal;
 
 use clap::Parser;
@@ -34,8 +34,8 @@ fn main() {
 fn run() -> Result<()> {
     let cli = Cli::parse();
 
-    // No subcommand + TTY → launch TUI (if feature enabled).
-    #[cfg(feature = "tui")]
+    // No subcommand + TTY → launch TUI.
+    #[cfg(feature = "tui-v2")]
     if cli.command.is_none() && std::io::stdin().is_terminal() {
         let cwd = std::env::current_dir()?;
         let root = paths::CtxforgeRoot::find_or_create(&cwd)?;

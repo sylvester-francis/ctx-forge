@@ -1,13 +1,12 @@
-//! Syntect wrapper that produces pre-styled ratatui `Line<'static>` values.
+//! Syntect wrapper that produces pre-styled iocraft `MixedTextContent` rows.
 
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
+use iocraft::components::MixedTextContent;
+use iocraft::components::TextDecoration;
+use iocraft::{Color, Weight};
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{FontStyle, Style as SyntectStyle, Theme, ThemeSet};
 use syntect::parsing::SyntaxSet;
 
-/// Owns the bundled syntect syntaxes and theme. Not `Clone` (syntect's
-/// SyntaxSet isn't either) — keep a single instance on `App`.
 pub struct Highlighter {
     syntax_set: SyntaxSet,
     theme: Theme,
@@ -17,39 +16,32 @@ impl Highlighter {
     pub fn new() -> Self {
         let syntax_set = SyntaxSet::load_defaults_newlines();
         let theme_set = ThemeSet::load_defaults();
-        // base16-ocean.dark is bundled in the default ThemeSet and reads well
-        // on the dark terminal background ctxforge targets.
         let theme = theme_set.themes["base16-ocean.dark"].clone();
         Self { syntax_set, theme }
     }
 
-    /// Highlight `content` as the given file extension (e.g. `"rs"`, `"py"`).
-    /// Falls back to plain-text rules when the extension is unknown.
-    /// Returns one `Line` per newline-terminated line in the input.
-    pub fn highlight(&self, extension: &str, content: &str) -> Vec<Line<'static>> {
+    pub fn highlight(&self, extension: &str, content: &str) -> Vec<Vec<MixedTextContent>> {
         let syntax = self
             .syntax_set
             .find_syntax_by_extension(extension)
             .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
-        let mut highlighter = HighlightLines::new(syntax, &self.theme);
+        let mut hl = HighlightLines::new(syntax, &self.theme);
 
         let mut out = Vec::new();
         for line in content.split_inclusive('\n') {
-            // Strip trailing newline: ratatui inserts line breaks itself;
-            // keeping `\n` in a span prints a visible box.
             let trimmed = line.strip_suffix('\n').unwrap_or(line);
-            let ranges = highlighter
+            let ranges = hl
                 .highlight_line(trimmed, &self.syntax_set)
                 .unwrap_or_default();
-            let spans: Vec<Span<'static>> = ranges
+            let spans: Vec<MixedTextContent> = ranges
                 .into_iter()
-                .map(|(style, text)| Span::styled(text.to_string(), syntect_to_ratatui(style)))
+                .map(|(style, text)| syntect_to_content(style, text))
                 .collect();
-            out.push(Line::from(if spans.is_empty() {
-                vec![Span::raw(trimmed.to_string())]
+            if spans.is_empty() {
+                out.push(vec![MixedTextContent::new(trimmed.to_string())]);
             } else {
-                spans
-            }));
+                out.push(spans);
+            }
         }
         out
     }
@@ -61,19 +53,28 @@ impl Default for Highlighter {
     }
 }
 
-/// Convert a syntect `Style` to a ratatui `Style`. Foreground (syntect's
-/// primary signal) maps to RGB; background is dropped (terminals own it).
-/// Font-style bits pass through.
-fn syntect_to_ratatui(s: SyntectStyle) -> Style {
-    let mut style = Style::default().fg(Color::Rgb(s.foreground.r, s.foreground.g, s.foreground.b));
+/// Shared global instance. First call pays ~200ms of SyntaxSet deserialization;
+/// subsequent calls return instantly. Warm this during app startup so the first
+/// viewer toggle doesn't stall the UI.
+pub fn shared() -> &'static Highlighter {
+    static INSTANCE: std::sync::LazyLock<Highlighter> = std::sync::LazyLock::new(Highlighter::new);
+    &INSTANCE
+}
+
+fn syntect_to_content(s: SyntectStyle, text: &str) -> MixedTextContent {
+    let mut c = MixedTextContent::new(text.to_string()).color(Color::Rgb {
+        r: s.foreground.r,
+        g: s.foreground.g,
+        b: s.foreground.b,
+    });
     if s.font_style.contains(FontStyle::BOLD) {
-        style = style.add_modifier(Modifier::BOLD);
+        c = c.weight(Weight::Bold);
     }
     if s.font_style.contains(FontStyle::ITALIC) {
-        style = style.add_modifier(Modifier::ITALIC);
+        c = c.italic();
     }
     if s.font_style.contains(FontStyle::UNDERLINE) {
-        style = style.add_modifier(Modifier::UNDERLINED);
+        c = c.decoration(TextDecoration::Underline);
     }
-    style
+    c
 }

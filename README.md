@@ -59,7 +59,7 @@ cargo install ctxforge --no-default-features        # minimal: CLI-only, no TUI,
 
 | Flag | Default | What it enables |
 |---|---|---|
-| `tui` | yes | Interactive ratatui composer (depends on `ratatui`, `crossterm`, `fuzzy-matcher`) |
+| `tui-v2` | yes | Interactive iocraft-based TUI composer with reactive rendering, flexbox layout, and animated transitions |
 | `mcp` | yes | Model Context Protocol server (`ctxforge mcp` subcommand) |
 | `extract` | — | Tree-sitter function/type extraction for `ctxforge add --fn` / `--type` |
 | `minimal` | — | No-op marker — pass `--no-default-features` for a lean CLI-only build |

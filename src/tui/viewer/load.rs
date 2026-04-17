@@ -1,5 +1,4 @@
-//! File loading for the viewer: binary detection, 2 MB truncation,
-//! `ViewerError` variants.
+//! File loading for the viewer: binary detection, 2 MB truncation, error variants.
 
 use std::fmt;
 use std::fs;
@@ -7,16 +6,47 @@ use std::io::{ErrorKind, Read};
 use std::path::Path;
 
 use super::Highlighter;
+use iocraft::components::MixedTextContent;
 
-/// Maximum bytes read from a single file. Larger files are truncated at
-/// this boundary with `truncated = true`.
 const MAX_READ_BYTES: usize = 2 * 1024 * 1024;
-/// Bytes peeked for binary detection (NUL scan).
 const BINARY_PEEK_BYTES: usize = 4096;
 
-/// Load and highlight a file for the viewer. Resolves errors to
-/// `ViewerError` variants rather than `Result` so the UI can display them
-/// directly.
+#[derive(Debug, Clone)]
+pub enum ViewerError {
+    Binary(u64),
+    Directory,
+    NotFound,
+    PermissionDenied,
+    Io(String),
+}
+
+impl fmt::Display for ViewerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Binary(size) => write!(f, "binary file — {} bytes", size),
+            Self::Directory => write!(f, "directory — select a file"),
+            Self::NotFound => write!(f, "file not found"),
+            Self::PermissionDenied => write!(f, "permission denied"),
+            Self::Io(e) => write!(f, "io error: {e}"),
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct ViewerLoad {
+    pub lines: Vec<Vec<MixedTextContent>>,
+    pub truncated: bool,
+    pub error: Option<ViewerError>,
+}
+
+fn io_error(e: &std::io::Error) -> ViewerError {
+    match e.kind() {
+        ErrorKind::NotFound => ViewerError::NotFound,
+        ErrorKind::PermissionDenied => ViewerError::PermissionDenied,
+        _ => ViewerError::Io(e.to_string()),
+    }
+}
+
 pub fn read_and_highlight(path: &Path, highlighter: &Highlighter) -> ViewerLoad {
     match fs::metadata(path) {
         Ok(md) if md.is_dir() => {
@@ -44,7 +74,6 @@ pub fn read_and_highlight(path: &Path, highlighter: &Highlighter) -> ViewerLoad 
         }
     };
 
-    // Peek the first 4 KB for NUL bytes — the universal binary heuristic.
     let mut peek = [0u8; BINARY_PEEK_BYTES];
     let peek_n = match file.read(&mut peek) {
         Ok(n) => n,
@@ -63,14 +92,12 @@ pub fn read_and_highlight(path: &Path, highlighter: &Highlighter) -> ViewerLoad 
         };
     }
 
-    // Read up to MAX_READ_BYTES total (peek is already consumed).
     let mut buf = peek[..peek_n].to_vec();
     let remaining = MAX_READ_BYTES.saturating_sub(peek_n);
     let mut truncated = false;
     if remaining > 0 {
         let mut rest = Vec::with_capacity(remaining);
-        let mut take = file.take(remaining as u64);
-        if let Err(e) = take.read_to_end(&mut rest) {
+        if let Err(e) = file.by_ref().take(remaining as u64).read_to_end(&mut rest) {
             return ViewerLoad {
                 error: Some(ViewerError::Io(e.to_string())),
                 ..Default::default()
@@ -78,62 +105,21 @@ pub fn read_and_highlight(path: &Path, highlighter: &Highlighter) -> ViewerLoad 
         }
         buf.extend(rest);
     }
-    if let Ok(md) = fs::metadata(path) {
-        if md.len() as usize > buf.len() {
+
+    let mut one_more = [0u8; 1];
+    if let Ok(n) = file.read(&mut one_more) {
+        if n > 0 {
             truncated = true;
         }
     }
 
     let content = String::from_utf8_lossy(&buf).into_owned();
-    let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let lines = highlighter.highlight(extension, &content);
+    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+    let lines = highlighter.highlight(ext, &content);
 
     ViewerLoad {
         lines,
         truncated,
         error: None,
     }
-}
-
-fn io_error(e: &std::io::Error) -> ViewerError {
-    match e.kind() {
-        ErrorKind::NotFound => ViewerError::NotFound,
-        ErrorKind::PermissionDenied => ViewerError::PermissionDenied,
-        _ => ViewerError::Io(e.to_string()),
-    }
-}
-
-/// Why the viewer can't display the current file. Each variant has a
-/// canonical `Display` impl used by the render code.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ViewerError {
-    /// Cursor is on a directory — nothing to preview.
-    Directory,
-    /// File contains NUL bytes in the first 4 KB — treated as binary.
-    Binary(u64),
-    PermissionDenied,
-    NotFound,
-    Io(String),
-}
-
-impl fmt::Display for ViewerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ViewerError::Directory => write!(f, "↳ select a file to preview"),
-            ViewerError::Binary(n) => write!(f, "[binary file — {n} bytes]"),
-            ViewerError::PermissionDenied => write!(f, "permission denied"),
-            ViewerError::NotFound => write!(f, "file not found"),
-            ViewerError::Io(msg) => write!(f, "error: {msg}"),
-        }
-    }
-}
-
-/// Result of reading a file for the viewer. Contains either highlighted
-/// lines (on success) or an error state. `truncated` is true when the file
-/// was larger than the 2 MB limit and only the leading portion was read.
-#[derive(Default)]
-pub struct ViewerLoad {
-    pub lines: Vec<ratatui::text::Line<'static>>,
-    pub truncated: bool,
-    pub error: Option<ViewerError>,
 }

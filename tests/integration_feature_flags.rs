@@ -28,8 +28,8 @@ fn builds_with_no_features() {
 }
 
 #[test]
-fn builds_with_tui_only() {
-    cargo_check(&["tui"]);
+fn builds_with_tui_v2_only() {
+    cargo_check(&["tui-v2"]);
 }
 
 #[test]
@@ -39,10 +39,10 @@ fn builds_with_mcp_only() {
 
 #[test]
 fn builds_with_default_features() {
-    cargo_check(&["tui", "mcp"]);
+    cargo_check(&["tui-v2", "mcp"]);
 }
 
 #[test]
 fn builds_with_all_features() {
-    cargo_check(&["tui", "mcp", "extract"]);
+    cargo_check(&["tui-v2", "mcp", "extract"]);
 }
