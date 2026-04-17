@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.3.1](https://github.com/sylvester-francis/ctx-forge/compare/v1.3.0...v1.3.1) - 2026-04-17
+
+### Other
+
+- gitignore spikes/ directory
+
 ## 1.3.0 — iocraft TUI rewrite
 
 Complete TUI rewrite from ratatui (immediate-mode) to **iocraft** — a React-like reactive framework with taffy flexbox layout. The ratatui v1 TUI has been removed; iocraft is now the sole rendering engine. Every surface has been rebuilt with a distinctive design language, fluid interactions, and responsive layouts.
