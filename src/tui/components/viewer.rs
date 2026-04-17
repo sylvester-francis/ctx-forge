@@ -82,8 +82,7 @@ pub fn Viewer(hooks: &mut Hooks, props: &ViewerProps) -> impl Into<AnyElement<'s
     // physical viewport height AND at lines remaining after scroll, so
     // clicks on blank rows past end-of-file don't translate to phantom
     // line indices.
-    let rendered_rows =
-        total_lines.saturating_sub(scroll).min(rendered_height);
+    let rendered_rows = total_lines.saturating_sub(scroll).min(rendered_height);
 
     hooks.use_local_terminal_events(move |event| {
         let Some(mut events) = events else { return };
@@ -182,7 +181,13 @@ fn render_rows(
     let gutter_width = format!("{}", total).len();
     let mut rows: Vec<AnyElement<'static>> = Vec::new();
 
-    for (i, spans) in viewer.lines.iter().enumerate().skip(start).take(end - start) {
+    for (i, spans) in viewer
+        .lines
+        .iter()
+        .enumerate()
+        .skip(start)
+        .take(end - start)
+    {
         let in_selection = viewer
             .selection
             .map(|(a, b)| i >= a && i <= b)

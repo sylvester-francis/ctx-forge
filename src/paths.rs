@@ -83,6 +83,22 @@ impl CtxforgeRoot {
     }
 }
 
+/// Returns the user-global cache directory.
+/// Honors `$XDG_CACHE_HOME` if set and non-empty; otherwise falls back to
+/// `$HOME/.cache/ctxforge`. Deliberately NOT `~/.ctxforge/cache` — that path
+/// would reintroduce the "stray ~/.ctxforge" regression that
+/// `find_does_not_walk_up_to_ancestor` guards against.
+pub fn global_cache_dir() -> Option<PathBuf> {
+    if let Some(xdg) = std::env::var_os("XDG_CACHE_HOME") {
+        let p = PathBuf::from(xdg);
+        if !p.as_os_str().is_empty() {
+            return Some(p.join("ctxforge"));
+        }
+    }
+    let home = std::env::var_os("HOME").map(PathBuf::from)?;
+    Some(home.join(".cache").join("ctxforge"))
+}
+
 /// Returns the user-global templates directory: `~/.config/ctxforge/templates`.
 /// On systems where the home directory cannot be determined, returns `None`.
 pub fn global_templates_dir() -> Option<PathBuf> {
@@ -108,6 +124,32 @@ pub fn config_file_path() -> Option<PathBuf> {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn global_cache_dir_honors_xdg() {
+        temp_env::with_var("XDG_CACHE_HOME", Some("/tmp/xdg-test"), || {
+            assert_eq!(
+                global_cache_dir(),
+                Some(PathBuf::from("/tmp/xdg-test/ctxforge")),
+            );
+        });
+    }
+
+    #[test]
+    fn global_cache_dir_falls_back_to_home_cache() {
+        temp_env::with_vars(
+            [
+                ("XDG_CACHE_HOME", None::<&str>),
+                ("HOME", Some("/fake/home")),
+            ],
+            || {
+                assert_eq!(
+                    global_cache_dir(),
+                    Some(PathBuf::from("/fake/home/.cache/ctxforge")),
+                );
+            },
+        );
+    }
 
     #[test]
     fn find_returns_none_when_no_ctxforge_dir() {

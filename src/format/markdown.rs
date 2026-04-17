@@ -4,11 +4,11 @@
 //! When memory notes are provided, a `## Memory` section is emitted at
 //! the top of the output, before any items.
 
-use crate::bundle::ItemKind;
 use crate::memory::Note;
 use crate::resolve::ResolvedItem;
+use crate::source::Source;
 
-pub fn render(items: &[ResolvedItem], memory: &[Note]) -> String {
+pub fn render(items: &[ResolvedItem], memory: &[Note], no_provenance: bool) -> String {
     let mut out = String::new();
 
     if !memory.is_empty() {
@@ -19,7 +19,7 @@ pub fn render(items: &[ResolvedItem], memory: &[Note]) -> String {
         if i > 0 || !memory.is_empty() {
             out.push('\n');
         }
-        write_item(&mut out, item);
+        write_item(&mut out, item, no_provenance);
     }
     out
 }
@@ -36,37 +36,41 @@ fn write_memory(out: &mut String, memory: &[Note]) {
     out.push_str("\n---\n");
 }
 
-fn write_item(out: &mut String, r: &ResolvedItem) {
-    // Heading line.
-    match &r.item.kind {
-        ItemKind::File => {
-            out.push_str(&format!("## `{}`\n\n", r.item.path.display()));
+fn write_item(out: &mut String, r: &ResolvedItem, no_provenance: bool) {
+    if !no_provenance {
+        write_provenance_comment(out, r);
+    }
+    match &r.item.source {
+        Source::File(f) => {
+            out.push_str(&format!("## `{}`\n\n", f.path.display()));
         }
-        ItemKind::Range(range) => {
+        Source::Range(range) => {
             out.push_str(&format!(
                 "## `{}` (lines {}-{})\n\n",
-                r.item.path.display(),
+                range.path.display(),
                 range.start,
                 range.end
             ));
         }
-        ItemKind::Function { name } => {
+        Source::Func(func) => {
             out.push_str(&format!(
                 "## `{}` — fn `{}`\n\n",
-                r.item.path.display(),
-                name
+                func.path.display(),
+                func.name
             ));
         }
-        ItemKind::Type { name } => {
+        Source::Type(t) => {
             out.push_str(&format!(
                 "## `{}` — type `{}`\n\n",
-                r.item.path.display(),
-                name
+                t.path.display(),
+                t.name
             ));
+        }
+        Source::Url(u) => {
+            out.push_str(&format!("## `{}`\n\n", u.url));
         }
     }
 
-    // Fenced code block.
     out.push_str("```");
     out.push_str(r.language);
     out.push('\n');
@@ -77,20 +81,56 @@ fn write_item(out: &mut String, r: &ResolvedItem) {
     out.push_str("```\n");
 }
 
+fn write_provenance_comment(out: &mut String, r: &ResolvedItem) {
+    let p = &r.provenance;
+    if p.failed {
+        let reason = p.reason.as_deref().unwrap_or("unknown");
+        out.push_str(&format!(
+            "<!-- ctxforge: FAILED {}\n     reason: {reason}\n     last_attempt: {} -->\n",
+            p.uri,
+            p.fetched_at_str().unwrap_or_else(|| "unknown".into()),
+        ));
+        return;
+    }
+    let mut line = format!(
+        "<!-- ctxforge: {}, sha256:{}",
+        p.uri,
+        &p.sha256[..p.sha256.len().min(16)]
+    );
+    if let Some(ts) = p.fetched_at_str() {
+        line.push_str(&format!(", fetched {ts}"));
+    }
+    if let Some(etag) = &p.etag {
+        line.push_str(&format!(", etag:{etag}"));
+    }
+    if p.stale {
+        line.push_str(", stale");
+    }
+    line.push_str(" -->\n");
+    out.push_str(&line);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bundle::{Item, ItemKind};
+    use crate::bundle::Item;
     use crate::memory::Note;
+    use crate::source::{FileSource, RangeSource};
     use std::path::PathBuf;
 
     fn sample_file(path: &str, content: &str, lang: &'static str) -> ResolvedItem {
-        ResolvedItem {
-            item: Item {
+        let item = Item {
+            source: Source::File(FileSource {
                 path: PathBuf::from(path),
-                kind: ItemKind::File,
-                label: None,
-            },
+            }),
+            label: None,
+        };
+        ResolvedItem {
+            provenance: crate::source::Provenance::local(
+                item.source.to_uri().to_string(),
+                String::new(),
+            ),
+            item,
             content: content.to_string(),
             language: lang,
         }
@@ -98,7 +138,11 @@ mod tests {
 
     #[test]
     fn single_file_renders_with_heading_and_fence() {
-        let r = render(&[sample_file("src/main.rs", "fn main() {}\n", "rust")], &[]);
+        let r = render(
+            &[sample_file("src/main.rs", "fn main() {}\n", "rust")],
+            &[],
+            true,
+        );
         assert!(r.contains("## `src/main.rs`"));
         assert!(r.contains("```rust"));
         assert!(r.contains("fn main() {}"));
@@ -113,6 +157,7 @@ mod tests {
                 sample_file("b.rs", "two\n", "rust"),
             ],
             &[],
+            true,
         );
         let first = r.find("## `a.rs`").unwrap();
         let second = r.find("## `b.rs`").unwrap();
@@ -121,17 +166,22 @@ mod tests {
 
     #[test]
     fn range_item_shows_line_numbers_in_heading() {
+        let item = Item {
+            source: Source::Range(RangeSource::new("a.rs".into(), 5, 10).unwrap()),
+            label: None,
+        };
         let r = render(
             &[ResolvedItem {
-                item: Item {
-                    path: PathBuf::from("a.rs"),
-                    kind: ItemKind::Range(crate::bundle::Range { start: 5, end: 10 }),
-                    label: None,
-                },
+                provenance: crate::source::Provenance::local(
+                    item.source.to_uri().to_string(),
+                    String::new(),
+                ),
+                item,
                 content: "slice\n".into(),
                 language: "rust",
             }],
             &[],
+            true,
         );
         assert!(r.contains("(lines 5-10)"));
     }
@@ -139,7 +189,7 @@ mod tests {
     #[test]
     fn memory_section_rendered_when_notes_present() {
         let notes = vec![Note::new("JWT in header", Some("auth".into()))];
-        let r = render(&[sample_file("a.rs", "", "rust")], &notes);
+        let r = render(&[sample_file("a.rs", "", "rust")], &notes, true);
         assert!(r.contains("## Memory"));
         assert!(r.contains("[auth]"));
         assert!(r.contains("JWT in header"));
@@ -150,7 +200,20 @@ mod tests {
 
     #[test]
     fn memory_section_omitted_when_empty() {
-        let r = render(&[sample_file("a.rs", "", "rust")], &[]);
+        let r = render(&[sample_file("a.rs", "", "rust")], &[], true);
         assert!(!r.contains("## Memory"));
+    }
+
+    #[test]
+    fn provenance_header_emitted_by_default() {
+        let r = render(&[sample_file("a.rs", "fn a() {}\n", "rust")], &[], false);
+        assert!(r.contains("<!-- ctxforge:"));
+        assert!(r.contains("file://a.rs"));
+    }
+
+    #[test]
+    fn no_provenance_flag_strips_header() {
+        let r = render(&[sample_file("a.rs", "fn a() {}\n", "rust")], &[], true);
+        assert!(!r.contains("<!-- ctxforge:"));
     }
 }

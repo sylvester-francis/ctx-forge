@@ -1,6 +1,10 @@
 //! Bundle list — indexed badges, truncated paths, right-aligned tokens.
+//!
+//! Network sources (URL) render with a freshness dot (●/◐/◌) reflecting
+//! their cache state: fresh / stale / uncached.
 
-use crate::bundle::Bundle;
+use crate::bundle::{Bundle, Item};
+use crate::cache::{CacheRead, ContentCache};
 use crate::tui::theme::Theme;
 use iocraft::prelude::*;
 
@@ -56,11 +60,14 @@ pub fn render_bundle_rows(
             .into_any(),
         );
     } else {
+        let cache = crate::paths::global_cache_dir().and_then(|d| ContentCache::open(d).ok());
         for (i, (item, tok)) in bundle.items.iter().zip(item_tokens.iter()).enumerate() {
             let badge = format!(" {:02} ", i + 1);
-            let path_str = item.path.display().to_string();
-            let path = smart_truncate_path(&path_str, 28);
-            let path_padded = format!(" {:<28} ", path);
+            let dot = freshness_dot(item, cache.as_ref());
+            let dot_color = freshness_color(item, cache.as_ref(), theme);
+            let path_str = item.source.display_label();
+            let path = smart_truncate_path(&path_str, 26);
+            let path_padded = format!(" {:<26} ", path);
             let toks = format!("{:>6}", format_tokens(*tok));
 
             rows.push(
@@ -68,6 +75,7 @@ pub fn render_bundle_rows(
                     View(width: 100pct) {
                         MixedText(contents: vec![
                             span(badge, Some(theme.accent), true),
+                            span(format!("{dot} "), Some(dot_color), false),
                             span(path_padded, None, false),
                             span(toks, Some(theme.muted), false),
                         ])
@@ -79,4 +87,28 @@ pub fn render_bundle_rows(
     }
 
     (title, rows)
+}
+
+/// Freshness dot for a bundle item. Local sources always render as fresh;
+/// cacheable sources reflect cache state.
+fn freshness_dot(item: &Item, cache: Option<&ContentCache>) -> &'static str {
+    if !item.source.is_cacheable() {
+        return "●";
+    }
+    match cache.map(|c| c.get(&item.source.cache_key())) {
+        Some(Ok(CacheRead::Fresh { .. })) => "●",
+        Some(Ok(CacheRead::Stale { .. })) => "◐",
+        _ => "◌",
+    }
+}
+
+fn freshness_color(item: &Item, cache: Option<&ContentCache>, theme: &Theme) -> Color {
+    if !item.source.is_cacheable() {
+        return theme.muted;
+    }
+    match cache.map(|c| c.get(&item.source.cache_key())) {
+        Some(Ok(CacheRead::Fresh { .. })) => theme.accent,
+        Some(Ok(CacheRead::Stale { .. })) => theme.warning,
+        _ => theme.muted,
+    }
 }

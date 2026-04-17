@@ -1,6 +1,6 @@
 //! MCP resource implementations: bundle and memory resources.
 
-use crate::bundle::{Bundle, ItemKind};
+use crate::bundle::Bundle;
 use crate::format::{self, Format};
 use crate::memory;
 use crate::models;
@@ -66,7 +66,7 @@ fn read_bundle(root: &CtxforgeRoot) -> Result<Value, String> {
         resolve::resolve_all(&bundle.items, root.project_root()).map_err(|e| e.to_string())?;
     let memory_notes =
         memory::collect_for_attach(root, false, None, 20).map_err(|e| e.to_string())?;
-    let rendered = format::render(Format::Markdown, &resolved, &memory_notes);
+    let rendered = format::render(Format::Markdown, &resolved, &memory_notes, false);
 
     Ok(json!({
         "contents": [{
@@ -92,12 +92,7 @@ fn read_bundle_items(root: &CtxforgeRoot) -> Result<Value, String> {
             json!({
                 "index": i + 1,
                 "path": r.item.display(),
-                "kind": match &r.item.kind {
-                    ItemKind::File => "file",
-                    ItemKind::Range(_) => "range",
-                    ItemKind::Function { .. } => "function",
-                    ItemKind::Type { .. } => "type",
-                },
+                "kind": r.item.source.scheme_name(),
                 "tokens": tc.tokens,
             })
         })

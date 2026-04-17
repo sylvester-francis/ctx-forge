@@ -22,11 +22,11 @@
 //! the literal sequence `]]>`, the standard split trick applies: replace
 //! `]]>` with `]]]]><![CDATA[>` so it is broken across two CDATA sections.
 
-use crate::bundle::ItemKind;
 use crate::memory::Note;
 use crate::resolve::ResolvedItem;
+use crate::source::Source;
 
-pub fn render(items: &[ResolvedItem], memory: &[Note]) -> String {
+pub fn render(items: &[ResolvedItem], memory: &[Note], no_provenance: bool) -> String {
     let mut out = String::new();
     out.push_str(&format!("<context items=\"{}\">\n", items.len()));
 
@@ -35,7 +35,7 @@ pub fn render(items: &[ResolvedItem], memory: &[Note]) -> String {
     }
 
     for item in items {
-        write_item(&mut out, item);
+        write_item(&mut out, item, no_provenance);
     }
 
     out.push_str("</context>\n");
@@ -63,31 +63,66 @@ fn write_memory(out: &mut String, memory: &[Note]) {
     out.push_str("  </memory>\n");
 }
 
-fn write_item(out: &mut String, r: &ResolvedItem) {
+fn write_item(out: &mut String, r: &ResolvedItem, no_provenance: bool) {
     let tag_name = if r.language == "markdown" {
         "documentation"
     } else {
         "source"
     };
 
+    let path_str = match &r.item.source {
+        Source::File(f) => f.path.display().to_string(),
+        Source::Range(r2) => r2.path.display().to_string(),
+        Source::Func(f) => f.path.display().to_string(),
+        Source::Type(t) => t.path.display().to_string(),
+        Source::Url(u) => u.url.clone(),
+    };
+
     out.push_str("  <");
     out.push_str(tag_name);
     out.push_str(&format!(
         " path=\"{}\" language=\"{}\"",
-        escape_attr(&r.item.path.display().to_string()),
+        escape_attr(&path_str),
         r.language
     ));
 
-    match &r.item.kind {
-        ItemKind::File => {}
-        ItemKind::Range(range) => {
+    if !no_provenance {
+        let p = &r.provenance;
+        out.push_str(&format!(" uri=\"{}\"", escape_attr(&p.uri)));
+        if let Some(ts) = p.fetched_at_str() {
+            out.push_str(&format!(" fetched=\"{}\"", ts));
+        }
+        if !p.sha256.is_empty() {
+            out.push_str(&format!(
+                " sha256=\"{}\"",
+                &p.sha256[..p.sha256.len().min(16)]
+            ));
+        }
+        if let Some(etag) = &p.etag {
+            out.push_str(&format!(" etag=\"{}\"", escape_attr(etag)));
+        }
+        if p.stale {
+            out.push_str(" stale=\"true\"");
+        }
+        if p.failed {
+            let reason = p.reason.as_deref().unwrap_or("unknown");
+            out.push_str(&format!(
+                " failed=\"true\" reason=\"{}\"",
+                escape_attr(reason)
+            ));
+        }
+    }
+
+    match &r.item.source {
+        Source::File(_) | Source::Url(_) => {}
+        Source::Range(range) => {
             out.push_str(&format!(" lines=\"{}-{}\"", range.start, range.end));
         }
-        ItemKind::Function { name } => {
-            out.push_str(&format!(" fn=\"{}\"", escape_attr(name)));
+        Source::Func(f) => {
+            out.push_str(&format!(" fn=\"{}\"", escape_attr(&f.name)));
         }
-        ItemKind::Type { name } => {
-            out.push_str(&format!(" type=\"{}\"", escape_attr(name)));
+        Source::Type(t) => {
+            out.push_str(&format!(" type=\"{}\"", escape_attr(&t.name)));
         }
     }
 
@@ -123,17 +158,24 @@ fn cdata_escape(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bundle::{Item, ItemKind, Range};
+    use crate::bundle::Item;
     use crate::memory::Note;
+    use crate::source::{FileSource, RangeSource};
     use std::path::PathBuf;
 
     fn sample(path: &str, content: &str, lang: &'static str) -> ResolvedItem {
-        ResolvedItem {
-            item: Item {
+        let item = Item {
+            source: Source::File(FileSource {
                 path: PathBuf::from(path),
-                kind: ItemKind::File,
-                label: None,
-            },
+            }),
+            label: None,
+        };
+        ResolvedItem {
+            provenance: crate::source::Provenance::local(
+                item.source.to_uri().to_string(),
+                String::new(),
+            ),
+            item,
             content: content.to_string(),
             language: lang,
         }
@@ -141,21 +183,25 @@ mod tests {
 
     #[test]
     fn empty_bundle_renders_empty_context() {
-        let out = render(&[], &[]);
+        let out = render(&[], &[], true);
         assert!(out.starts_with("<context items=\"0\">"));
         assert!(out.trim_end().ends_with("</context>"));
     }
 
     #[test]
     fn single_source_file_uses_source_tag() {
-        let out = render(&[sample("src/main.rs", "fn main() {}\n", "rust")], &[]);
+        let out = render(
+            &[sample("src/main.rs", "fn main() {}\n", "rust")],
+            &[],
+            true,
+        );
         assert!(out.contains("<source path=\"src/main.rs\" language=\"rust\""));
         assert!(out.contains("<![CDATA[fn main() {}\n]]></source>"));
     }
 
     #[test]
     fn markdown_file_uses_documentation_tag() {
-        let out = render(&[sample("README.md", "# Project\n", "markdown")], &[]);
+        let out = render(&[sample("README.md", "# Project\n", "markdown")], &[], true);
         assert!(out.contains("<documentation path=\"README.md\" language=\"markdown\""));
         assert!(out.contains("</documentation>"));
         assert!(!out.contains("<source"));
@@ -163,19 +209,20 @@ mod tests {
 
     #[test]
     fn line_range_item_has_lines_attribute() {
-        let item = ResolvedItem {
-            item: Item {
-                path: PathBuf::from("src/hub.rs"),
-                kind: ItemKind::Range(Range {
-                    start: 45,
-                    end: 120,
-                }),
-                label: None,
-            },
+        let item = Item {
+            source: Source::Range(RangeSource::new("src/hub.rs".into(), 45, 120).unwrap()),
+            label: None,
+        };
+        let resolved = ResolvedItem {
+            provenance: crate::source::Provenance::local(
+                item.source.to_uri().to_string(),
+                String::new(),
+            ),
+            item,
             content: "slice\n".into(),
             language: "rust",
         };
-        let out = render(&[item], &[]);
+        let out = render(&[resolved], &[], true);
         assert!(out.contains("lines=\"45-120\""));
     }
 
@@ -185,7 +232,7 @@ mod tests {
             Note::new("JWT in header", Some("auth".into())),
             Note::new("general note", None),
         ];
-        let out = render(&[], &notes);
+        let out = render(&[], &notes, true);
         assert!(out.contains("<memory count=\"2\">"));
         assert!(out.contains("tag=\"auth\""));
         assert!(out.contains("JWT in header"));
@@ -195,13 +242,13 @@ mod tests {
 
     #[test]
     fn path_with_special_chars_is_attribute_escaped() {
-        let out = render(&[sample("src/a&b.rs", "", "rust")], &[]);
+        let out = render(&[sample("src/a&b.rs", "", "rust")], &[], true);
         assert!(out.contains("path=\"src/a&amp;b.rs\""));
     }
 
     #[test]
     fn cdata_split_handles_content_with_closing_cdata() {
-        let out = render(&[sample("a.rs", "let s = \"]]>\";\n", "rust")], &[]);
+        let out = render(&[sample("a.rs", "let s = \"]]>\";\n", "rust")], &[], true);
         assert!(!out.contains("\"]]>\""));
         assert!(out.contains("]]]]><![CDATA[>"));
     }
@@ -215,6 +262,7 @@ mod tests {
                 sample("c.md", "", "markdown"),
             ],
             &[],
+            true,
         );
         assert!(out.contains("<context items=\"3\">"));
     }
@@ -222,7 +270,7 @@ mod tests {
     #[test]
     fn memory_note_body_is_text_escaped() {
         let notes = vec![Note::new("A < B && C > D", None)];
-        let out = render(&[], &notes);
+        let out = render(&[], &notes, true);
         assert!(out.contains("A &lt; B &amp;&amp; C &gt; D"));
     }
 }

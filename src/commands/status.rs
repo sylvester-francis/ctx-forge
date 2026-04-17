@@ -108,10 +108,15 @@ pub fn run(root: &CtxforgeRoot, model_override: Option<&str>) -> Result<()> {
             item.display(),
             hot_pct
         ));
+        let narrow_hint = item
+            .source
+            .display_path()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| item.source.display_label());
         println!(
             "  Tip: narrow to a line range with: ctxforge rm {} && ctxforge add {}:10-50",
             idx + 1,
-            item.path.display()
+            narrow_hint
         );
     }
 

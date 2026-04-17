@@ -9,12 +9,12 @@ use crate::bundle::Bundle;
 use crate::error::Result;
 use crate::models;
 use crate::motion_core::{constants, ease_out_cubic};
-use crate::paths::{config_file_path, CtxforgeRoot};
-use crate::resolve;
-use crate::tokens;
+use crate::paths::{CtxforgeRoot, config_file_path};
 use crate::preview::PromptPreview;
 use crate::prompt_input::PromptInput;
-use crate::theme::{config::resolve_theme_name, registry, AppTheme};
+use crate::resolve;
+use crate::theme::{AppTheme, config::resolve_theme_name, registry};
+use crate::tokens;
 use crate::tree::{self, TreeEntry};
 use crate::tui::components::{
     bundle_summary::render_bundle_rows, prompt_preview::render_preview, tree::render_tree_rows,
@@ -79,7 +79,11 @@ fn load_app_data(root: CtxforgeRoot) -> AppData {
         registry::by_name(&theme_name).unwrap_or_else(|| registry::default_theme());
     let theme = Theme::from_app_theme(raw);
 
-    let bundled_paths: HashSet<PathBuf> = bundle.items.iter().map(|i| i.path.clone()).collect();
+    let bundled_paths: HashSet<PathBuf> = bundle
+        .items
+        .iter()
+        .filter_map(|i| i.source.display_path().cloned())
+        .collect();
     let preview = build_preview(&root, &bundle, &item_tokens);
 
     AppData {
@@ -106,14 +110,18 @@ impl AppData {
     /// Only the affected item is resolved + tokenized — existing items keep
     /// their cached token counts.
     fn toggle_bundle(&mut self, rel_path: &std::path::Path) {
-        use crate::bundle::{Item, ItemKind};
+        use crate::bundle::Item;
+        use crate::source::{FileSource, Source};
         if self.bundled_paths.contains(rel_path) {
             // Remove path: drop the matching token entry too. Bundle stores
             // items ordered; find the first File-kind item matching the path
             // and remove its parallel token entry.
-            if let Some(idx) = self.bundle.items.iter().position(|it| {
-                it.path == rel_path && matches!(it.kind, ItemKind::File)
-            }) {
+            if let Some(idx) = self
+                .bundle
+                .items
+                .iter()
+                .position(|it| matches!(&it.source, Source::File(f) if f.path == rel_path))
+            {
                 self.bundle.items.remove(idx);
                 if idx < self.item_tokens.len() {
                     let removed = self.item_tokens.remove(idx);
@@ -128,14 +136,19 @@ impl AppData {
             self.bundled_paths.remove(rel_path);
         } else {
             let item = Item {
-                path: rel_path.to_path_buf(),
-                kind: ItemKind::File,
+                source: Source::File(FileSource {
+                    path: rel_path.to_path_buf(),
+                }),
                 label: None,
             };
             let model = models::lookup(&self.model_name);
             let new_tokens: usize =
                 resolve::resolve_all(std::slice::from_ref(&item), &self.project_root)
-                    .map(|res| res.iter().map(|r| tokens::count(&r.content, &model).tokens).sum())
+                    .map(|res| {
+                        res.iter()
+                            .map(|r| tokens::count(&r.content, &model).tokens)
+                            .sum()
+                    })
                     .unwrap_or(0);
             self.bundle.add(item);
             self.bundled_paths.insert(rel_path.to_path_buf());
@@ -180,7 +193,9 @@ impl AppData {
         match action {
             A::Help => Some(Mode::Help),
             A::Scenario => Some(Mode::ScenarioPicker { cursor: 0 }),
-            A::Find => Some(Mode::Search { query: String::new() }),
+            A::Find => Some(Mode::Search {
+                query: String::new(),
+            }),
             A::Quit => {
                 self.set_status("quit requested".to_string());
                 None
@@ -189,7 +204,11 @@ impl AppData {
             A::ToggleViewer => {
                 self.viewer.toggle();
                 let enabled = self.viewer.enabled;
-                self.set_status(if enabled { "viewer on".to_string() } else { "viewer off".to_string() });
+                self.set_status(if enabled {
+                    "viewer on".to_string()
+                } else {
+                    "viewer off".to_string()
+                });
                 None
             }
             A::AddSelection => {
@@ -201,31 +220,93 @@ impl AppData {
                 let content = self
                     .render_payload(crate::format::Format::Markdown)
                     .unwrap_or_else(|e| format!("Error: {e}"));
-                self.pending_action =
-                    Some(crate::tui::mode::PendingAction::Editor(content));
+                self.pending_action = Some(crate::tui::mode::PendingAction::Editor(content));
                 None
             }
-            A::Copy => { self.set_status("use CLI: ctxforge copy".to_string()); None }
-            A::CopyXml => { self.set_status("use CLI: ctxforge copy --xml".to_string()); None }
-            A::CopyJson => { self.set_status("use CLI: ctxforge copy --json".to_string()); None }
-            A::Export => { self.set_status("use CLI: ctxforge export".to_string()); None }
-            A::ExportXml => { self.set_status("use CLI: ctxforge export --xml".to_string()); None }
-            A::ExportJson => { self.set_status("use CLI: ctxforge export --json".to_string()); None }
-            A::Pipe => { self.set_status("use CLI: ctxforge copy | your-agent".to_string()); None }
-            A::SaveProfile => { self.set_status("use CLI: ctxforge profile save <name>".to_string()); None }
-            A::LoadProfile => { self.set_status("use CLI: ctxforge profile load <name>".to_string()); None }
-            A::Narrow => { self.set_status("use CLI: ctxforge narrow <path> <start> <end>".to_string()); None }
-            A::Model => { self.set_status("set model via --model flag or config.toml".to_string()); None }
-            A::Memory => { self.set_status("use CLI: ctxforge memory".to_string()); None }
-            A::Note => { self.set_status("use CLI: ctxforge memory note".to_string()); None }
-            A::FindFn => { self.set_status("use CLI: ctxforge add --fn <name> <path>".to_string()); None }
-            A::FindType => { self.set_status("use CLI: ctxforge add --type <name> <path>".to_string()); None }
-            A::FindDiff => { self.set_status("use CLI: ctxforge add --diff <branch>".to_string()); None }
-            A::Template => { self.set_status("use CLI: ctxforge template".to_string()); None }
-            A::TemplateNew => { self.set_status("use CLI: ctxforge template new <name>".to_string()); None }
-            A::TemplateRm => { self.set_status("use CLI: ctxforge template rm <name>".to_string()); None }
-            A::TemplateStarters => { self.set_status("use CLI: ctxforge template starters".to_string()); None }
-            A::TemplateList => { self.set_status("use CLI: ctxforge template list".to_string()); None }
+            A::Copy => {
+                self.set_status("use CLI: ctxforge copy".to_string());
+                None
+            }
+            A::CopyXml => {
+                self.set_status("use CLI: ctxforge copy --xml".to_string());
+                None
+            }
+            A::CopyJson => {
+                self.set_status("use CLI: ctxforge copy --json".to_string());
+                None
+            }
+            A::Export => {
+                self.set_status("use CLI: ctxforge export".to_string());
+                None
+            }
+            A::ExportXml => {
+                self.set_status("use CLI: ctxforge export --xml".to_string());
+                None
+            }
+            A::ExportJson => {
+                self.set_status("use CLI: ctxforge export --json".to_string());
+                None
+            }
+            A::Pipe => {
+                self.set_status("use CLI: ctxforge copy | your-agent".to_string());
+                None
+            }
+            A::SaveProfile => {
+                self.set_status("use CLI: ctxforge profile save <name>".to_string());
+                None
+            }
+            A::LoadProfile => {
+                self.set_status("use CLI: ctxforge profile load <name>".to_string());
+                None
+            }
+            A::Narrow => {
+                self.set_status("use CLI: ctxforge narrow <path> <start> <end>".to_string());
+                None
+            }
+            A::Model => {
+                self.set_status("set model via --model flag or config.toml".to_string());
+                None
+            }
+            A::Memory => {
+                self.set_status("use CLI: ctxforge memory".to_string());
+                None
+            }
+            A::Note => {
+                self.set_status("use CLI: ctxforge memory note".to_string());
+                None
+            }
+            A::FindFn => {
+                self.set_status("use CLI: ctxforge add --fn <name> <path>".to_string());
+                None
+            }
+            A::FindType => {
+                self.set_status("use CLI: ctxforge add --type <name> <path>".to_string());
+                None
+            }
+            A::FindDiff => {
+                self.set_status("use CLI: ctxforge add --diff <branch>".to_string());
+                None
+            }
+            A::Template => {
+                self.set_status("use CLI: ctxforge template".to_string());
+                None
+            }
+            A::TemplateNew => {
+                self.set_status("use CLI: ctxforge template new <name>".to_string());
+                None
+            }
+            A::TemplateRm => {
+                self.set_status("use CLI: ctxforge template rm <name>".to_string());
+                None
+            }
+            A::TemplateStarters => {
+                self.set_status("use CLI: ctxforge template starters".to_string());
+                None
+            }
+            A::TemplateList => {
+                self.set_status("use CLI: ctxforge template list".to_string());
+                None
+            }
         }
     }
 
@@ -255,7 +336,8 @@ impl AppData {
     /// keep their cached token counts. Noticeably faster than a full
     /// `recompute_tokens()` call for large bundles.
     fn add_viewer_selection_to_bundle(&mut self) {
-        use crate::bundle::{Item, ItemKind};
+        use crate::bundle::Item;
+        use crate::source::{RangeSource, Source};
         let (start0, end0) = match self.viewer.selection {
             Some(range) => range,
             None => {
@@ -274,13 +356,15 @@ impl AppData {
             .strip_prefix(&self.project_root)
             .unwrap_or(&path)
             .to_path_buf();
-        let range = crate::bundle::Range {
-            start: start0 + 1,
-            end: end0 + 1,
+        let range_source = match RangeSource::new(rel_path.clone(), start0 + 1, end0 + 1) {
+            Ok(r) => r,
+            Err(e) => {
+                self.set_status(format!("invalid selection: {e}"));
+                return;
+            }
         };
         let item = Item {
-            path: rel_path.clone(),
-            kind: ItemKind::Range(range),
+            source: Source::Range(range_source),
             label: None,
         };
 
@@ -288,7 +372,11 @@ impl AppData {
         let model = models::lookup(&self.model_name);
         let new_tokens: usize =
             resolve::resolve_all(std::slice::from_ref(&item), &self.project_root)
-                .map(|res| res.iter().map(|r| tokens::count(&r.content, &model).tokens).sum())
+                .map(|res| {
+                    res.iter()
+                        .map(|r| tokens::count(&r.content, &model).tokens)
+                        .sum()
+                })
                 .unwrap_or(0);
 
         self.bundle.add(item);
@@ -301,8 +389,8 @@ impl AppData {
         self.set_status(format!(
             "added {}:{}-{} (+{} tokens)",
             rel_path.display(),
-            range.start,
-            range.end,
+            start0 + 1,
+            end0 + 1,
             new_tokens,
         ));
     }
@@ -313,7 +401,7 @@ impl AppData {
         let resolved = resolve::resolve_all(&self.bundle.items, &self.project_root)
             .map_err(|e| format!("resolve bundle: {e}"))?;
         let notes = crate::memory::index::read_all(&self.root).unwrap_or_default();
-        let bundle_rendered = crate::format::render(format, &resolved, &notes);
+        let bundle_rendered = crate::format::render(format, &resolved, &notes, true);
 
         if let Some(scenario) = &self.bundle.scenario {
             let body = crate::scenario::load_body(&self.root, scenario)
@@ -504,15 +592,18 @@ fn build_preview(root: &CtxforgeRoot, bundle: &Bundle, item_tokens: &[usize]) ->
                 sections.push(Section::Task {
                     text: bundle.task_text.clone(),
                 });
-                let items = bundle
-                    .items
-                    .iter()
-                    .zip(item_tokens.iter())
-                    .map(|(it, tok)| ContextItem {
-                        path: it.path.clone(),
-                        tokens: *tok,
-                    })
-                    .collect();
+                let items =
+                    bundle
+                        .items
+                        .iter()
+                        .zip(item_tokens.iter())
+                        .map(|(it, tok)| ContextItem {
+                            path: it.source.display_path().cloned().unwrap_or_else(|| {
+                                std::path::PathBuf::from(it.source.display_label())
+                            }),
+                            tokens: *tok,
+                        })
+                        .collect();
                 sections.push(Section::Context { items });
             }
             Err(e) => sections.push(Section::TemplateError {
@@ -638,7 +729,8 @@ pub async fn run(root: CtxforgeRoot) -> Result<()> {
 
         // Reload AppData from disk so the next render-loop iteration
         // picks up any changes the external action made (e.g. editor).
-        let root = ROOT_STASH.with(|r| r.borrow().clone())
+        let root = ROOT_STASH
+            .with(|r| r.borrow().clone())
             .expect("ROOT_STASH should be set");
         STARTUP.with(|s| *s.borrow_mut() = Some(load_app_data(root)));
     }
@@ -699,7 +791,9 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 let should_clear = {
                     let d = app_data_for_timer.read();
                     d.status_set_at
-                        .map(|t| t.elapsed() >= std::time::Duration::from_secs(3) && !d.status.is_empty())
+                        .map(|t| {
+                            t.elapsed() >= std::time::Duration::from_secs(3) && !d.status.is_empty()
+                        })
                         .unwrap_or(false)
                 };
                 if should_clear {
@@ -805,21 +899,26 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
 
                 // ── Scenario picker overlay ─────────────────────
                 if matches!(*mode.read(), crate::tui::mode::Mode::ScenarioPicker { .. }) {
-                    let scenarios = crate::tui::overlays::scenario_picker::load(&app_data.read().root);
+                    let scenarios =
+                        crate::tui::overlays::scenario_picker::load(&app_data.read().root);
                     let count = scenarios.len();
                     match k.code {
                         KeyCode::Esc => {
                             *mode.write() = crate::tui::mode::Mode::Normal;
                         }
                         KeyCode::Up | KeyCode::Char('k') => {
-                            if let crate::tui::mode::Mode::ScenarioPicker { cursor } = &mut *mode.write() {
+                            if let crate::tui::mode::Mode::ScenarioPicker { cursor } =
+                                &mut *mode.write()
+                            {
                                 if *cursor > 0 {
                                     *cursor -= 1;
                                 }
                             }
                         }
                         KeyCode::Down | KeyCode::Char('j') => {
-                            if let crate::tui::mode::Mode::ScenarioPicker { cursor } = &mut *mode.write() {
+                            if let crate::tui::mode::Mode::ScenarioPicker { cursor } =
+                                &mut *mode.write()
+                            {
                                 if *cursor + 1 < count {
                                     *cursor += 1;
                                 }
@@ -850,14 +949,18 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             *mode.write() = crate::tui::mode::Mode::Normal;
                         }
                         KeyCode::Up | KeyCode::Char('k') => {
-                            if let crate::tui::mode::Mode::ThemePicker { cursor } = &mut *mode.write() {
+                            if let crate::tui::mode::Mode::ThemePicker { cursor } =
+                                &mut *mode.write()
+                            {
                                 if *cursor > 0 {
                                     *cursor -= 1;
                                 }
                             }
                         }
                         KeyCode::Down | KeyCode::Char('j') => {
-                            if let crate::tui::mode::Mode::ThemePicker { cursor } = &mut *mode.write() {
+                            if let crate::tui::mode::Mode::ThemePicker { cursor } =
+                                &mut *mode.write()
+                            {
                                 if *cursor + 1 < count {
                                     *cursor += 1;
                                 }
@@ -973,9 +1076,9 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                 let new_cursor = at_start + path_str.len();
                                 prompt_input.write().set_text(new_text.clone());
                                 prompt_input.write().set_cursor(new_cursor);
-                                app_data.write().sync_task_text(
-                                    prompt_input.read().text().to_string(),
-                                );
+                                app_data
+                                    .write()
+                                    .sync_task_text(prompt_input.read().text().to_string());
                                 // Add to bundle if not already there
                                 if !app_data.read().bundled_paths.contains(&path) {
                                     app_data.write().toggle_bundle(&path);
@@ -1000,7 +1103,10 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 }
 
                 // ── Full prompt preview overlay ─────────────────
-                if matches!(*mode.read(), crate::tui::mode::Mode::FullPromptPreview { .. }) {
+                if matches!(
+                    *mode.read(),
+                    crate::tui::mode::Mode::FullPromptPreview { .. }
+                ) {
                     match k.code {
                         KeyCode::Esc | KeyCode::Char('P') | KeyCode::Char('q') => {
                             *mode.write() = crate::tui::mode::Mode::Normal;
@@ -1027,9 +1133,8 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             }
                         }
                         KeyCode::Char('G') => {
-                            if let crate::tui::mode::Mode::FullPromptPreview {
-                                scroll, content,
-                            } = &mut *mode.write()
+                            if let crate::tui::mode::Mode::FullPromptPreview { scroll, content } =
+                                &mut *mode.write()
                             {
                                 let total = content.lines().count();
                                 *scroll = total.saturating_sub(20);
@@ -1227,17 +1332,17 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             d.render_payload(crate::format::Format::Markdown)
                                 .unwrap_or_else(|e| format!("Error: {e}"))
                         };
-                        *mode.write() = crate::tui::mode::Mode::FullPromptPreview {
-                            content,
-                            scroll: 0,
-                        };
+                        *mode.write() =
+                            crate::tui::mode::Mode::FullPromptPreview { content, scroll: 0 };
                     }
                     KeyCode::Char('d') if !k.modifiers.contains(KeyModifiers::CONTROL) => {
                         *mode.write() = crate::tui::mode::Mode::DeliveryPicker { cursor: 0 };
                     }
                     // x = export to stdout (shortcut for /deliver → export)
                     KeyCode::Char('x') => {
-                        app_data.write().run_delivery(crate::deliver::DeliverChoice::Export);
+                        app_data
+                            .write()
+                            .run_delivery(crate::deliver::DeliverChoice::Export);
                         if app_data.read().pending_action.is_some() {
                             *should_quit.write() = true;
                         }
@@ -1249,7 +1354,9 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         };
                     }
                     KeyCode::Char('f') if k.modifiers.contains(KeyModifiers::CONTROL) => {
-                        *mode.write() = crate::tui::mode::Mode::Search { query: String::new() };
+                        *mode.write() = crate::tui::mode::Mode::Search {
+                            query: String::new(),
+                        };
                     }
                     KeyCode::Char('i') if *focus.read() != Focus::Prompt => {
                         *focus.write() = Focus::Prompt;
@@ -1271,7 +1378,9 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                     if let Some(entry) = d.tree_entries.get(idx).cloned() {
                                         if !entry.is_dir {
                                             let abs = d.project_root.join(&entry.rel_path);
-                                            if d.viewer.cached_path.as_deref() != Some(abs.as_path()) {
+                                            if d.viewer.cached_path.as_deref()
+                                                != Some(abs.as_path())
+                                            {
                                                 let generation = d.viewer.begin_load();
                                                 target = Some((abs, generation));
                                             }
@@ -1297,7 +1406,11 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         let viewer_on = app_data.read().viewer.enabled;
                         let next = match *focus.read() {
                             Focus::FileTree => {
-                                if viewer_on { Focus::Viewer } else { Focus::BundleList }
+                                if viewer_on {
+                                    Focus::Viewer
+                                } else {
+                                    Focus::BundleList
+                                }
                             }
                             Focus::Viewer => Focus::BundleList,
                             Focus::BundleList => Focus::Prompt,
@@ -1311,42 +1424,48 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             Focus::FileTree => Focus::Prompt,
                             Focus::Viewer => Focus::FileTree,
                             Focus::BundleList => {
-                                if viewer_on { Focus::Viewer } else { Focus::FileTree }
+                                if viewer_on {
+                                    Focus::Viewer
+                                } else {
+                                    Focus::FileTree
+                                }
                             }
                             Focus::Prompt => Focus::BundleList,
                         };
                         *focus.write() = prev;
                     }
-                    KeyCode::Up | KeyCode::Char('k') => {
-                        match *focus.read() {
-                            Focus::Viewer => {
-                                app_data.write().viewer.scroll_by(-1, viewer_viewport(term_h));
-                            }
-                            _ => {
-                                let c = *cursor.read();
-                                if c > 0 {
-                                    let new = c - 1;
-                                    cursor.set(new);
-                                    reload_viewer(&mut app_data.write(), new, viewer_bg_result);
-                                }
+                    KeyCode::Up | KeyCode::Char('k') => match *focus.read() {
+                        Focus::Viewer => {
+                            app_data
+                                .write()
+                                .viewer
+                                .scroll_by(-1, viewer_viewport(term_h));
+                        }
+                        _ => {
+                            let c = *cursor.read();
+                            if c > 0 {
+                                let new = c - 1;
+                                cursor.set(new);
+                                reload_viewer(&mut app_data.write(), new, viewer_bg_result);
                             }
                         }
-                    }
-                    KeyCode::Down | KeyCode::Char('j') => {
-                        match *focus.read() {
-                            Focus::Viewer => {
-                                app_data.write().viewer.scroll_by(1, viewer_viewport(term_h));
-                            }
-                            _ => {
-                                let c = *cursor.read();
-                                if c < max_cursor {
-                                    let new = c + 1;
-                                    cursor.set(new);
-                                    reload_viewer(&mut app_data.write(), new, viewer_bg_result);
-                                }
+                    },
+                    KeyCode::Down | KeyCode::Char('j') => match *focus.read() {
+                        Focus::Viewer => {
+                            app_data
+                                .write()
+                                .viewer
+                                .scroll_by(1, viewer_viewport(term_h));
+                        }
+                        _ => {
+                            let c = *cursor.read();
+                            if c < max_cursor {
+                                let new = c + 1;
+                                cursor.set(new);
+                                reload_viewer(&mut app_data.write(), new, viewer_bg_result);
                             }
                         }
-                    }
+                    },
                     // Space: toggle bundle (on file) or expand/collapse (on dir).
                     KeyCode::Char(' ') if *focus.read() == Focus::FileTree => {
                         let (actual_idx, is_dir, rel_path) = {
@@ -1375,7 +1494,11 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             let Some(&actual) = visible.get(*cursor.read()) else {
                                 return;
                             };
-                            let is_dir = d.tree_entries.get(actual).map(|e| e.is_dir).unwrap_or(false);
+                            let is_dir = d
+                                .tree_entries
+                                .get(actual)
+                                .map(|e| e.is_dir)
+                                .unwrap_or(false);
                             (actual, is_dir)
                         };
                         if is_dir {
@@ -1417,7 +1540,10 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         }
                     }
                     KeyCode::Char('G') if *focus.read() == Focus::Viewer => {
-                        app_data.write().viewer.scroll_to_bottom(viewer_viewport(term_h));
+                        app_data
+                            .write()
+                            .viewer
+                            .scroll_to_bottom(viewer_viewport(term_h));
                     }
                     KeyCode::Char('u')
                         if k.modifiers.contains(KeyModifiers::CONTROL)
@@ -1433,7 +1559,10 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         if k.modifiers.contains(KeyModifiers::CONTROL)
                             && *focus.read() == Focus::Viewer =>
                     {
-                        app_data.write().viewer.scroll_by(-(viewer_viewport(term_h) as i32 / 2), viewer_viewport(term_h));
+                        app_data.write().viewer.scroll_by(
+                            -(viewer_viewport(term_h) as i32 / 2),
+                            viewer_viewport(term_h),
+                        );
                     }
                     KeyCode::Char('d')
                         if k.modifiers.contains(KeyModifiers::CONTROL)
@@ -1452,7 +1581,10 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         if k.modifiers.contains(KeyModifiers::CONTROL)
                             && *focus.read() == Focus::Viewer =>
                     {
-                        app_data.write().viewer.scroll_by(viewer_viewport(term_h) as i32 / 2, viewer_viewport(term_h));
+                        app_data
+                            .write()
+                            .viewer
+                            .scroll_by(viewer_viewport(term_h) as i32 / 2, viewer_viewport(term_h));
                     }
                     _ => {}
                 }
@@ -1499,7 +1631,10 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
             slot.try_write().and_then(|mut g| g.take())
         };
         if let Some((generation, path, load)) = taken {
-            app_data.write().viewer.apply_bg_load(generation, path, load);
+            app_data
+                .write()
+                .viewer
+                .apply_bg_load(generation, path, load);
         }
     }
 
@@ -1647,7 +1782,11 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     let frac = ((raw_fill as u32) % 4) as usize;
     let partial = ["", "░", "▒", "▓"][frac];
     let empty = bar_width.saturating_sub(full_cells) as usize;
-    let empty = if partial.is_empty() { empty } else { empty.saturating_sub(1) };
+    let empty = if partial.is_empty() {
+        empty
+    } else {
+        empty.saturating_sub(1)
+    };
     let gauge = format!(
         "{}{}{}",
         "█".repeat(full_cells as usize),

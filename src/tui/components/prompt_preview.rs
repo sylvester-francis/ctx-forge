@@ -31,7 +31,9 @@ fn span(text: String, color: Option<Color>, bold: bool) -> MixedTextContent {
 }
 
 fn span_light(text: String, color: Color) -> MixedTextContent {
-    MixedTextContent::new(text).color(color).weight(Weight::Light)
+    MixedTextContent::new(text)
+        .color(color)
+        .weight(Weight::Light)
 }
 
 fn divider(theme: &Theme) -> AnyElement<'static> {

@@ -3,6 +3,7 @@
 //! into a CLI.
 
 pub mod bundle;
+pub mod cache;
 pub mod cli;
 pub mod clipboard;
 pub mod commands;
@@ -11,6 +12,8 @@ pub mod editor;
 pub mod error;
 #[cfg(feature = "extract")]
 pub mod extract;
+#[cfg(feature = "fetch")]
+pub mod fetch;
 pub mod format;
 pub mod git;
 pub mod lang;
@@ -26,6 +29,7 @@ pub mod profile;
 pub mod prompt_input;
 pub mod resolve;
 pub mod scenario;
+pub mod source;
 pub mod template;
 pub mod test_helpers;
 pub mod theme;

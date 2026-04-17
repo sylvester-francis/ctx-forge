@@ -36,18 +36,12 @@ const BUILT_IN_BODIES: &[(&str, &str)] = &[
         "code-review",
         include_str!("../templates/starters/code-review.md"),
     ),
-    (
-        "explain",
-        include_str!("../templates/starters/explain.md"),
-    ),
+    ("explain", include_str!("../templates/starters/explain.md")),
     (
         "refactor",
         include_str!("../templates/starters/refactor.md"),
     ),
-    (
-        "migrate",
-        include_str!("../templates/starters/migrate.md"),
-    ),
+    ("migrate", include_str!("../templates/starters/migrate.md")),
 ];
 
 /// Load the template body for a scenario. Handles built-in starters (baked

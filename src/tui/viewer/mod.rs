@@ -4,7 +4,7 @@ pub mod highlight;
 pub mod load;
 
 pub use highlight::Highlighter;
-pub use load::{read_and_highlight, ViewerError, ViewerLoad};
+pub use load::{ViewerError, ViewerLoad, read_and_highlight};
 
 use iocraft::components::MixedTextContent;
 use std::path::PathBuf;
@@ -165,7 +165,10 @@ mod tests {
 
         assert!(!v.loading);
         assert_eq!(v.lines.len(), 3);
-        assert_eq!(v.cached_path.as_deref(), Some(std::path::Path::new("/x.rs")));
+        assert_eq!(
+            v.cached_path.as_deref(),
+            Some(std::path::Path::new("/x.rs"))
+        );
     }
 
     #[test]

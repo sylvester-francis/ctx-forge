@@ -38,9 +38,9 @@ pub struct HeaderProps {
 
 #[component]
 pub fn Header(hooks: &mut Hooks, props: &HeaderProps) -> impl Into<AnyElement<'static>> {
-    let theme = props.theme.unwrap_or_else(|| {
-        Theme::from_app_theme(crate::theme::registry::default_theme())
-    });
+    let theme = props
+        .theme
+        .unwrap_or_else(|| Theme::from_app_theme(crate::theme::registry::default_theme()));
 
     let pct = if props.model_window == 0 {
         0.0

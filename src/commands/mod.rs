@@ -2,6 +2,7 @@
 //! current bundle, modifies it, saves, and prints user-facing output.
 
 pub mod add;
+pub mod cache_cmd;
 pub mod clear;
 pub mod copy;
 pub mod export;
@@ -10,6 +11,7 @@ pub mod note;
 pub mod pipe;
 pub mod profiles;
 pub mod recall;
+pub mod refresh;
 pub mod resume;
 pub mod rm;
 pub mod save;
@@ -39,7 +41,19 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             diff,
             function,
             type_name,
-        }) => add::run(&root, &cwd, patterns, exclude, diff, function, type_name),
+            allow_http,
+            allow_private_net,
+        }) => add::run(
+            &root,
+            &cwd,
+            patterns,
+            exclude,
+            diff,
+            function,
+            type_name,
+            allow_http,
+            allow_private_net,
+        ),
         Some(Command::Rm { target }) => rm::run(&root, target),
         Some(Command::Clear) => clear::run(&root),
         Some(Command::Status) => status::run(&root, model_override.as_deref()),
@@ -53,6 +67,9 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             memory_limit,
             template,
             task,
+            strict,
+            offline,
+            no_provenance,
         }) => {
             let fmt = resolve_format(format.as_deref(), xml, json)?;
             export::run(
@@ -64,6 +81,9 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                 memory_limit,
                 template.as_deref(),
                 task,
+                strict,
+                offline,
+                no_provenance,
             )
         }
         Some(Command::Copy {
@@ -121,6 +141,15 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         ),
         #[cfg(feature = "mcp")]
         Some(Command::Mcp) => crate::mcp::run(root),
+        Some(Command::Cache { action }) => {
+            use crate::cli::CacheAction;
+            match action {
+                CacheAction::List { scheme } => cache_cmd::list(scheme.as_deref()),
+                CacheAction::Clear { all, stale } => cache_cmd::clear(all, stale),
+                CacheAction::Verify => cache_cmd::verify(),
+            }
+        }
+        Some(Command::Refresh { uri, all }) => refresh::run(&root, uri.as_deref(), all),
     }
 }
 

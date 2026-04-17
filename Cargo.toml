@@ -35,6 +35,11 @@ dialoguer = { version = "0.11", features = ["editor"] }
 strsim = "0.11"
 toml = "0.8"
 tempfile = "3.27"
+sha2 = "0.10"
+hmac = "0.12"
+getrandom = "0.3"
+bytes = "1"
+ureq = { version = "3.3", optional = true, default-features = false, features = ["rustls"] }
 
 # Optional: tree-sitter extraction (behind --features=extract)
 tree-sitter = { version = "0.26", optional = true }
@@ -52,9 +57,10 @@ insta = { version = "1.40", features = ["yaml"] }
 temp-env = "0.3"
 
 [features]
-default = ["tui-v2", "mcp"]
+default = ["tui-v2", "mcp", "fetch"]
 tui-v2 = ["dep:iocraft", "dep:smol", "dep:syntect"]
 mcp = []
+fetch = ["dep:ureq"]
 extract = [
     "dep:tree-sitter",
     "dep:tree-sitter-go",

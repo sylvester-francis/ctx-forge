@@ -9,8 +9,8 @@
 
 use crate::tree::TreeEntry;
 use crate::tui::theme::Theme;
-use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
 use iocraft::prelude::*;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -42,11 +42,7 @@ pub fn render_tree_rows(
             let rails = "│  ".repeat(entry.depth);
             let gutter = if selected { "▶ " } else { "  " };
             let marker = if entry.is_dir {
-                if entry.expanded {
-                    "▾ "
-                } else {
-                    "▸ "
-                }
+                if entry.expanded { "▾ " } else { "▸ " }
             } else if is_bundled {
                 "● "
             } else {
@@ -75,10 +71,19 @@ pub fn render_tree_rows(
                     Some(theme.accent),
                 )
             } else {
-                (Some(theme.muted), Some(theme.muted), Some(theme.muted), None)
+                (
+                    Some(theme.muted),
+                    Some(theme.muted),
+                    Some(theme.muted),
+                    None,
+                )
             };
 
-            let bg = if selected { Some(theme.selected_bg) } else { None };
+            let bg = if selected {
+                Some(theme.selected_bg)
+            } else {
+                None
+            };
             let name = entry.name.clone();
             let bold_name = is_bundled && !selected;
 
@@ -119,7 +124,7 @@ pub fn render_search_rows(
                 .map(|score| (i, score))
         })
         .collect();
-    scored.sort_by(|a, b| b.1.cmp(&a.1));
+    scored.sort_by_key(|s| std::cmp::Reverse(s.1));
     scored.truncate(max_rows);
 
     scored
@@ -144,7 +149,11 @@ pub fn render_search_rows(
             } else {
                 (Some(theme.muted), Some(theme.muted), None)
             };
-            let bg = if selected { Some(theme.selected_bg) } else { None };
+            let bg = if selected {
+                Some(theme.selected_bg)
+            } else {
+                None
+            };
             let bold_name = is_bundled && !selected;
 
             element! {

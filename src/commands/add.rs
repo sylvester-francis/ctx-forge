@@ -1,13 +1,15 @@
 //! `ctxforge add` — add files, globs, line-ranges, functions, types, or
 //! diff'd files to the bundle.
 
-use crate::bundle::{Bundle, Item, ItemKind};
+use crate::bundle::{Bundle, Item};
 use crate::error::{CtxforgeError, Result};
 use crate::output;
 use crate::paths::CtxforgeRoot;
+use crate::source::{FileSource, FuncSource, Source, TypeSource};
 use crate::walk;
 use std::path::{Path, PathBuf};
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     root: &CtxforgeRoot,
     _cwd: &Path,
@@ -16,6 +18,8 @@ pub fn run(
     diff: Option<String>,
     functions: Vec<String>,
     types: Vec<String>,
+    allow_http: bool,
+    allow_private_net: bool,
 ) -> Result<()> {
     let project_root = root.project_root().to_path_buf();
     let mut bundle = Bundle::load_or_default(root)?;
@@ -35,8 +39,10 @@ pub fn run(
         );
         for name in &functions {
             let item = Item {
-                path: PathBuf::from(&file_path),
-                kind: ItemKind::Function { name: name.clone() },
+                source: Source::Func(FuncSource {
+                    path: PathBuf::from(&file_path),
+                    name: name.clone(),
+                }),
                 label: None,
             };
             bundle.add(item);
@@ -59,8 +65,10 @@ pub fn run(
         );
         for name in &types {
             let item = Item {
-                path: PathBuf::from(&file_path),
-                kind: ItemKind::Type { name: name.clone() },
+                source: Source::Type(TypeSource {
+                    path: PathBuf::from(&file_path),
+                    name: name.clone(),
+                }),
                 label: None,
             };
             bundle.add(item);
@@ -84,33 +92,45 @@ pub fn run(
         let changed = crate::git::changed_files(&project_root, &branch)?;
         for p in changed {
             let item = Item {
-                path: p,
-                kind: ItemKind::File,
+                source: Source::File(FileSource { path: p }),
                 label: None,
             };
-            if !exclude_matches(&item.path, &exclude)? {
-                bundle.add(item);
-                added_count += 1;
+            if item_matches_exclude(&item, &exclude)? {
+                continue;
             }
+            bundle.add(item);
+            added_count += 1;
         }
     }
 
     // Expand each explicit pattern.
     for pat in &patterns {
+        // URI-ish patterns go through parse_add_argument directly.
+        if is_uri_pattern(pat) {
+            let item = Item::parse_add_argument(pat)?;
+            if let Source::Url(u) = &item.source {
+                crate::source::url::validate_url(&u.url, allow_http, allow_private_net)
+                    .map_err(CtxforgeError::Msg)?;
+            }
+            bundle.add(item);
+            added_count += 1;
+            continue;
+        }
+
         // Ranged paths (contain `:`) parse directly as a single item.
         if looks_like_ranged_path(pat) {
             let item = Item::parse_add_argument(pat)?;
-            if !exclude_matches(&item.path, &exclude)? {
-                bundle.add(item);
-                added_count += 1;
+            if item_matches_exclude(&item, &exclude)? {
+                continue;
             }
+            bundle.add(item);
+            added_count += 1;
             continue;
         }
 
         // Otherwise expand via the walker (handles literal files, dirs, globs).
         let paths = walk::expand(pat, &project_root, &exclude)?;
         if paths.is_empty() {
-            // Literal path (no glob metacharacters) that doesn't exist → NotFound.
             if !pat.contains('*') && !pat.contains('?') && !pat.contains('[') && !pat.contains('{')
             {
                 let target = project_root.join(pat);
@@ -133,8 +153,7 @@ pub fn run(
         }
         for p in paths {
             let item = Item {
-                path: p,
-                kind: ItemKind::File,
+                source: Source::File(FileSource { path: p }),
                 label: None,
             };
             bundle.add(item);
@@ -157,12 +176,16 @@ pub fn run(
     Ok(())
 }
 
-/// Best-effort validation that each `name` actually exists in `file_path` as
-/// `kind_label` (e.g. "function" or "type"). Warns via `output::warn` for any
-/// name that can't be found — does not fail the add so existing scripts keep
-/// working, but catches typos with a visible message. Silently tolerates
-/// unsupported languages or unreadable files; resolve-time extraction will
-/// surface those errors later.
+fn is_uri_pattern(pat: &str) -> bool {
+    pat.starts_with("https://")
+        || pat.starts_with("http://")
+        || pat.starts_with("url:")
+        || pat.starts_with("file://")
+        || pat.starts_with("range://")
+        || pat.starts_with("func:")
+        || pat.starts_with("type:")
+}
+
 #[cfg(feature = "extract")]
 fn validate_symbols(
     project_root: &Path,
@@ -182,14 +205,11 @@ fn validate_symbols(
             Ok(None) => output::warn(&format!(
                 "{kind_label} `{name}` not found in {file_path} (added anyway)"
             )),
-            Err(_) => {
-                // Unsupported language or query error — defer to resolve time.
-            }
+            Err(_) => {}
         }
     }
 }
 
-/// When using `--fn` or `--type`, exactly one file path must be provided.
 fn require_single_file(patterns: &[String], flag: &str) -> Result<String> {
     if patterns.len() != 1 {
         return Err(CtxforgeError::Msg(format!(
@@ -206,6 +226,13 @@ fn looks_like_ranged_path(s: &str) -> bool {
     } else {
         false
     }
+}
+
+fn item_matches_exclude(item: &Item, excludes: &[String]) -> Result<bool> {
+    let Some(path) = item.source.display_path() else {
+        return Ok(false);
+    };
+    exclude_matches(path.as_path(), excludes)
 }
 
 fn exclude_matches(path: &Path, excludes: &[String]) -> Result<bool> {
