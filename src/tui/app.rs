@@ -1824,10 +1824,13 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                 MixedTextContent::new(preview_title_styled.clone()).color(theme.accent).weight(Weight::Bold),
                             ])
                             Text(content: "")
-                            #(if data.bundle.is_empty() && data.bundle.scenario.is_none() {
-                                crate::tui::components::welcome::render_welcome(&theme, visible_count)
-                            } else {
-                                render_preview(&data.preview, &theme)
+                            #({
+                                let mut content = crate::tui::components::welcome::render_welcome(&theme, visible_count);
+                                if !data.bundle.is_empty() || data.bundle.scenario.is_some() {
+                                    content.push(element! { Text(content: "") }.into_any());
+                                    content.extend(render_preview(&data.preview, &theme));
+                                }
+                                content
                             })
                         }
                     }
@@ -1860,10 +1863,13 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         Focus::Prompt => (
                             preview_title_styled.clone(),
                             preview_border,
-                            if data.bundle.is_empty() && data.bundle.scenario.is_none() {
-                                crate::tui::components::welcome::render_welcome(&theme, visible_count)
-                            } else {
-                                render_preview(&data.preview, &theme)
+                            {
+                                let mut content = crate::tui::components::welcome::render_welcome(&theme, visible_count);
+                                if !data.bundle.is_empty() || data.bundle.scenario.is_some() {
+                                    content.push(element! { Text(content: "") }.into_any());
+                                    content.extend(render_preview(&data.preview, &theme));
+                                }
+                                content
                             },
                         ),
                         Focus::FileTree => (
