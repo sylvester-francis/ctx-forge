@@ -759,9 +759,13 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 if k.kind != KeyEventKind::Press {
                     return;
                 }
-                // ── Welcome splash: any key dismisses ──
+                // ── Welcome splash: q quits, any other key enters the app ──
                 if matches!(*mode.read(), crate::tui::mode::Mode::Welcome) {
-                    *mode.write() = crate::tui::mode::Mode::Normal;
+                    if matches!(k.code, KeyCode::Char('q')) {
+                        *should_quit.write() = true;
+                    } else {
+                        *mode.write() = crate::tui::mode::Mode::Normal;
+                    }
                     return;
                 }
 
