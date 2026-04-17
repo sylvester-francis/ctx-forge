@@ -35,6 +35,7 @@ dialoguer = { version = "0.11", features = ["editor"] }
 strsim = "0.11"
 toml = "0.8"
 tempfile = "3.27"
+sha2 = "0.10"
 
 # Optional: tree-sitter extraction (behind --features=extract)
 tree-sitter = { version = "0.26", optional = true }

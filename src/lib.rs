@@ -3,6 +3,7 @@
 //! into a CLI.
 
 pub mod bundle;
+pub mod cache;
 pub mod cli;
 pub mod clipboard;
 pub mod commands;
