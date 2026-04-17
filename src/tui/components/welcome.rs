@@ -118,12 +118,11 @@ pub fn render_splash(
     body.push(element! { Text(content: "") }.into_any());
     body.push(
         element! {
-            Text(
-                content: "press any key to continue",
-                color: theme.muted,
-                weight: Weight::Light,
-                align: TextAlign::Center,
-            )
+            MixedText(align: TextAlign::Center, contents: vec![
+                MixedTextContent::new("press any key to continue   ").color(theme.muted).weight(Weight::Light),
+                MixedTextContent::new("q").color(theme.accent).weight(Weight::Bold),
+                MixedTextContent::new(" quit").color(theme.muted).weight(Weight::Light),
+            ])
         }
         .into_any(),
     );
