@@ -2,6 +2,7 @@
 
 pub mod file;
 pub mod func;
+pub mod provenance;
 pub mod range;
 pub mod type_;
 pub mod uri;
@@ -9,6 +10,7 @@ pub mod url;
 
 pub use file::FileSource;
 pub use func::FuncSource;
+pub use provenance::Provenance;
 pub use range::RangeSource;
 pub use type_::TypeSource;
 pub use uri::{KNOWN_SCHEMES, Uri, UriParseError};
