@@ -25,6 +25,13 @@ pub enum Mode {
         content: String,
         scroll: usize,
     },
+    /// `@` file picker inside the prompt input.
+    AtPicker {
+        query: String,
+        cursor: usize,
+        /// Cached file list from walk_files, populated on open.
+        files: Vec<std::path::PathBuf>,
+    },
 }
 
 impl Mode {
@@ -37,6 +44,7 @@ impl Mode {
                 | Mode::ThemePicker { .. }
                 | Mode::DeliveryPicker { .. }
                 | Mode::FullPromptPreview { .. }
+                | Mode::AtPicker { .. }
         )
     }
 }

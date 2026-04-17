@@ -769,6 +769,126 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     return;
                 }
 
+                // ── @ file picker ──────────────────────────────
+                if matches!(*mode.read(), crate::tui2::mode::Mode::AtPicker { .. }) {
+                    match k.code {
+                        KeyCode::Esc => {
+                            // Cancel — remove the '@' we inserted
+                            prompt_input.write().backspace();
+                            let text = prompt_input.read().text().to_string();
+                            app_data.write().sync_task_text(text);
+                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                        }
+                        KeyCode::Backspace => {
+                            let query_empty = matches!(
+                                &*mode.read(),
+                                crate::tui2::mode::Mode::AtPicker { query, .. } if query.is_empty()
+                            );
+                            if query_empty {
+                                prompt_input.write().backspace();
+                                let text = prompt_input.read().text().to_string();
+                                app_data.write().sync_task_text(text);
+                                *mode.write() = crate::tui2::mode::Mode::Normal;
+                            } else {
+                                if let crate::tui2::mode::Mode::AtPicker { query, cursor, .. } =
+                                    &mut *mode.write()
+                                {
+                                    query.pop();
+                                    *cursor = 0;
+                                }
+                                prompt_input.write().backspace();
+                                let text = prompt_input.read().text().to_string();
+                                app_data.write().sync_task_text(text);
+                            }
+                        }
+                        KeyCode::Up => {
+                            if let crate::tui2::mode::Mode::AtPicker { cursor, .. } =
+                                &mut *mode.write()
+                            {
+                                if *cursor > 0 {
+                                    *cursor -= 1;
+                                }
+                            }
+                        }
+                        KeyCode::Down => {
+                            if let crate::tui2::mode::Mode::AtPicker {
+                                cursor,
+                                query,
+                                files,
+                            } = &mut *mode.write()
+                            {
+                                let ranked = crate::tui::prompt_input::at_picker::rank(
+                                    files,
+                                    query,
+                                    crate::tui::prompt_input::at_picker::RESULT_LIMIT,
+                                );
+                                if *cursor + 1 < ranked.len() {
+                                    *cursor += 1;
+                                }
+                            }
+                        }
+                        KeyCode::Enter => {
+                            let picked = {
+                                let m = mode.read();
+                                if let crate::tui2::mode::Mode::AtPicker {
+                                    cursor,
+                                    query,
+                                    files,
+                                } = &*m
+                                {
+                                    let ranked = crate::tui::prompt_input::at_picker::rank(
+                                        files,
+                                        query,
+                                        crate::tui::prompt_input::at_picker::RESULT_LIMIT,
+                                    );
+                                    ranked.get(*cursor).cloned()
+                                } else {
+                                    None
+                                }
+                            };
+                            if let Some(path) = picked {
+                                // Replace the @query with @full_path
+                                let cursor_pos = prompt_input.read().cursor();
+                                let text = prompt_input.read().text().to_string();
+                                let query_len = match &*mode.read() {
+                                    crate::tui2::mode::Mode::AtPicker { query, .. } => query.len(),
+                                    _ => 0,
+                                };
+                                // The prompt text has "@<query>" before the cursor.
+                                // Replace the query portion with the full path.
+                                let at_start = cursor_pos.saturating_sub(query_len);
+                                let path_str = path.display().to_string();
+                                let mut new_text = text;
+                                new_text.replace_range(at_start..cursor_pos, &path_str);
+                                let new_cursor = at_start + path_str.len();
+                                prompt_input.write().set_text(new_text.clone());
+                                prompt_input.write().set_cursor(new_cursor);
+                                app_data.write().sync_task_text(
+                                    prompt_input.read().text().to_string(),
+                                );
+                                // Add to bundle if not already there
+                                if !app_data.read().bundled_paths.contains(&path) {
+                                    app_data.write().toggle_bundle(&path);
+                                }
+                            }
+                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                        }
+                        KeyCode::Char(c) => {
+                            if let crate::tui2::mode::Mode::AtPicker { query, cursor, .. } =
+                                &mut *mode.write()
+                            {
+                                query.push(c);
+                                *cursor = 0;
+                            }
+                            prompt_input.write().insert_char(c);
+                            let text = prompt_input.read().text().to_string();
+                            app_data.write().sync_task_text(text);
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+
                 // ── Full prompt preview overlay ─────────────────
                 if matches!(*mode.read(), crate::tui2::mode::Mode::FullPromptPreview { .. }) {
                     match k.code {
@@ -955,6 +1075,18 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         KeyCode::End => prompt_input.write().move_end(),
                         KeyCode::Char('w') if k.modifiers.contains(KeyModifiers::CONTROL) => {
                             prompt_input.write().delete_word_back();
+                        }
+                        KeyCode::Char('@') => {
+                            prompt_input.write().insert_char('@');
+                            // Open the @ file picker
+                            let files = crate::tui::prompt_input::at_picker::walk_files(
+                                &app_data.read().project_root,
+                            );
+                            *mode.write() = crate::tui2::mode::Mode::AtPicker {
+                                query: String::new(),
+                                cursor: 0,
+                                files,
+                            };
                         }
                         KeyCode::Char(c) => {
                             prompt_input.write().insert_char(c);
@@ -1791,6 +1923,73 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     Some(crate::tui2::overlays::card::render_card(
                         "DELIVER",
                         crate::tui2::overlays::delivery_picker::render_body(*cursor, &theme),
+                        &theme,
+                        term_w,
+                        term_h,
+                    ))
+                }
+                crate::tui2::mode::Mode::AtPicker {
+                    query, cursor, files,
+                } => {
+                    let ranked = crate::tui::prompt_input::at_picker::rank(
+                        files, query, 10,
+                    );
+                    let mut body: Vec<AnyElement<'static>> = Vec::new();
+                    let display_query = format!("@{query}▏");
+                    body.push(
+                        element! {
+                            MixedText(contents: vec![
+                                MixedTextContent::new(display_query).color(theme.accent),
+                            ])
+                        }
+                        .into_any(),
+                    );
+                    body.push(
+                        element! {
+                            Text(content: "─────────────────────────", color: theme.muted, weight: Weight::Light)
+                        }
+                        .into_any(),
+                    );
+                    if ranked.is_empty() {
+                        body.push(
+                            element! { Text(content: "  no matches", color: theme.muted) }
+                                .into_any(),
+                        );
+                    } else {
+                        for (i, path) in ranked.iter().enumerate() {
+                            let selected = i == *cursor;
+                            let gutter = if selected { "▶ " } else { "  " };
+                            let path_str = path.display().to_string();
+                            let (fg, bg) = if selected {
+                                (Some(theme.selected_fg), Some(theme.selected_bg))
+                            } else {
+                                (None, None)
+                            };
+                            body.push(
+                                element! {
+                                    View(background_color: bg, width: 100pct) {
+                                        MixedText(contents: vec![
+                                            {
+                                                let mut c = MixedTextContent::new(gutter);
+                                                if let Some(col) = fg { c = c.color(col); }
+                                                else { c = c.color(theme.accent); }
+                                                c.weight(Weight::Bold)
+                                            },
+                                            {
+                                                let mut c = MixedTextContent::new(path_str);
+                                                if let Some(col) = fg { c = c.color(col); }
+                                                c
+                                            },
+                                        ])
+                                    }
+                                }
+                                .into_any(),
+                            );
+                        }
+                    }
+                    Some(crate::tui2::overlays::card::render_card(
+                        "@ FILE",
+                        body,
                         &theme,
                         term_w,
                         term_h,
