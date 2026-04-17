@@ -42,6 +42,21 @@ pub enum CtxforgeError {
         path: std::path::PathBuf,
         suggestions: Vec<String>,
     },
+
+    #[error("fetch error: {0}")]
+    Fetch(String),
+
+    #[error("cache error: {0}")]
+    Cache(String),
+
+    #[error("URI parse error: {0}")]
+    UriParse(String),
+}
+
+impl From<crate::source::UriParseError> for CtxforgeError {
+    fn from(e: crate::source::UriParseError) -> Self {
+        CtxforgeError::UriParse(e.to_string())
+    }
 }
 
 impl From<String> for CtxforgeError {
