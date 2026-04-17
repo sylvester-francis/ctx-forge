@@ -260,6 +260,41 @@ pub enum Command {
     ///   claude mcp add --transport stdio ctxforge -- ctxforge mcp
     #[cfg(feature = "mcp")]
     Mcp,
+
+    /// Manage the content cache for fetched sources.
+    Cache {
+        #[command(subcommand)]
+        action: CacheAction,
+    },
+
+    /// Force-refresh cached URL sources.
+    Refresh {
+        /// URI to refresh (omit for all stale).
+        uri: Option<String>,
+
+        /// Refresh every cached URL source, not just stale ones.
+        #[arg(long)]
+        all: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum CacheAction {
+    /// List cached entries.
+    List {
+        /// Filter by scheme.
+        #[arg(long)]
+        scheme: Option<String>,
+    },
+    /// Clear cached entries.
+    Clear {
+        #[arg(long)]
+        all: bool,
+        #[arg(long)]
+        stale: bool,
+    },
+    /// Verify cache integrity (SHA + HMAC walk).
+    Verify,
 }
 
 #[derive(Subcommand, Debug)]

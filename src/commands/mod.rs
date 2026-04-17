@@ -2,6 +2,7 @@
 //! current bundle, modifies it, saves, and prints user-facing output.
 
 pub mod add;
+pub mod cache_cmd;
 pub mod clear;
 pub mod copy;
 pub mod export;
@@ -10,6 +11,7 @@ pub mod note;
 pub mod pipe;
 pub mod profiles;
 pub mod recall;
+pub mod refresh;
 pub mod resume;
 pub mod rm;
 pub mod save;
@@ -139,6 +141,15 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         ),
         #[cfg(feature = "mcp")]
         Some(Command::Mcp) => crate::mcp::run(root),
+        Some(Command::Cache { action }) => {
+            use crate::cli::CacheAction;
+            match action {
+                CacheAction::List { scheme } => cache_cmd::list(scheme.as_deref()),
+                CacheAction::Clear { all, stale } => cache_cmd::clear(all, stale),
+                CacheAction::Verify => cache_cmd::verify(),
+            }
+        }
+        Some(Command::Refresh { uri, all }) => refresh::run(&root, uri.as_deref(), all),
     }
 }
 
