@@ -160,7 +160,7 @@ mod tests {
     #[test]
     fn parses_plain_path() {
         let i = Item::parse_add_argument("src/main.rs").unwrap();
-        assert!(matches!(i.source, Source::File(ref f) if f.path == PathBuf::from("src/main.rs")));
+        assert!(matches!(i.source, Source::File(ref f) if f.path == std::path::Path::new("src/main.rs")));
     }
 
     #[test]

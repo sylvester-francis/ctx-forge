@@ -151,7 +151,7 @@ mod tests {
         b.add(sample_item("b.rs"));
         let removed = b.remove_by_index(1).unwrap();
         assert!(
-            matches!(removed.source, Source::File(ref f) if f.path == std::path::PathBuf::from("a.rs"))
+            matches!(removed.source, Source::File(ref f) if f.path == std::path::Path::new("a.rs"))
         );
     }
 

@@ -51,7 +51,7 @@ pub fn recall(notes: &[Note], filter: &RecallFilter) -> Vec<Note> {
         .cloned()
         .collect();
 
-    out.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    out.sort_by_key(|n| std::cmp::Reverse(n.timestamp));
 
     if let Some(limit) = filter.limit {
         out.truncate(limit);
