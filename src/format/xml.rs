@@ -190,7 +190,11 @@ mod tests {
 
     #[test]
     fn single_source_file_uses_source_tag() {
-        let out = render(&[sample("src/main.rs", "fn main() {}\n", "rust")], &[], true);
+        let out = render(
+            &[sample("src/main.rs", "fn main() {}\n", "rust")],
+            &[],
+            true,
+        );
         assert!(out.contains("<source path=\"src/main.rs\" language=\"rust\""));
         assert!(out.contains("<![CDATA[fn main() {}\n]]></source>"));
     }

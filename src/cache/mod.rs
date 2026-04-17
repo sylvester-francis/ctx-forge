@@ -264,7 +264,15 @@ mod tests {
         let (_td, cache) = cache_with_root();
         let key = cache_key_for_uri("url://example.com/a");
         cache
-            .put(&key, "url://example.com/a", "url", b"hello", 86_400, None, None)
+            .put(
+                &key,
+                "url://example.com/a",
+                "url",
+                b"hello",
+                86_400,
+                None,
+                None,
+            )
             .unwrap();
         match cache.get(&key).unwrap() {
             CacheRead::Fresh { body, meta } => {
@@ -286,7 +294,15 @@ mod tests {
         let (td, cache) = cache_with_root();
         let key = cache_key_for_uri("url://example.com/tamper");
         cache
-            .put(&key, "url://example.com/tamper", "url", b"orig", 86_400, None, None)
+            .put(
+                &key,
+                "url://example.com/tamper",
+                "url",
+                b"orig",
+                86_400,
+                None,
+                None,
+            )
             .unwrap();
         let dir = object_dir(td.path(), &key);
         std::fs::write(dir.join("body"), b"BAD").unwrap();
@@ -298,7 +314,15 @@ mod tests {
         let (td, cache) = cache_with_root();
         let key = cache_key_for_uri("url://example.com/t2");
         cache
-            .put(&key, "url://example.com/t2", "url", b"body", 86_400, None, None)
+            .put(
+                &key,
+                "url://example.com/t2",
+                "url",
+                b"body",
+                86_400,
+                None,
+                None,
+            )
             .unwrap();
         let dir = object_dir(td.path(), &key);
         std::fs::write(dir.join("meta.json"), br#"{"uri":"evil"}"#).unwrap();

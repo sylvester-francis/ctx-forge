@@ -150,7 +150,9 @@ mod tests {
         b.add(sample_item("a.rs"));
         b.add(sample_item("b.rs"));
         let removed = b.remove_by_index(1).unwrap();
-        assert!(matches!(removed.source, Source::File(ref f) if f.path == std::path::PathBuf::from("a.rs")));
+        assert!(
+            matches!(removed.source, Source::File(ref f) if f.path == std::path::PathBuf::from("a.rs"))
+        );
     }
 
     #[test]

@@ -92,7 +92,8 @@ fn resolve_symbol(
     let language = crate::lang::detect(rel);
     let source_text = std::fs::read_to_string(&full)?;
     let extracted = if is_func {
-        crate::extract::extract_function(&source_text, language, name).map_err(CtxforgeError::Msg)?
+        crate::extract::extract_function(&source_text, language, name)
+            .map_err(CtxforgeError::Msg)?
     } else {
         crate::extract::extract_type(&source_text, language, name).map_err(CtxforgeError::Msg)?
     };
@@ -211,9 +212,7 @@ fn resolve_network(item: &Item, ctx: &ResolveCtx) -> Result<ResolvedItem> {
                     fr.content_type,
                 )?;
                 if fr.charset_replaced {
-                    ctx.warn(format!(
-                        "{uri_str}: non-UTF-8 bytes replaced with U+FFFD"
-                    ));
+                    ctx.warn(format!("{uri_str}: non-UTF-8 bytes replaced with U+FFFD"));
                 }
                 Ok(render_network(item, fr.body, &meta2, false))
             }
@@ -246,9 +245,7 @@ fn resolve_network(item: &Item, ctx: &ResolveCtx) -> Result<ResolvedItem> {
                     fr.content_type,
                 )?;
                 if fr.charset_replaced {
-                    ctx.warn(format!(
-                        "{uri_str}: non-UTF-8 bytes replaced with U+FFFD"
-                    ));
+                    ctx.warn(format!("{uri_str}: non-UTF-8 bytes replaced with U+FFFD"));
                 }
                 Ok(render_network(item, fr.body, &meta, false))
             }
@@ -305,9 +302,7 @@ fn placeholder(item: &Item, reason: impl Into<String>) -> ResolvedItem {
     let uri = item.source.to_uri().to_string();
     ResolvedItem {
         item: item.clone(),
-        content: format!(
-            "<!-- ctxforge: FAILED {uri}\n     reason: {reason} -->\n"
-        ),
+        content: format!("<!-- ctxforge: FAILED {uri}\n     reason: {reason} -->\n"),
         language: "text",
         provenance: Provenance::failed(uri, reason),
     }

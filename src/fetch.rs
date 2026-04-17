@@ -51,9 +51,7 @@ pub fn fetch(url: &str, cfg: &FetchConfig) -> Result<FetchResult, String> {
             "User-Agent",
             format!("ctxforge/{}", env!("CARGO_PKG_VERSION")),
         );
-        let resp = req
-            .call()
-            .map_err(|e| format!("HTTP {current}: {e}"))?;
+        let resp = req.call().map_err(|e| format!("HTTP {current}: {e}"))?;
 
         let status = resp.status().as_u16();
         if (300..400).contains(&status) {

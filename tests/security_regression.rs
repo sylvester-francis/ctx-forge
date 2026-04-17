@@ -113,7 +113,15 @@ fn cache_detects_body_tampering() {
     let cache = ContentCache::open(td.path().to_path_buf()).unwrap();
     let k = cache_key_for_uri("url://example.com/t");
     cache
-        .put(&k, "url://example.com/t", "url", b"orig", 86_400, None, None)
+        .put(
+            &k,
+            "url://example.com/t",
+            "url",
+            b"orig",
+            86_400,
+            None,
+            None,
+        )
         .unwrap();
     std::fs::write(object_dir(td.path(), &k).join("body"), b"EVIL").unwrap();
     assert!(matches!(cache.get(&k).unwrap(), CacheRead::Miss));

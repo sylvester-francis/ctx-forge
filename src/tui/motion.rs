@@ -6,10 +6,10 @@
 //! be replaced with `event-listener` for zero-cost idle in a later cleanup.
 
 use crate::motion_core::{EasingFn, Lerp};
-use iocraft::hooks::{UseFuture, UseState};
 use iocraft::Hooks;
-use std::sync::atomic::{AtomicBool, Ordering};
+use iocraft::hooks::{UseFuture, UseState};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);

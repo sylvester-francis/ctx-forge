@@ -26,9 +26,7 @@ pub fn run(
 
     let cache = if bundle.items.iter().any(|i| i.source.is_cacheable()) {
         let cache_dir = crate::paths::global_cache_dir().ok_or_else(|| {
-            CtxforgeError::Msg(
-                "cannot determine cache directory (no HOME / XDG_CACHE_HOME)".into(),
-            )
+            CtxforgeError::Msg("cannot determine cache directory (no HOME / XDG_CACHE_HOME)".into())
         })?;
         Some(crate::cache::ContentCache::open(cache_dir)?)
     } else {

@@ -73,8 +73,7 @@ pub fn validate_url(url: &str, allow_http: bool, allow_private_net: bool) -> Res
 
     // Internal-sounding hostnames. Belt-and-braces for the DNS check.
     let h = host.to_ascii_lowercase();
-    if !allow_private_net
-        && (h == "localhost" || h.ends_with(".internal") || h.ends_with(".local"))
+    if !allow_private_net && (h == "localhost" || h.ends_with(".internal") || h.ends_with(".local"))
     {
         return Err(format!(
             "host `{host}` looks internal — use --allow-private-net"

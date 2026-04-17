@@ -222,9 +222,6 @@ mod tests {
     #[test]
     fn no_provenance_omits_the_object() {
         let v = parse(&render(&[sample("a.rs", "x\n", "rust")], &[], true));
-        assert!(
-            v["items"][0].get("provenance").is_none()
-                || v["items"][0]["provenance"].is_null()
-        );
+        assert!(v["items"][0].get("provenance").is_none() || v["items"][0]["provenance"].is_null());
     }
 }

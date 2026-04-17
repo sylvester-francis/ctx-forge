@@ -206,22 +206,14 @@ mod tests {
 
     #[test]
     fn provenance_header_emitted_by_default() {
-        let r = render(
-            &[sample_file("a.rs", "fn a() {}\n", "rust")],
-            &[],
-            false,
-        );
+        let r = render(&[sample_file("a.rs", "fn a() {}\n", "rust")], &[], false);
         assert!(r.contains("<!-- ctxforge:"));
         assert!(r.contains("file://a.rs"));
     }
 
     #[test]
     fn no_provenance_flag_strips_header() {
-        let r = render(
-            &[sample_file("a.rs", "fn a() {}\n", "rust")],
-            &[],
-            true,
-        );
+        let r = render(&[sample_file("a.rs", "fn a() {}\n", "rust")], &[], true);
         assert!(!r.contains("<!-- ctxforge:"));
     }
 }

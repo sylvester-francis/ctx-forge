@@ -2,15 +2,15 @@
 //! that becomes the `result.content` of the tool call response.
 
 use crate::bundle::{Bundle, Item};
-use crate::source::{FileSource, Source};
-#[cfg(feature = "extract")]
-use crate::source::{FuncSource, TypeSource};
 use crate::format::{self, Format};
 use crate::memory;
 use crate::models;
 use crate::paths::{self, CtxforgeRoot};
 use crate::profile;
 use crate::resolve;
+use crate::source::{FileSource, Source};
+#[cfg(feature = "extract")]
+use crate::source::{FuncSource, TypeSource};
 use crate::tokens;
 use crate::walk;
 use serde_json::{Value, json};

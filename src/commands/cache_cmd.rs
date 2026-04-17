@@ -50,7 +50,10 @@ pub fn list(scheme: Option<&str>) -> Result<()> {
             meta.uri, meta.scheme, meta.body_size,
         );
     }
-    println!("\n{shown} cached entr{}", if shown == 1 { "y" } else { "ies" });
+    println!(
+        "\n{shown} cached entr{}",
+        if shown == 1 { "y" } else { "ies" }
+    );
     Ok(())
 }
 

@@ -24,10 +24,7 @@ pub enum MigrationOutcome {
 /// future schema versions.
 pub fn migrate_json(raw: &str) -> Result<(Bundle, MigrationOutcome)> {
     let peek: Value = serde_json::from_str(raw)?;
-    let version = peek
-        .get("version")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(1);
+    let version = peek.get("version").and_then(|v| v.as_u64()).unwrap_or(1);
     match version {
         2 => {
             let b: Bundle = serde_json::from_str(raw)?;

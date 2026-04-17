@@ -274,7 +274,9 @@ mod tests {
 
     #[test]
     fn url_roundtrip_preserves_query_and_fragment() {
-        let uri: Uri = "url://example.com/search?q=react&l=en#hits".parse().unwrap();
+        let uri: Uri = "url://example.com/search?q=react&l=en#hits"
+            .parse()
+            .unwrap();
         let s = Source::from_uri(&uri).unwrap();
         if let Source::Url(u) = &s {
             assert_eq!(u.url, "https://example.com/search?q=react&l=en#hits");

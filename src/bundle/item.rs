@@ -66,9 +66,7 @@ impl Item {
     pub fn parse_add_argument(input: &str) -> Result<Self> {
         if input.starts_with("https://") || input.starts_with("http://") {
             return Ok(Item {
-                source: Source::Url(crate::source::UrlSource {
-                    url: input.into(),
-                }),
+                source: Source::Url(crate::source::UrlSource { url: input.into() }),
                 label: None,
             });
         }

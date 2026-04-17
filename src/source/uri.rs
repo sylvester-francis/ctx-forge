@@ -171,10 +171,7 @@ mod tests {
         assert_eq!(uri.path, "/search");
         assert_eq!(
             uri.query,
-            vec![
-                ("q".into(), "react".into()),
-                ("lang".into(), "en".into()),
-            ]
+            vec![("q".into(), "react".into()), ("lang".into(), "en".into()),]
         );
         assert_eq!(uri.fragment, Some("hits".into()));
     }
