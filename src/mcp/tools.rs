@@ -295,10 +295,7 @@ fn tool_add_url(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
 
 fn tool_refresh(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
     let uri = args.get("uri").and_then(|v| v.as_str());
-    let all = args
-        .get("all")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let all = args.get("all").and_then(|v| v.as_bool()).unwrap_or(false);
     crate::commands::refresh::run(root, uri, all).map_err(|e| e.to_string())?;
     Ok(json!({
         "type": "text",
@@ -313,8 +310,8 @@ fn tool_list_sources(root: &CtxforgeRoot, args: &Value) -> Result<Value, String>
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let bundle = Bundle::load_or_default(root).map_err(|e| e.to_string())?;
-    let cache = crate::paths::global_cache_dir()
-        .and_then(|d| crate::cache::ContentCache::open(d).ok());
+    let cache =
+        crate::paths::global_cache_dir().and_then(|d| crate::cache::ContentCache::open(d).ok());
 
     let mut out = Vec::new();
     for (i, item) in bundle.items.iter().enumerate() {
