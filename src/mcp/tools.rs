@@ -2,7 +2,9 @@
 //! that becomes the `result.content` of the tool call response.
 
 use crate::bundle::{Bundle, Item};
-use crate::source::{FileSource, FuncSource, Source, TypeSource};
+use crate::source::{FileSource, Source};
+#[cfg(feature = "extract")]
+use crate::source::{FuncSource, TypeSource};
 use crate::format::{self, Format};
 use crate::memory;
 use crate::models;

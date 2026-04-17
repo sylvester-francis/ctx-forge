@@ -12,6 +12,8 @@ pub mod editor;
 pub mod error;
 #[cfg(feature = "extract")]
 pub mod extract;
+#[cfg(feature = "fetch")]
+pub mod fetch;
 pub mod format;
 pub mod git;
 pub mod lang;

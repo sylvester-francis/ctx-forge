@@ -113,6 +113,206 @@ fn resolve_symbol(
     })
 }
 
+use crate::cache::{CacheRead, ContentCache};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResolveMode {
+    Cli,
+    Mcp,
+}
+
+pub struct ResolveCtx<'a> {
+    pub project_root: &'a Path,
+    pub cache: Option<&'a ContentCache>,
+    pub mode: ResolveMode,
+    pub strict: bool,
+    pub offline: bool,
+    pub warnings: std::cell::RefCell<Vec<String>>,
+    #[cfg(feature = "fetch")]
+    pub fetch_config: crate::fetch::FetchConfig,
+}
+
+impl<'a> ResolveCtx<'a> {
+    pub fn cli(project_root: &'a Path, cache: Option<&'a ContentCache>) -> Self {
+        Self {
+            project_root,
+            cache,
+            mode: ResolveMode::Cli,
+            strict: false,
+            offline: false,
+            warnings: Default::default(),
+            #[cfg(feature = "fetch")]
+            fetch_config: Default::default(),
+        }
+    }
+
+    pub fn mcp(project_root: &'a Path, cache: Option<&'a ContentCache>) -> Self {
+        let mut s = Self::cli(project_root, cache);
+        s.mode = ResolveMode::Mcp;
+        s
+    }
+
+    pub fn warn(&self, msg: impl Into<String>) {
+        self.warnings.borrow_mut().push(msg.into());
+    }
+
+    pub fn drain_warnings(&self) -> Vec<String> {
+        std::mem::take(&mut self.warnings.borrow_mut())
+    }
+}
+
+pub fn resolve_all_with_ctx(items: &[Item], ctx: &ResolveCtx) -> Result<Vec<ResolvedItem>> {
+    items
+        .iter()
+        .map(|it| resolve_one_with_ctx(it, ctx))
+        .collect()
+}
+
+pub fn resolve_one_with_ctx(item: &Item, ctx: &ResolveCtx) -> Result<ResolvedItem> {
+    if !item.source.is_cacheable() {
+        return resolve_one(item, ctx.project_root);
+    }
+    resolve_network(item, ctx)
+}
+
+fn resolve_network(item: &Item, ctx: &ResolveCtx) -> Result<ResolvedItem> {
+    let Source::Url(u) = &item.source else {
+        return Err(CtxforgeError::Msg(
+            "resolve_network called on non-Url source".into(),
+        ));
+    };
+    let uri_str = item.source.to_uri().to_string();
+    let key = item.source.cache_key();
+    let ttl = item.source.default_ttl().as_secs();
+
+    let cache = ctx
+        .cache
+        .ok_or_else(|| CtxforgeError::Cache("cache not initialized".into()))?;
+    let lookup = cache.get(&key)?;
+
+    match lookup {
+        CacheRead::Fresh { body, meta } => Ok(render_network(item, body, &meta, false)),
+        CacheRead::Stale { body, meta } if ctx.offline => {
+            ctx.warn(format!(
+                "offline; serving stale {uri_str} from {}",
+                meta.fetched_at
+            ));
+            Ok(render_network(item, body, &meta, true))
+        }
+        CacheRead::Stale { body, meta } => match do_fetch(u.url.as_str(), ctx) {
+            Ok(fr) => {
+                let meta2 = cache.put(
+                    &key,
+                    &uri_str,
+                    item.source.scheme_name(),
+                    &fr.body,
+                    ttl,
+                    fr.etag,
+                    fr.content_type,
+                )?;
+                if fr.charset_replaced {
+                    ctx.warn(format!(
+                        "{uri_str}: non-UTF-8 bytes replaced with U+FFFD"
+                    ));
+                }
+                Ok(render_network(item, fr.body, &meta2, false))
+            }
+            Err(e) if !ctx.strict => {
+                ctx.warn(format!(
+                    "refresh failed for {uri_str}: {e} — serving cached from {}",
+                    meta.fetched_at,
+                ));
+                Ok(render_network(item, body, &meta, true))
+            }
+            Err(e) => Err(CtxforgeError::Fetch(format!("{uri_str}: {e}"))),
+        },
+        CacheRead::Miss if ctx.offline => {
+            let msg = format!("offline and no cache for {uri_str}");
+            if ctx.strict || ctx.mode == ResolveMode::Mcp {
+                Err(CtxforgeError::Fetch(msg))
+            } else {
+                Ok(placeholder(item, msg))
+            }
+        }
+        CacheRead::Miss => match do_fetch(u.url.as_str(), ctx) {
+            Ok(fr) => {
+                let meta = cache.put(
+                    &key,
+                    &uri_str,
+                    item.source.scheme_name(),
+                    &fr.body,
+                    ttl,
+                    fr.etag,
+                    fr.content_type,
+                )?;
+                if fr.charset_replaced {
+                    ctx.warn(format!(
+                        "{uri_str}: non-UTF-8 bytes replaced with U+FFFD"
+                    ));
+                }
+                Ok(render_network(item, fr.body, &meta, false))
+            }
+            Err(e) if !ctx.strict && ctx.mode == ResolveMode::Cli => {
+                ctx.warn(format!("{uri_str}: {e}"));
+                Ok(placeholder(item, e))
+            }
+            Err(e) => Err(CtxforgeError::Fetch(format!("{uri_str}: {e}"))),
+        },
+    }
+}
+
+#[cfg(feature = "fetch")]
+fn do_fetch(url: &str, ctx: &ResolveCtx) -> std::result::Result<crate::fetch::FetchResult, String> {
+    crate::fetch::fetch(url, &ctx.fetch_config)
+}
+#[cfg(not(feature = "fetch"))]
+fn do_fetch(_url: &str, _ctx: &ResolveCtx) -> std::result::Result<FetchShim, String> {
+    Err("ctxforge built without `fetch` feature".into())
+}
+
+#[cfg(not(feature = "fetch"))]
+struct FetchShim {
+    body: Vec<u8>,
+    etag: Option<String>,
+    content_type: Option<String>,
+    charset_replaced: bool,
+}
+
+fn render_network(
+    item: &Item,
+    body: Vec<u8>,
+    meta: &crate::cache::Meta,
+    stale: bool,
+) -> ResolvedItem {
+    let content = String::from_utf8_lossy(&body).into_owned();
+    let provenance = Provenance::network(
+        meta.uri.clone(),
+        meta.body_sha256.clone(),
+        meta.fetched_at,
+        meta.etag.clone(),
+        stale,
+    );
+    ResolvedItem {
+        item: item.clone(),
+        content,
+        language: "text",
+        provenance,
+    }
+}
+
+fn placeholder(item: &Item, reason: impl Into<String>) -> ResolvedItem {
+    let reason = reason.into();
+    let uri = item.source.to_uri().to_string();
+    ResolvedItem {
+        item: item.clone(),
+        content: format!(
+            "<!-- ctxforge: FAILED {uri}\n     reason: {reason} -->\n"
+        ),
+        language: "text",
+        provenance: Provenance::failed(uri, reason),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,6 +393,47 @@ mod tests {
             label: None,
         };
         assert!(resolve_one(&item, Path::new("/")).is_err());
+    }
+
+    fn url_item(url: &str) -> Item {
+        use crate::source::UrlSource;
+        Item {
+            source: Source::Url(UrlSource { url: url.into() }),
+            label: None,
+        }
+    }
+
+    #[test]
+    fn offline_miss_cli_returns_placeholder() {
+        let td = TempDir::new().unwrap();
+        let cache = ContentCache::open(td.path().to_path_buf()).unwrap();
+        let item = url_item("https://example.invalid/x");
+        let mut ctx = ResolveCtx::cli(td.path(), Some(&cache));
+        ctx.offline = true;
+        let r = resolve_one_with_ctx(&item, &ctx).unwrap();
+        assert!(r.provenance.failed);
+        assert!(r.content.contains("FAILED"));
+    }
+
+    #[test]
+    fn offline_miss_mcp_errors() {
+        let td = TempDir::new().unwrap();
+        let cache = ContentCache::open(td.path().to_path_buf()).unwrap();
+        let item = url_item("https://example.invalid/x");
+        let mut ctx = ResolveCtx::mcp(td.path(), Some(&cache));
+        ctx.offline = true;
+        assert!(resolve_one_with_ctx(&item, &ctx).is_err());
+    }
+
+    #[test]
+    fn strict_cli_offline_miss_errors() {
+        let td = TempDir::new().unwrap();
+        let cache = ContentCache::open(td.path().to_path_buf()).unwrap();
+        let item = url_item("https://example.invalid/x");
+        let mut ctx = ResolveCtx::cli(td.path(), Some(&cache));
+        ctx.offline = true;
+        ctx.strict = true;
+        assert!(resolve_one_with_ctx(&item, &ctx).is_err());
     }
 
     #[test]
