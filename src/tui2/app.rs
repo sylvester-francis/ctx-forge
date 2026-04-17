@@ -523,25 +523,77 @@ fn gauge_color(pct: f64, theme: &Theme) -> Color {
 
 thread_local! {
     static STARTUP: std::cell::RefCell<Option<AppData>> = const { std::cell::RefCell::new(None) };
+    static PENDING: std::cell::RefCell<Option<crate::tui2::mode::PendingAction>> = const { std::cell::RefCell::new(None) };
+    static ROOT_STASH: std::cell::RefCell<Option<CtxforgeRoot>> = const { std::cell::RefCell::new(None) };
 }
 
 pub async fn run(root: CtxforgeRoot) -> Result<()> {
-    STARTUP.with(|s| *s.borrow_mut() = Some(load_app_data(root)));
-    let result = element!(App).render_loop().fullscreen().await;
-
-    // Belt-and-suspenders cleanup: iocraft's fullscreen enables mouse
-    // capture by default and disables it on graceful exit, but if the loop
-    // exits abnormally, mouse reporting can leak into the shell and
-    // garble the terminal. Sending these is idempotent — safe regardless.
     use crossterm::event::{DisableBracketedPaste, DisableMouseCapture};
-    let _ = crossterm::execute!(
-        std::io::stdout(),
-        DisableMouseCapture,
-        DisableBracketedPaste,
-    );
 
-    result?;
-    Ok(())
+    // Stash root so we can reload AppData between render-loop iterations.
+    ROOT_STASH.with(|r| *r.borrow_mut() = Some(root.clone()));
+    STARTUP.with(|s| *s.borrow_mut() = Some(load_app_data(root)));
+
+    loop {
+        let result = element!(App).render_loop().fullscreen().await;
+
+        // Clean terminal state after render loop exits.
+        let _ = crossterm::execute!(
+            std::io::stdout(),
+            DisableMouseCapture,
+            DisableBracketedPaste,
+        );
+
+        result?;
+
+        // Check if the render loop exited because of a PendingAction.
+        let action = PENDING.with(|p| p.borrow_mut().take());
+        match action {
+            None => return Ok(()), // Normal quit — no action, exit app.
+            Some(crate::tui2::mode::PendingAction::Export(content)) => {
+                println!("{content}");
+                eprintln!("\nPress any key to return to ctxforge...");
+                let _ = crossterm::event::read();
+            }
+            Some(crate::tui2::mode::PendingAction::Pipe { target, content }) => {
+                match std::process::Command::new(&target)
+                    .stdin(std::process::Stdio::piped())
+                    .spawn()
+                {
+                    Ok(mut child) => {
+                        if let Some(mut stdin) = child.stdin.take() {
+                            use std::io::Write;
+                            let _ = stdin.write_all(content.as_bytes());
+                        }
+                        let _ = child.wait();
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to start `{target}`: {e}");
+                        eprintln!("Press any key to return...");
+                        let _ = crossterm::event::read();
+                    }
+                }
+            }
+            Some(crate::tui2::mode::PendingAction::Editor(starting)) => {
+                match crate::tui::editor::spawn_editor(&starting) {
+                    Ok(_updated) => {
+                        // TODO: apply the edited text as a prompt override
+                    }
+                    Err(e) => {
+                        eprintln!("editor: {e}");
+                        eprintln!("Press any key to return...");
+                        let _ = crossterm::event::read();
+                    }
+                }
+            }
+        }
+
+        // Reload AppData from disk so the next render-loop iteration
+        // picks up any changes the external action made (e.g. editor).
+        let root = ROOT_STASH.with(|r| r.borrow().clone())
+            .expect("ROOT_STASH should be set");
+        STARTUP.with(|s| *s.borrow_mut() = Some(load_app_data(root)));
+    }
 }
 
 // Max tree rows rendered per frame. Phase 1 does no scrolling; we clip to
@@ -1100,19 +1152,26 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         }
     });
 
-    if *should_quit.read() {
-        // Use iocraft's system.exit() so the render loop unwinds cleanly,
-        // disabling mouse capture / bracketed paste / alternate screen.
-        // std::process::exit() would bypass all of that and leave the
-        // terminal in a dirty state (mouse reports leaking into the shell).
-        let mut system = hooks.use_context_mut::<iocraft::SystemContext>();
-        system.exit();
-    }
-
     // Re-read app_data after the event handler may have mutated it, and
     // clamp the cursor so it stays within the (possibly shrunken) visible
     // range — relevant after collapse-all.
     drop(data);
+
+    if *should_quit.read() {
+        // Stash pending action into thread_local so the outer run() loop
+        // can drain it after the render loop exits.
+        {
+            let mut d = app_data.write();
+            let pending = d.pending_action.take();
+            if let Some(action) = pending {
+                PENDING.with(|p| *p.borrow_mut() = Some(action));
+            }
+            let _ = d.bundle.save(&d.root);
+        }
+
+        let mut system = hooks.use_context_mut::<iocraft::SystemContext>();
+        system.exit();
+    }
 
     // Drain viewer mouse events batched since last render (wheel, drag,
     // click). Using State<Vec<_>> means the callback wakes the render loop
