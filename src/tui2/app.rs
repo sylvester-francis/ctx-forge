@@ -937,6 +937,13 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     KeyCode::Char('d') if !k.modifiers.contains(KeyModifiers::CONTROL) => {
                         *mode.write() = crate::tui2::mode::Mode::DeliveryPicker { cursor: 0 };
                     }
+                    // x = export to stdout (shortcut for /deliver → export)
+                    KeyCode::Char('x') => {
+                        app_data.write().run_delivery(crate::tui::deliver::DeliverChoice::Export);
+                        if app_data.read().pending_action.is_some() {
+                            *should_quit.write() = true;
+                        }
+                    }
                     KeyCode::Char('/') => {
                         *mode.write() = crate::tui2::mode::Mode::CommandPalette {
                             query: String::new(),
