@@ -11,14 +11,6 @@ pub struct Cli {
     /// Target model for token counting.
     #[arg(long, global = true)]
     pub model: Option<String>,
-
-    /// Force the iocraft-based v2 TUI (default).
-    #[arg(long = "tui-v2", conflicts_with = "tui_v1")]
-    pub tui_v2: bool,
-
-    /// Fall back to the ratatui-based v1 TUI.
-    #[arg(long = "tui-v1", conflicts_with = "tui_v2")]
-    pub tui_v1: bool,
 }
 
 #[derive(Subcommand, Debug)]

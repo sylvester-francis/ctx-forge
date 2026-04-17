@@ -1,7 +1,7 @@
 //! Theme picker — list the available themes with a small color swatch per row.
 
 use crate::tui::theme::{registry, AppTheme};
-use crate::tui2::theme::{to_iocraft_color, Theme};
+use crate::tui2::theme::Theme;
 use iocraft::prelude::*;
 
 pub fn all() -> &'static [AppTheme] {
@@ -32,10 +32,10 @@ pub fn render_body(
         let check = if is_current { "● " } else { "  " };
         let name = t.name.to_string();
 
-        let swatch_accent = to_iocraft_color(t.accent);
-        let swatch_dir = to_iocraft_color(t.dir);
-        let swatch_success = to_iocraft_color(t.success);
-        let swatch_warning = to_iocraft_color(t.warning);
+        let swatch_accent = t.accent;
+        let swatch_dir = t.dir;
+        let swatch_success = t.success;
+        let swatch_warning = t.warning;
 
         let (fg, bg) = if selected {
             (Some(theme.selected_fg), Some(theme.selected_bg))

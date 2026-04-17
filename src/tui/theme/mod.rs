@@ -4,14 +4,11 @@
 //! `app.theme.<field>`. Hardcoded `Color::<variant>` usage in `src/tui/**`
 //! is forbidden by design — route all colors through this module.
 
-use ratatui::style::Color;
+use crossterm::style::Color;
 
 pub mod config;
 pub mod palettes;
 pub mod registry;
-
-#[cfg(test)]
-mod lint;
 
 /// A colour palette used by every TUI widget. Each field has exactly one
 /// semantic role; pick the field that matches your role, do not pick by colour.
@@ -42,21 +39,6 @@ pub struct AppTheme {
     pub focus_viewer: Color,
     /// Animated focus-border tint for the bundle list panel.
     pub focus_bundle: Color,
-}
-
-impl AppTheme {
-    /// Pick the animated focus-border tint for a given panel. The prompt
-    /// input borrows the theme's accent since it's the "always-available"
-    /// text surface — users want it visually consistent across themes.
-    pub fn focus_tint(&self, focus: crate::tui::app::Focus) -> Color {
-        use crate::tui::app::Focus as F;
-        match focus {
-            F::FileTree => self.focus_tree,
-            F::Viewer => self.focus_viewer,
-            F::BundleList => self.focus_bundle,
-            F::Prompt => self.accent,
-        }
-    }
 }
 
 use registry::default_theme;

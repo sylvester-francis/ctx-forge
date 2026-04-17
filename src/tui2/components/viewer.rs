@@ -10,7 +10,13 @@ use iocraft::prelude::*;
 // Viewer's rendered area. Since Viewer's root View has no border/padding,
 // y=0 = first line of the rendered code. Events fired outside the
 // viewer bounds don't trigger the callback.
-use iocraft::hooks::UseTerminalEvents;
+//
+// `use_component_rect` gives the Viewer's actual rendered size (from the
+// previous frame). We use it to render exactly the visible viewport and
+// to reject mouse events that land on blank space below the last line —
+// a hardcoded viewport would either clip content on short terminals or
+// leak phantom line-idx selections on tall ones.
+use iocraft::hooks::{UseComponentRect, UseTerminalEvents};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ViewerMouseEvent {
@@ -61,22 +67,51 @@ pub struct ViewerProps {
 pub fn Viewer(hooks: &mut Hooks, props: &ViewerProps) -> impl Into<AnyElement<'static>> {
     let scroll = props.viewer.scroll;
     let events = props.events;
+    let total_lines = props.viewer.lines.len();
+
+    // Actual rendered height from the previous frame. `None` on first
+    // frame — we fall back to a sensible default so the initial render
+    // doesn't collapse to 0 rows (the real height arrives one frame
+    // later when `use_component_rect` reports it).
+    let rect = hooks.use_component_rect();
+    let rendered_height = rect
+        .map(|r| (r.bottom - r.top).max(0) as usize)
+        .unwrap_or(40);
+
+    // Count of code-row cells we'll actually draw this frame. Cap at the
+    // physical viewport height AND at lines remaining after scroll, so
+    // clicks on blank rows past end-of-file don't translate to phantom
+    // line indices.
+    let rendered_rows =
+        total_lines.saturating_sub(scroll).min(rendered_height);
 
     hooks.use_local_terminal_events(move |event| {
         let Some(mut events) = events else { return };
         if let TerminalEvent::FullscreenMouse(m) = event {
             use crossterm::event::{MouseButton, MouseEventKind};
             // Component-local coords: m.row = 0 is the viewer's first
-            // rendered line. Add scroll to get the absolute line index.
-            let line_idx = m.row as usize + scroll;
+            // rendered line. `rendered_rows` is the draw count for this
+            // frame — clicks below it hit blank space and must be
+            // ignored so we don't select a line the user can't see.
+            let local_row = m.row as usize;
+            let line_idx = local_row + scroll;
+            let in_content = local_row < rendered_rows;
             let out = match m.kind {
                 MouseEventKind::ScrollUp => Some(ViewerMouseEvent::ScrollUp),
                 MouseEventKind::ScrollDown => Some(ViewerMouseEvent::ScrollDown),
-                MouseEventKind::Down(MouseButton::Left) => {
+                MouseEventKind::Down(MouseButton::Left) if in_content => {
                     Some(ViewerMouseEvent::Down { line: line_idx })
                 }
-                MouseEventKind::Drag(MouseButton::Left) => {
+                MouseEventKind::Drag(MouseButton::Left) if in_content => {
                     Some(ViewerMouseEvent::Drag { line: line_idx })
+                }
+                // Drag past end-of-file: extend to last visible line so
+                // the selection still tracks the user's intent (they're
+                // dragging down to select everything through the end).
+                MouseEventKind::Drag(MouseButton::Left) if rendered_rows > 0 => {
+                    Some(ViewerMouseEvent::Drag {
+                        line: scroll + rendered_rows - 1,
+                    })
                 }
                 MouseEventKind::Up(MouseButton::Left) => Some(ViewerMouseEvent::Up),
                 _ => None,
@@ -90,7 +125,7 @@ pub fn Viewer(hooks: &mut Hooks, props: &ViewerProps) -> impl Into<AnyElement<'s
     let theme = props
         .theme
         .unwrap_or_else(|| Theme::from_app_theme(crate::tui::theme::registry::default_theme()));
-    let rows = render_rows(&props.viewer, &theme);
+    let rows = render_rows(&props.viewer, &theme, rendered_height);
 
     element! {
         View(
@@ -103,7 +138,11 @@ pub fn Viewer(hooks: &mut Hooks, props: &ViewerProps) -> impl Into<AnyElement<'s
     }
 }
 
-fn render_rows(viewer: &ViewerStateSnapshot, theme: &Theme) -> Vec<AnyElement<'static>> {
+fn render_rows(
+    viewer: &ViewerStateSnapshot,
+    theme: &Theme,
+    viewport: usize,
+) -> Vec<AnyElement<'static>> {
     if viewer.loading {
         return vec![
             element! {
@@ -132,10 +171,13 @@ fn render_rows(viewer: &ViewerStateSnapshot, theme: &Theme) -> Vec<AnyElement<'s
         ];
     }
 
-    const VIEWPORT: usize = 48;
+    // Viewport is the actual component height reported by iocraft's
+    // `use_component_rect`. Clamp to a floor so if the hook returns 0 on
+    // some weird frame we still render something; clamp to the real
+    // total so we never render past the end of the file.
     let total = viewer.lines.len();
     let start = viewer.scroll;
-    let end = (start + VIEWPORT).min(total);
+    let end = (start + viewport.max(1)).min(total);
 
     let gutter_width = format!("{}", total).len();
     let mut rows: Vec<AnyElement<'static>> = Vec::new();

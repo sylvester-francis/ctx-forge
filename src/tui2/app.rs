@@ -413,28 +413,69 @@ impl AppData {
     }
 }
 
+/// Payload written by a completed background viewer load. The generation
+/// tag lets `apply_bg_load` drop stale results (from files the user has
+/// since navigated past while the load was in flight).
+type ViewerBgResult = (u64, PathBuf, crate::tui2::viewer::ViewerLoad);
+type ViewerBgSlot = State<Option<ViewerBgResult>>;
+
+/// Fire a background file load and return immediately. The task runs on
+/// smol's global executor; the blocking read+highlight runs on
+/// `blocking`'s dedicated thread pool via `smol::unblock`, so neither
+/// the render thread nor smol's worker thread blocks while the file is
+/// read and syntect-highlighted. Uses the shared LazyLock highlighter so
+/// the SyntaxSet deserialization is paid once across the app lifetime.
+///
+/// Multiple in-flight loads are safe because each task tags its result
+/// with its own generation; `apply_bg_load` drops stale ones. The task
+/// is detached so we don't hold the `Task` handle (dropping it would
+/// cancel the work before the result landed).
+fn spawn_viewer_load(path: PathBuf, generation: u64, mut result_slot: ViewerBgSlot) {
+    smol::spawn(async move {
+        let path_for_task = path.clone();
+        let load = smol::unblock(move || {
+            crate::tui2::viewer::read_and_highlight(
+                &path_for_task,
+                crate::tui2::viewer::highlight::shared(),
+            )
+        })
+        .await;
+        // Single `set()`, no retry: `State::set` uses `try_write` and
+        // silently drops on contention, which would lose this result.
+        // In practice the slot is virtually never contended (only during
+        // the render's drain, which is a few microseconds), and the
+        // user can retrigger by moving the cursor if a load does get
+        // lost. An earlier retry-loop version hung startup on some
+        // terminals.
+        result_slot.set(Some((generation, path, load)));
+    })
+    .detach();
+}
+
 /// Reload the viewer for the file at `new_cursor` in the visible tree.
-/// Uses the shared LazyLock highlighter so syntect init is paid once.
-fn reload_viewer(data: &mut AppData, new_cursor: usize) {
+/// No-op on directories, on the cursor's current file, or when the viewer
+/// is disabled. Dispatches the load to a background task so the event
+/// thread stays responsive.
+fn reload_viewer(data: &mut AppData, new_cursor: usize, slot: ViewerBgSlot) {
     if !data.viewer.enabled {
         return;
     }
     let visible = tree::visible_indices(&data.tree_entries);
-    if let Some(&idx) = visible.get(new_cursor) {
-        if let Some(entry) = data.tree_entries.get(idx).cloned() {
-            if !entry.is_dir {
-                let abs = data.project_root.join(&entry.rel_path);
-                if data.viewer.cached_path.as_deref() == Some(abs.as_path()) {
-                    return;
-                }
-                let load = crate::tui2::viewer::read_and_highlight(
-                    &abs,
-                    crate::tui2::viewer::highlight::shared(),
-                );
-                data.viewer.apply_bg_load(abs, load);
-            }
-        }
+    let Some(&idx) = visible.get(new_cursor) else {
+        return;
+    };
+    let Some(entry) = data.tree_entries.get(idx).cloned() else {
+        return;
+    };
+    if entry.is_dir {
+        return;
     }
+    let abs = data.project_root.join(&entry.rel_path);
+    if data.viewer.cached_path.as_deref() == Some(abs.as_path()) {
+        return;
+    }
+    let generation = data.viewer.begin_load();
+    spawn_viewer_load(abs, generation, slot);
 }
 
 fn build_preview(root: &CtxforgeRoot, bundle: &Bundle, item_tokens: &[usize]) -> PromptPreview {
@@ -644,8 +685,27 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     });
     let viewer_events: State<Vec<crate::tui2::components::viewer::ViewerMouseEvent>> =
         hooks.use_state(Vec::new);
+    // Background file-load result slot. `spawn_viewer_load` writes a
+    // (generation, path, ViewerLoad) tuple here when done; the render
+    // body below reads it and applies only if the generation still
+    // matches the current viewer load (so an old slow load can't clobber
+    // a newer one).
+    let viewer_bg_result: ViewerBgSlot = hooks.use_state(|| None);
 
-    let (term_w, term_h) = hooks.use_terminal_size();
+    let (raw_term_w, raw_term_h) = hooks.use_terminal_size();
+    // Fall back to a live `terminal::size()` query only when iocraft
+    // still reports zero, which happens on some terminals for one frame
+    // at startup. If that also fails we leave raw as-is (never synthesize
+    // dimensions that might mismatch the real terminal and paint into
+    // a corner).
+    let (term_w, term_h) = if raw_term_w == 0 || raw_term_h == 0 {
+        crossterm::terminal::size()
+            .ok()
+            .filter(|(w, h)| *w > 0 && *h > 0)
+            .unwrap_or((raw_term_w, raw_term_h))
+    } else {
+        (raw_term_w, raw_term_h)
+    };
 
     let data = app_data.read();
     // Only show entries that aren't inside a collapsed directory
@@ -1145,13 +1205,16 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         *focus.write() = Focus::Prompt;
                     }
                     KeyCode::Char('v') => {
-                        // Toggle viewer, load file at cursor if needed.
-                        // Uses the shared LazyLock highlighter so syntect
-                        // init is paid once (at first load, not each toggle).
-                        let now_enabled = {
+                        // Toggle viewer and kick off a background file load
+                        // if the cursor's file isn't already cached. The
+                        // toggle itself is instant — the load runs on smol's
+                        // blocking pool via `spawn_viewer_load` and wakes
+                        // the render loop when done (see the bg-drain below).
+                        let (now_enabled, load_target) = {
                             let mut d = app_data.write();
                             d.viewer.toggle();
                             let enabled = d.viewer.enabled;
+                            let mut target: Option<(PathBuf, u64)> = None;
                             if enabled {
                                 let visible = tree::visible_indices(&d.tree_entries);
                                 if let Some(&idx) = visible.get(*cursor.read()) {
@@ -1159,11 +1222,8 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                         if !entry.is_dir {
                                             let abs = d.project_root.join(&entry.rel_path);
                                             if d.viewer.cached_path.as_deref() != Some(abs.as_path()) {
-                                                let load = crate::tui2::viewer::read_and_highlight(
-                                                    &abs,
-                                                    crate::tui2::viewer::highlight::shared(),
-                                                );
-                                                d.viewer.apply_bg_load(abs, load);
+                                                let generation = d.viewer.begin_load();
+                                                target = Some((abs, generation));
                                             }
                                         }
                                     }
@@ -1172,8 +1232,11 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             } else {
                                 d.set_status("viewer off".to_string());
                             }
-                            enabled
+                            (enabled, target)
                         };
+                        if let Some((abs, generation)) = load_target {
+                            spawn_viewer_load(abs, generation, viewer_bg_result);
+                        }
                         if now_enabled {
                             focus.set(Focus::Viewer);
                         } else if *focus.read() == Focus::Viewer {
@@ -1214,7 +1277,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                 if c > 0 {
                                     let new = c - 1;
                                     cursor.set(new);
-                                    reload_viewer(&mut app_data.write(), new);
+                                    reload_viewer(&mut app_data.write(), new, viewer_bg_result);
                                 }
                             }
                         }
@@ -1229,7 +1292,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                 if c < max_cursor {
                                     let new = c + 1;
                                     cursor.set(new);
-                                    reload_viewer(&mut app_data.write(), new);
+                                    reload_viewer(&mut app_data.write(), new, viewer_bg_result);
                                 }
                             }
                         }
@@ -1288,7 +1351,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     // Navigation: g/G top/bottom, Ctrl-U/D half-page
                     KeyCode::Char('g') if *focus.read() == Focus::FileTree => {
                         cursor.set(0);
-                        reload_viewer(&mut app_data.write(), 0);
+                        reload_viewer(&mut app_data.write(), 0, viewer_bg_result);
                     }
                     KeyCode::Char('g') if *focus.read() == Focus::Viewer => {
                         app_data.write().viewer.scroll_to_top();
@@ -1300,7 +1363,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             let last = visible.len() - 1;
                             drop(d);
                             cursor.set(last);
-                            reload_viewer(&mut app_data.write(), last);
+                            reload_viewer(&mut app_data.write(), last, viewer_bg_result);
                         }
                     }
                     KeyCode::Char('G') if *focus.read() == Focus::Viewer => {
@@ -1314,7 +1377,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         let c = *cursor.read();
                         let new = c.saturating_sub(half);
                         cursor.set(new);
-                        reload_viewer(&mut app_data.write(), new);
+                        reload_viewer(&mut app_data.write(), new, viewer_bg_result);
                     }
                     KeyCode::Char('u')
                         if k.modifiers.contains(KeyModifiers::CONTROL)
@@ -1333,7 +1396,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         let new = (c + half).min(visible.len().saturating_sub(1));
                         drop(d);
                         cursor.set(new);
-                        reload_viewer(&mut app_data.write(), new);
+                        reload_viewer(&mut app_data.write(), new, viewer_bg_result);
                     }
                     KeyCode::Char('d')
                         if k.modifiers.contains(KeyModifiers::CONTROL)
@@ -1368,13 +1431,48 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         system.exit();
     }
 
+    // Drain a completed background file load (if any). Peek via
+    // `try_read` first: if the slot is empty (the common case, every
+    // frame with no load in flight) we don't touch it. This matters
+    // because a `StateMutRef::DerefMut` flips `did_change` on drop,
+    // which wakes the render loop again — unconditionally touching
+    // the slot each frame produces an infinite self-wake loop that
+    // starves terminal-event polling (seen as "app stuck at startup").
+    // We only grab `try_write` when there's real work to apply.
+    let has_load = viewer_bg_result
+        .try_read()
+        .map(|g| g.is_some())
+        .unwrap_or(false);
+    if has_load {
+        let taken: Option<ViewerBgResult> = {
+            let mut slot = viewer_bg_result;
+            slot.try_write().and_then(|mut g| g.take())
+        };
+        if let Some((generation, path, load)) = taken {
+            app_data.write().viewer.apply_bg_load(generation, path, load);
+        }
+    }
+
     // Drain viewer mouse events batched since last render (wheel, drag,
-    // click). Using State<Vec<_>> means the callback wakes the render loop
-    // on every event — essential for fluid drag-select and scroll feel.
-    let pending_mouse: Vec<crate::tui2::components::viewer::ViewerMouseEvent> = {
+    // click). Peek via `try_read` first — `DerefMut` on an empty queue
+    // still flips `did_change=true` and keeps `root.wait()` Ready,
+    // producing an infinite render loop that starves terminal-event
+    // polling (sample trace shows 100% CPU pinned in taffy). We only
+    // take `try_write` when there's real work to do, and `std::mem::take`
+    // leaves the state as the default Vec so the next frame's peek
+    // sees empty again.
+    let has_mouse = viewer_events
+        .try_read()
+        .map(|g| !g.is_empty())
+        .unwrap_or(false);
+    let pending_mouse: Vec<crate::tui2::components::viewer::ViewerMouseEvent> = if has_mouse {
         let mut events = viewer_events;
-        let mut guard = events.write();
-        std::mem::take(&mut *guard)
+        match events.try_write() {
+            Some(mut guard) => std::mem::take(&mut *guard),
+            None => Vec::new(),
+        }
+    } else {
+        Vec::new()
     };
     if !pending_mouse.is_empty() {
         let viewport = viewer_viewport(term_h);

@@ -23,9 +23,8 @@ tiktoken-rs = "0.11"
 ignore = "0.4.25"
 globset = "0.4.18"
 git2 = { version = "0.20", default-features = false, features = ["vendored-libgit2"] }
-ratatui = { version = "0.30", optional = true }
-crossterm = { version = "0.29", optional = true }
-fuzzy-matcher = { version = "0.3", optional = true }
+crossterm = "0.29"
+fuzzy-matcher = "0.3"
 syntect = { version = "5", optional = true, default-features = false, features = ["default-fancy"] }
 iocraft = { version = "0.8", optional = true }
 smol = { version = "2", optional = true }
@@ -53,9 +52,8 @@ insta = { version = "1.40", features = ["yaml"] }
 temp-env = "0.3"
 
 [features]
-default = ["tui", "tui-v2", "mcp"]
-tui = ["dep:ratatui", "dep:crossterm", "dep:fuzzy-matcher", "dep:syntect"]
-tui-v2 = ["dep:iocraft", "dep:smol", "dep:syntect", "dep:fuzzy-matcher", "dep:crossterm"]
+default = ["tui-v2", "mcp"]
+tui-v2 = ["dep:iocraft", "dep:smol", "dep:syntect"]
 mcp = []
 extract = [
     "dep:tree-sitter",
