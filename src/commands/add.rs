@@ -9,6 +9,7 @@ use crate::source::{FileSource, FuncSource, Source, TypeSource};
 use crate::walk;
 use std::path::{Path, PathBuf};
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     root: &CtxforgeRoot,
     _cwd: &Path,
@@ -17,6 +18,8 @@ pub fn run(
     diff: Option<String>,
     functions: Vec<String>,
     types: Vec<String>,
+    allow_http: bool,
+    allow_private_net: bool,
 ) -> Result<()> {
     let project_root = root.project_root().to_path_buf();
     let mut bundle = Bundle::load_or_default(root)?;
@@ -105,6 +108,10 @@ pub fn run(
         // URI-ish patterns go through parse_add_argument directly.
         if is_uri_pattern(pat) {
             let item = Item::parse_add_argument(pat)?;
+            if let Source::Url(u) = &item.source {
+                crate::source::url::validate_url(&u.url, allow_http, allow_private_net)
+                    .map_err(CtxforgeError::Msg)?;
+            }
             bundle.add(item);
             added_count += 1;
             continue;

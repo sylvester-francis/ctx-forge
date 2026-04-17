@@ -37,6 +37,14 @@ pub enum Command {
         /// Usage: ctxforge add --type Config src/config/config.go
         #[arg(long = "type")]
         type_name: Vec<String>,
+
+        /// Allow http:// URLs (rejected by default).
+        #[arg(long)]
+        allow_http: bool,
+
+        /// Allow RFC1918 / loopback / link-local addresses (rejected by default).
+        #[arg(long)]
+        allow_private_net: bool,
     },
 
     /// Remove an item by index (1-based) or path.
@@ -89,6 +97,18 @@ pub enum Command {
         /// Task description for `{{task}}` substitution.
         #[arg(long)]
         task: Option<String>,
+
+        /// Abort export on fetch failure (default: soft-fail with placeholder).
+        #[arg(long)]
+        strict: bool,
+
+        /// Never fetch from network; serve cache or warn.
+        #[arg(long)]
+        offline: bool,
+
+        /// Strip provenance comments/attributes from output.
+        #[arg(long)]
+        no_provenance: bool,
     },
 
     /// Copy the current bundle to the system clipboard.

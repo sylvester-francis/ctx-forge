@@ -39,7 +39,19 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             diff,
             function,
             type_name,
-        }) => add::run(&root, &cwd, patterns, exclude, diff, function, type_name),
+            allow_http,
+            allow_private_net,
+        }) => add::run(
+            &root,
+            &cwd,
+            patterns,
+            exclude,
+            diff,
+            function,
+            type_name,
+            allow_http,
+            allow_private_net,
+        ),
         Some(Command::Rm { target }) => rm::run(&root, target),
         Some(Command::Clear) => clear::run(&root),
         Some(Command::Status) => status::run(&root, model_override.as_deref()),
@@ -53,6 +65,9 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             memory_limit,
             template,
             task,
+            strict,
+            offline,
+            no_provenance,
         }) => {
             let fmt = resolve_format(format.as_deref(), xml, json)?;
             export::run(
@@ -64,6 +79,9 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                 memory_limit,
                 template.as_deref(),
                 task,
+                strict,
+                offline,
+                no_provenance,
             )
         }
         Some(Command::Copy {
