@@ -193,8 +193,9 @@ impl AppData {
                 self.add_viewer_selection_to_bundle();
                 None
             }
-            A::Deliver | A::EditPrompt => {
-                self.set_status("coming in a follow-up phase (deliver / editor)".to_string());
+            A::Deliver => Some(crate::tui2::mode::Mode::DeliveryPicker { cursor: 0 }),
+            A::EditPrompt => {
+                self.set_status("coming in a follow-up phase (editor)".to_string());
                 None
             }
             A::Copy => { self.set_status("use CLI: ctxforge copy".to_string()); None }
@@ -297,6 +298,87 @@ impl AppData {
             range.end,
             new_tokens,
         ));
+    }
+
+    /// Render the delivery payload for the given format. Resolves the bundle,
+    /// wraps with the scenario template if active.
+    fn render_payload(&self, format: crate::format::Format) -> std::result::Result<String, String> {
+        let resolved = resolve::resolve_all(&self.bundle.items, &self.project_root)
+            .map_err(|e| format!("resolve bundle: {e}"))?;
+        let notes = crate::memory::index::read_all(&self.root).unwrap_or_default();
+        let bundle_rendered = crate::format::render(format, &resolved, &notes);
+
+        if let Some(scenario) = &self.bundle.scenario {
+            let body = crate::tui::scenario::load_body(&self.root, scenario)
+                .map_err(|e| format!("load scenario: {e}"))?;
+            crate::template::substitute(scenario, &body, &bundle_rendered, &self.bundle.task_text)
+                .map_err(|e| format!("render template: {e}"))
+        } else {
+            Ok(bundle_rendered)
+        }
+    }
+
+    /// Execute a delivery choice. Copy goes to clipboard (no suspend needed).
+    /// Pipe/Export stash a PendingAction for the outer run() loop.
+    fn run_delivery(&mut self, choice: crate::tui::deliver::DeliverChoice) {
+        use crate::tui::deliver::DeliverChoice as DC;
+        use crate::tui2::mode::PendingAction;
+
+        let format = match choice {
+            DC::PipeClaude | DC::CopyXml => crate::format::Format::Xml,
+            DC::CopyJson => crate::format::Format::Json,
+            _ => crate::format::Format::Markdown,
+        };
+
+        let content = match self.render_payload(format) {
+            Ok(c) => c,
+            Err(e) => {
+                self.set_status(format!("delivery failed: {e}"));
+                return;
+            }
+        };
+
+        match choice {
+            DC::CopyMarkdown | DC::CopyXml | DC::CopyJson => {
+                match crate::clipboard::set(&content) {
+                    Ok(()) => {
+                        let label = match choice {
+                            DC::CopyMarkdown => "markdown",
+                            DC::CopyXml => "XML",
+                            DC::CopyJson => "JSON",
+                            _ => "content",
+                        };
+                        self.set_status(format!(
+                            "copied as {} · {} chars",
+                            label,
+                            content.chars().count()
+                        ));
+                    }
+                    Err(e) => self.set_status(format!("clipboard: {e}")),
+                }
+            }
+            DC::PipeClaude => {
+                self.pending_action = Some(PendingAction::Pipe {
+                    target: "claude".to_string(),
+                    content,
+                });
+            }
+            DC::PipeAgent => {
+                self.pending_action = Some(PendingAction::Pipe {
+                    target: "agent".to_string(),
+                    content,
+                });
+            }
+            DC::PipeGemini => {
+                self.pending_action = Some(PendingAction::Pipe {
+                    target: "gemini".to_string(),
+                    content,
+                });
+            }
+            DC::Export => {
+                self.pending_action = Some(PendingAction::Export(content));
+            }
+        }
     }
 
     /// Set the active scenario and rebuild the preview. Persists to disk.
@@ -631,6 +713,52 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     return;
                 }
 
+                // ── Delivery picker overlay ─────────────────────
+                if matches!(*mode.read(), crate::tui2::mode::Mode::DeliveryPicker { .. }) {
+                    let count = crate::tui::deliver::DeliverChoice::all().len();
+                    match k.code {
+                        KeyCode::Esc => {
+                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            if let crate::tui2::mode::Mode::DeliveryPicker { cursor } =
+                                &mut *mode.write()
+                            {
+                                if *cursor > 0 {
+                                    *cursor -= 1;
+                                }
+                            }
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            if let crate::tui2::mode::Mode::DeliveryPicker { cursor } =
+                                &mut *mode.write()
+                            {
+                                if *cursor + 1 < count {
+                                    *cursor += 1;
+                                }
+                            }
+                        }
+                        KeyCode::Enter => {
+                            let cur = match *mode.read() {
+                                crate::tui2::mode::Mode::DeliveryPicker { cursor } => cursor,
+                                _ => 0,
+                            };
+                            let choices = crate::tui::deliver::DeliverChoice::all();
+                            if let Some(&choice) = choices.get(cur) {
+                                app_data.write().run_delivery(choice);
+                                // If a pending action was set (pipe/export), need
+                                // to exit the render loop. The outer run() handles it.
+                                if app_data.read().pending_action.is_some() {
+                                    *should_quit.write() = true;
+                                }
+                            }
+                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+
                 // ── Command palette overlay ────────────────────
                 if matches!(*mode.read(), crate::tui2::mode::Mode::CommandPalette { .. }) {
                     match k.code {
@@ -753,6 +881,9 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     }
                     KeyCode::Char('S') => {
                         *mode.write() = crate::tui2::mode::Mode::ScenarioPicker { cursor: 0 };
+                    }
+                    KeyCode::Char('d') if !k.modifiers.contains(KeyModifiers::CONTROL) => {
+                        *mode.write() = crate::tui2::mode::Mode::DeliveryPicker { cursor: 0 };
                     }
                     KeyCode::Char('/') => {
                         *mode.write() = crate::tui2::mode::Mode::CommandPalette {
@@ -1529,6 +1660,15 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     Some(crate::tui2::overlays::card::render_card(
                         "THEME",
                         crate::tui2::overlays::theme_picker::render_body(themes, *cursor, data.theme.name, &theme),
+                        &theme,
+                        term_w,
+                        term_h,
+                    ))
+                }
+                crate::tui2::mode::Mode::DeliveryPicker { cursor } => {
+                    Some(crate::tui2::overlays::card::render_card(
+                        "DELIVER",
+                        crate::tui2::overlays::delivery_picker::render_body(*cursor, &theme),
                         &theme,
                         term_w,
                         term_h,
