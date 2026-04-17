@@ -82,24 +82,26 @@ pub fn render_splash(
     body.push(element! { Text(content: "") }.into_any());
 
     let steps: &[(&str, &str)] = &[
-        ("S    ", "pick a scenario"),
+        ("S", "pick a scenario"),
         ("space", "add files to bundle"),
-        ("i    ", "write your task"),
-        ("P    ", "preview composed prompt"),
-        ("d    ", "deliver — copy · pipe · export"),
+        ("i", "write your task"),
+        ("P", "preview composed prompt"),
+        ("d", "deliver — copy · pipe · export"),
     ];
 
     for (i, (key, action)) in steps.iter().enumerate() {
+        let line = format!("  {}  {:<6} {}", i + 1, key, action);
         body.push(
             element! {
-                MixedText(align: TextAlign::Center, contents: vec![
-                    MixedTextContent::new(format!("{}  ", i + 1)).color(theme.muted),
-                    MixedTextContent::new(*key).color(theme.accent).weight(Weight::Bold),
-                    MixedTextContent::new(format!(" {action}")),
+                MixedText(contents: vec![
+                    MixedTextContent::new(format!("  {}  ", i + 1)).color(theme.muted),
+                    MixedTextContent::new(format!("{:<6}", key)).color(theme.accent).weight(Weight::Bold),
+                    MixedTextContent::new(*action),
                 ])
             }
             .into_any(),
         );
+        let _ = line;
     }
 
     body.push(element! { Text(content: "") }.into_any());
