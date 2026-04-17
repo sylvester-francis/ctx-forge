@@ -597,7 +597,7 @@ fn tool_export(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
         Vec::new()
     };
 
-    let rendered = format::render(fmt, &resolved, &memory_notes);
+    let rendered = format::render(fmt, &resolved, &memory_notes, false);
 
     Ok(json!({
         "type": "text",
@@ -668,7 +668,7 @@ fn tool_apply_template(root: &CtxforgeRoot, args: &Value) -> Result<Value, Strin
         resolve::resolve_all(&bundle.items, root.project_root()).map_err(|e| e.to_string())?;
     let memory_notes =
         memory::collect_for_attach(root, false, None, 20).map_err(|e| e.to_string())?;
-    let bundle_rendered = format::render(Format::Markdown, &resolved, &memory_notes);
+    let bundle_rendered = format::render(Format::Markdown, &resolved, &memory_notes, false);
 
     let rendered =
         crate::template::apply_template(root, template_name, &bundle_rendered, Some(task))

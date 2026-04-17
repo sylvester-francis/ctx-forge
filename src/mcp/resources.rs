@@ -66,7 +66,7 @@ fn read_bundle(root: &CtxforgeRoot) -> Result<Value, String> {
         resolve::resolve_all(&bundle.items, root.project_root()).map_err(|e| e.to_string())?;
     let memory_notes =
         memory::collect_for_attach(root, false, None, 20).map_err(|e| e.to_string())?;
-    let rendered = format::render(Format::Markdown, &resolved, &memory_notes);
+    let rendered = format::render(Format::Markdown, &resolved, &memory_notes, false);
 
     Ok(json!({
         "contents": [{

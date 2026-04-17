@@ -322,7 +322,7 @@ impl AppData {
         let resolved = resolve::resolve_all(&self.bundle.items, &self.project_root)
             .map_err(|e| format!("resolve bundle: {e}"))?;
         let notes = crate::memory::index::read_all(&self.root).unwrap_or_default();
-        let bundle_rendered = crate::format::render(format, &resolved, &notes);
+        let bundle_rendered = crate::format::render(format, &resolved, &notes, true);
 
         if let Some(scenario) = &self.bundle.scenario {
             let body = crate::scenario::load_body(&self.root, scenario)

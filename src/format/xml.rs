@@ -26,7 +26,7 @@ use crate::memory::Note;
 use crate::resolve::ResolvedItem;
 use crate::source::Source;
 
-pub fn render(items: &[ResolvedItem], memory: &[Note]) -> String {
+pub fn render(items: &[ResolvedItem], memory: &[Note], no_provenance: bool) -> String {
     let mut out = String::new();
     out.push_str(&format!("<context items=\"{}\">\n", items.len()));
 
@@ -35,7 +35,7 @@ pub fn render(items: &[ResolvedItem], memory: &[Note]) -> String {
     }
 
     for item in items {
-        write_item(&mut out, item);
+        write_item(&mut out, item, no_provenance);
     }
 
     out.push_str("</context>\n");
@@ -63,7 +63,7 @@ fn write_memory(out: &mut String, memory: &[Note]) {
     out.push_str("  </memory>\n");
 }
 
-fn write_item(out: &mut String, r: &ResolvedItem) {
+fn write_item(out: &mut String, r: &ResolvedItem, no_provenance: bool) {
     let tag_name = if r.language == "markdown" {
         "documentation"
     } else {
@@ -85,6 +85,33 @@ fn write_item(out: &mut String, r: &ResolvedItem) {
         escape_attr(&path_str),
         r.language
     ));
+
+    if !no_provenance {
+        let p = &r.provenance;
+        out.push_str(&format!(" uri=\"{}\"", escape_attr(&p.uri)));
+        if let Some(ts) = p.fetched_at_str() {
+            out.push_str(&format!(" fetched=\"{}\"", ts));
+        }
+        if !p.sha256.is_empty() {
+            out.push_str(&format!(
+                " sha256=\"{}\"",
+                &p.sha256[..p.sha256.len().min(16)]
+            ));
+        }
+        if let Some(etag) = &p.etag {
+            out.push_str(&format!(" etag=\"{}\"", escape_attr(etag)));
+        }
+        if p.stale {
+            out.push_str(" stale=\"true\"");
+        }
+        if p.failed {
+            let reason = p.reason.as_deref().unwrap_or("unknown");
+            out.push_str(&format!(
+                " failed=\"true\" reason=\"{}\"",
+                escape_attr(reason)
+            ));
+        }
+    }
 
     match &r.item.source {
         Source::File(_) | Source::Url(_) => {}
@@ -156,21 +183,21 @@ mod tests {
 
     #[test]
     fn empty_bundle_renders_empty_context() {
-        let out = render(&[], &[]);
+        let out = render(&[], &[], true);
         assert!(out.starts_with("<context items=\"0\">"));
         assert!(out.trim_end().ends_with("</context>"));
     }
 
     #[test]
     fn single_source_file_uses_source_tag() {
-        let out = render(&[sample("src/main.rs", "fn main() {}\n", "rust")], &[]);
+        let out = render(&[sample("src/main.rs", "fn main() {}\n", "rust")], &[], true);
         assert!(out.contains("<source path=\"src/main.rs\" language=\"rust\""));
         assert!(out.contains("<![CDATA[fn main() {}\n]]></source>"));
     }
 
     #[test]
     fn markdown_file_uses_documentation_tag() {
-        let out = render(&[sample("README.md", "# Project\n", "markdown")], &[]);
+        let out = render(&[sample("README.md", "# Project\n", "markdown")], &[], true);
         assert!(out.contains("<documentation path=\"README.md\" language=\"markdown\""));
         assert!(out.contains("</documentation>"));
         assert!(!out.contains("<source"));
@@ -191,7 +218,7 @@ mod tests {
             content: "slice\n".into(),
             language: "rust",
         };
-        let out = render(&[resolved], &[]);
+        let out = render(&[resolved], &[], true);
         assert!(out.contains("lines=\"45-120\""));
     }
 
@@ -201,7 +228,7 @@ mod tests {
             Note::new("JWT in header", Some("auth".into())),
             Note::new("general note", None),
         ];
-        let out = render(&[], &notes);
+        let out = render(&[], &notes, true);
         assert!(out.contains("<memory count=\"2\">"));
         assert!(out.contains("tag=\"auth\""));
         assert!(out.contains("JWT in header"));
@@ -211,13 +238,13 @@ mod tests {
 
     #[test]
     fn path_with_special_chars_is_attribute_escaped() {
-        let out = render(&[sample("src/a&b.rs", "", "rust")], &[]);
+        let out = render(&[sample("src/a&b.rs", "", "rust")], &[], true);
         assert!(out.contains("path=\"src/a&amp;b.rs\""));
     }
 
     #[test]
     fn cdata_split_handles_content_with_closing_cdata() {
-        let out = render(&[sample("a.rs", "let s = \"]]>\";\n", "rust")], &[]);
+        let out = render(&[sample("a.rs", "let s = \"]]>\";\n", "rust")], &[], true);
         assert!(!out.contains("\"]]>\""));
         assert!(out.contains("]]]]><![CDATA[>"));
     }
@@ -231,6 +258,7 @@ mod tests {
                 sample("c.md", "", "markdown"),
             ],
             &[],
+            true,
         );
         assert!(out.contains("<context items=\"3\">"));
     }
@@ -238,7 +266,7 @@ mod tests {
     #[test]
     fn memory_note_body_is_text_escaped() {
         let notes = vec![Note::new("A < B && C > D", None)];
-        let out = render(&[], &notes);
+        let out = render(&[], &notes, true);
         assert!(out.contains("A &lt; B &amp;&amp; C &gt; D"));
     }
 }

@@ -37,6 +37,8 @@ pub struct JsonItem<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<&'a str>,
     pub content: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<crate::source::Provenance>,
 }
 
 #[derive(Debug, Serialize)]
@@ -45,7 +47,7 @@ pub struct JsonLines {
     pub end: usize,
 }
 
-pub fn render(items: &[ResolvedItem], memory: &[Note]) -> String {
+pub fn render(items: &[ResolvedItem], memory: &[Note], no_provenance: bool) -> String {
     let json_memory: Vec<JsonNote> = memory
         .iter()
         .map(|n| JsonNote {
@@ -90,6 +92,11 @@ pub fn render(items: &[ResolvedItem], memory: &[Note]) -> String {
                 lines,
                 name,
                 content: &r.content,
+                provenance: if no_provenance {
+                    None
+                } else {
+                    Some(r.provenance.clone())
+                },
             }
         })
         .collect();
@@ -137,7 +144,7 @@ mod tests {
 
     #[test]
     fn empty_renders_empty_arrays() {
-        let v = parse(&render(&[], &[]));
+        let v = parse(&render(&[], &[], true));
         assert_eq!(v["schema_version"], 1);
         assert_eq!(v["items_count"], 0);
         assert_eq!(v["memory"].as_array().unwrap().len(), 0);
@@ -149,6 +156,7 @@ mod tests {
         let v = parse(&render(
             &[sample("src/main.rs", "fn main() {}\n", "rust")],
             &[],
+            true,
         ));
         assert_eq!(v["items_count"], 1);
         let item = &v["items"][0];
@@ -174,7 +182,7 @@ mod tests {
             content: "slice\n".into(),
             language: "rust",
         };
-        let v = parse(&render(&[resolved], &[]));
+        let v = parse(&render(&[resolved], &[], true));
         let it = &v["items"][0];
         assert_eq!(it["kind"], "range");
         assert_eq!(it["lines"]["start"], 5);
@@ -187,7 +195,7 @@ mod tests {
             Note::new("JWT in header", Some("auth".into())),
             Note::new("untagged note", None),
         ];
-        let v = parse(&render(&[], &notes));
+        let v = parse(&render(&[], &notes, true));
         assert_eq!(v["memory"].as_array().unwrap().len(), 2);
         let n0 = &v["memory"][0];
         assert_eq!(n0["tag"], "auth");
@@ -198,8 +206,25 @@ mod tests {
 
     #[test]
     fn output_is_pretty_printed() {
-        let out = render(&[sample("a.rs", "", "rust")], &[]);
+        let out = render(&[sample("a.rs", "", "rust")], &[], true);
         assert!(out.contains("\n"));
         assert!(out.contains("  "));
+    }
+
+    #[test]
+    fn provenance_object_emitted_by_default() {
+        let v = parse(&render(&[sample("a.rs", "x\n", "rust")], &[], false));
+        let prov = &v["items"][0]["provenance"];
+        assert_eq!(prov["uri"], "file://a.rs");
+        assert!(prov["sha256"].is_string());
+    }
+
+    #[test]
+    fn no_provenance_omits_the_object() {
+        let v = parse(&render(&[sample("a.rs", "x\n", "rust")], &[], true));
+        assert!(
+            v["items"][0].get("provenance").is_none()
+                || v["items"][0]["provenance"].is_null()
+        );
     }
 }

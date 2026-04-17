@@ -8,7 +8,7 @@ use crate::memory::Note;
 use crate::resolve::ResolvedItem;
 use crate::source::Source;
 
-pub fn render(items: &[ResolvedItem], memory: &[Note]) -> String {
+pub fn render(items: &[ResolvedItem], memory: &[Note], no_provenance: bool) -> String {
     let mut out = String::new();
 
     if !memory.is_empty() {
@@ -19,7 +19,7 @@ pub fn render(items: &[ResolvedItem], memory: &[Note]) -> String {
         if i > 0 || !memory.is_empty() {
             out.push('\n');
         }
-        write_item(&mut out, item);
+        write_item(&mut out, item, no_provenance);
     }
     out
 }
@@ -36,7 +36,10 @@ fn write_memory(out: &mut String, memory: &[Note]) {
     out.push_str("\n---\n");
 }
 
-fn write_item(out: &mut String, r: &ResolvedItem) {
+fn write_item(out: &mut String, r: &ResolvedItem, no_provenance: bool) {
+    if !no_provenance {
+        write_provenance_comment(out, r);
+    }
     match &r.item.source {
         Source::File(f) => {
             out.push_str(&format!("## `{}`\n\n", f.path.display()));
@@ -78,6 +81,35 @@ fn write_item(out: &mut String, r: &ResolvedItem) {
     out.push_str("```\n");
 }
 
+fn write_provenance_comment(out: &mut String, r: &ResolvedItem) {
+    let p = &r.provenance;
+    if p.failed {
+        let reason = p.reason.as_deref().unwrap_or("unknown");
+        out.push_str(&format!(
+            "<!-- ctxforge: FAILED {}\n     reason: {reason}\n     last_attempt: {} -->\n",
+            p.uri,
+            p.fetched_at_str().unwrap_or_else(|| "unknown".into()),
+        ));
+        return;
+    }
+    let mut line = format!(
+        "<!-- ctxforge: {}, sha256:{}",
+        p.uri,
+        &p.sha256[..p.sha256.len().min(16)]
+    );
+    if let Some(ts) = p.fetched_at_str() {
+        line.push_str(&format!(", fetched {ts}"));
+    }
+    if let Some(etag) = &p.etag {
+        line.push_str(&format!(", etag:{etag}"));
+    }
+    if p.stale {
+        line.push_str(", stale");
+    }
+    line.push_str(" -->\n");
+    out.push_str(&line);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,7 +138,11 @@ mod tests {
 
     #[test]
     fn single_file_renders_with_heading_and_fence() {
-        let r = render(&[sample_file("src/main.rs", "fn main() {}\n", "rust")], &[]);
+        let r = render(
+            &[sample_file("src/main.rs", "fn main() {}\n", "rust")],
+            &[],
+            true,
+        );
         assert!(r.contains("## `src/main.rs`"));
         assert!(r.contains("```rust"));
         assert!(r.contains("fn main() {}"));
@@ -121,6 +157,7 @@ mod tests {
                 sample_file("b.rs", "two\n", "rust"),
             ],
             &[],
+            true,
         );
         let first = r.find("## `a.rs`").unwrap();
         let second = r.find("## `b.rs`").unwrap();
@@ -144,6 +181,7 @@ mod tests {
                 language: "rust",
             }],
             &[],
+            true,
         );
         assert!(r.contains("(lines 5-10)"));
     }
@@ -151,7 +189,7 @@ mod tests {
     #[test]
     fn memory_section_rendered_when_notes_present() {
         let notes = vec![Note::new("JWT in header", Some("auth".into()))];
-        let r = render(&[sample_file("a.rs", "", "rust")], &notes);
+        let r = render(&[sample_file("a.rs", "", "rust")], &notes, true);
         assert!(r.contains("## Memory"));
         assert!(r.contains("[auth]"));
         assert!(r.contains("JWT in header"));
@@ -162,7 +200,28 @@ mod tests {
 
     #[test]
     fn memory_section_omitted_when_empty() {
-        let r = render(&[sample_file("a.rs", "", "rust")], &[]);
+        let r = render(&[sample_file("a.rs", "", "rust")], &[], true);
         assert!(!r.contains("## Memory"));
+    }
+
+    #[test]
+    fn provenance_header_emitted_by_default() {
+        let r = render(
+            &[sample_file("a.rs", "fn a() {}\n", "rust")],
+            &[],
+            false,
+        );
+        assert!(r.contains("<!-- ctxforge:"));
+        assert!(r.contains("file://a.rs"));
+    }
+
+    #[test]
+    fn no_provenance_flag_strips_header() {
+        let r = render(
+            &[sample_file("a.rs", "fn a() {}\n", "rust")],
+            &[],
+            true,
+        );
+        assert!(!r.contains("<!-- ctxforge:"));
     }
 }

@@ -39,11 +39,16 @@ impl Format {
     }
 }
 
-pub fn render(format: Format, items: &[ResolvedItem], memory: &[Note]) -> String {
+pub fn render(
+    format: Format,
+    items: &[ResolvedItem],
+    memory: &[Note],
+    no_provenance: bool,
+) -> String {
     match format {
-        Format::Markdown => markdown::render(items, memory),
-        Format::Xml => xml::render(items, memory),
-        Format::Json => json::render(items, memory),
+        Format::Markdown => markdown::render(items, memory, no_provenance),
+        Format::Xml => xml::render(items, memory, no_provenance),
+        Format::Json => json::render(items, memory, no_provenance),
     }
 }
 

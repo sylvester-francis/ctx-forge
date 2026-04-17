@@ -89,7 +89,7 @@ pub fn get_prompt(root: &CtxforgeRoot, name: &str, args: &Value) -> Result<Value
         resolve::resolve_all(&bundle.items, root.project_root()).map_err(|e| e.to_string())?;
     let memory_notes =
         memory::collect_for_attach(root, false, None, 20).map_err(|e| e.to_string())?;
-    let bundle_rendered = format::render(Format::Markdown, &resolved, &memory_notes);
+    let bundle_rendered = format::render(Format::Markdown, &resolved, &memory_notes, false);
 
     // Try to apply the template; if the template file doesn't exist, use a
     // simple fallback that still includes the bundle and task.
