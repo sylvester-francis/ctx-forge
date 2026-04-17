@@ -41,8 +41,9 @@ struct AppData {
     // Needed so mutations can persist to disk and recompute tokens.
     root: CtxforgeRoot,
     project_root: PathBuf,
-    // Transient status message shown in the footer.
+    // Transient status message shown in the footer. Auto-clears after 3s.
     status: String,
+    status_set_at: Option<std::time::Instant>,
     // Code viewer pane state.
     viewer: crate::tui::viewer::ViewerState,
     // Action that requires leaving the render loop (export / pipe / editor).
@@ -94,6 +95,7 @@ fn load_app_data(root: CtxforgeRoot) -> AppData {
         root,
         project_root,
         status: String::new(),
+        status_set_at: None,
         viewer: crate::tui::viewer::ViewerState::new(),
         pending_action: None,
     }
@@ -164,6 +166,7 @@ impl AppData {
 
     fn set_status(&mut self, msg: String) {
         self.status = msg;
+        self.status_set_at = Some(std::time::Instant::now());
     }
 
     /// Dispatch a command action. Returns the new Mode to enter, or None
@@ -685,12 +688,49 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     });
     let viewer_events: State<Vec<crate::tui::components::viewer::ViewerMouseEvent>> =
         hooks.use_state(Vec::new);
+
+    // Auto-clear status message after 3 seconds. The future polls the
+    // status_set_at timestamp; when 3s have elapsed, it clears the message.
+    {
+        let mut app_data_for_timer = app_data;
+        hooks.use_future(async move {
+            loop {
+                smol::Timer::after(std::time::Duration::from_secs(1)).await;
+                let should_clear = {
+                    let d = app_data_for_timer.read();
+                    d.status_set_at
+                        .map(|t| t.elapsed() >= std::time::Duration::from_secs(3) && !d.status.is_empty())
+                        .unwrap_or(false)
+                };
+                if should_clear {
+                    let mut d = app_data_for_timer.write();
+                    d.status.clear();
+                    d.status_set_at = None;
+                }
+            }
+        });
+    }
     // Background file-load result slot. `spawn_viewer_load` writes a
     // (generation, path, ViewerLoad) tuple here when done; the render
     // body below reads it and applies only if the generation still
     // matches the current viewer load (so an old slow load can't clobber
     // a newer one).
     let viewer_bg_result: ViewerBgSlot = hooks.use_state(|| None);
+
+    // Startup fade: animate opacity 0→1 over 260ms. On first render the
+    // flag is false → target 0 → invisible. Flag flips to true on first
+    // render → target 1 → tween fires on the second render.
+    let mut startup_flag = hooks.use_state(|| false);
+    if !startup_flag.get() {
+        startup_flag.set(true);
+    }
+    let startup_target = if startup_flag.get() { 1.0f32 } else { 0.0f32 };
+    let _startup_opacity = use_animated(
+        hooks,
+        startup_target,
+        crate::motion_core::constants::STARTUP,
+        crate::motion_core::ease_out_cubic,
+    );
 
     let (raw_term_w, raw_term_h) = hooks.use_terminal_size();
     // Fall back to a live `terminal::size()` query only when iocraft
