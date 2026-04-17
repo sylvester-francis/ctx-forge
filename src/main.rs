@@ -42,30 +42,36 @@ fn run() -> Result<()> {
         let cwd = std::env::current_dir()?;
         let root = paths::CtxforgeRoot::find_or_create(&cwd)?;
 
-        // Dispatch precedence: CLI flag → env var → default (v1).
-        let env_v2 = std::env::var("CTXFORGE_TUI").ok().as_deref() == Some("v2");
-        let env_v1 = std::env::var("CTXFORGE_TUI").ok().as_deref() == Some("v1");
-        let want_v2 = cli.tui_v2 || (env_v2 && !cli.tui_v1);
-        let want_v1 = cli.tui_v1 || env_v1;
+        // Dispatch precedence: CLI flag → env var → default (v2).
+        // Phase 3: v2 (iocraft) is now the default. Use --tui-v1 or
+        // CTXFORGE_TUI=v1 to fall back to the ratatui v1 TUI.
+        let env_tui = std::env::var("CTXFORGE_TUI").ok();
+        let want_v1 = cli.tui_v1 || env_tui.as_deref() == Some("v1");
+        let want_v2 = cli.tui_v2 || env_tui.as_deref() == Some("v2");
 
-        if want_v2 {
-            #[cfg(feature = "tui-v2")]
-            return tui2::run(root);
-            #[cfg(not(feature = "tui-v2"))]
+        if want_v1 && !want_v2 {
+            #[cfg(feature = "tui")]
+            return tui::run(root);
+            #[cfg(not(feature = "tui"))]
             {
-                output::error("tui-v2 feature not enabled in this build");
+                output::error("tui (v1) feature not enabled in this build");
                 std::process::exit(1);
             }
         }
 
-        // Default: v1. Falls through to v1 if no flag set.
-        let _ = want_v1;
-        #[cfg(feature = "tui")]
-        return tui::run(root);
-        #[cfg(not(feature = "tui"))]
+        // Default: v2. Falls through to v2 unless --tui-v1 is set.
+        #[cfg(feature = "tui-v2")]
+        return tui2::run(root);
+        #[cfg(not(feature = "tui-v2"))]
         {
-            output::error("tui feature not enabled in this build");
-            std::process::exit(1);
+            // v2 not compiled in — fall back to v1.
+            #[cfg(feature = "tui")]
+            return tui::run(root);
+            #[cfg(not(feature = "tui"))]
+            {
+                output::error("no TUI feature enabled in this build");
+                std::process::exit(1);
+            }
         }
     }
 
