@@ -23,33 +23,32 @@ pub fn render_splash(
     body.push(element! { Text(content: "") }.into_any());
     body.push(element! { Text(content: "") }.into_any());
 
-    // Wide divider scaled to card
-    let div_half = (card_w as usize).saturating_sub(30) / 2;
-    let divider = format!(
-        "{}  ⚒  {}",
-        "─".repeat(div_half.max(3)),
-        "─".repeat(div_half.max(3)),
-    );
-    body.push(
-        element! {
-            Text(content: divider.leak() as &str, color: theme.muted, weight: Weight::Light, align: TextAlign::Center)
-        }
-        .into_any(),
-    );
-    body.push(element! { Text(content: "") }.into_any());
+    // Block-letter wordmark — 3 rows tall, OpenCode-style pixel font.
+    // "ctx" in muted, "forge" in accent for visual contrast.
+    let logo_row1_ctx = " ▄▀▀  ▀█▀  █ █";
+    let logo_row2_ctx = " █     █   ▀▄▀";
+    let logo_row3_ctx = " ▀▄▄   █   █ █";
 
-    // Wordmark with wide letter spacing
-    body.push(
-        element! {
-            Text(
-                content: "c   t   x   f   o   r   g   e",
-                color: theme.accent,
-                weight: Weight::Bold,
-                align: TextAlign::Center,
-            )
-        }
-        .into_any(),
-    );
+    let logo_row1_forge = "  █▀▀  ▄▀▀▄  █▀▄  ▄▀▀▄  █▀▀";
+    let logo_row2_forge = "  █▀▀  █  █  ██▀  █ ▀█  █▀▀";
+    let logo_row3_forge = "  █    ▀▄▄▀  █ ▀  ▀▄▄▀  █▄▄";
+
+    for (ctx_row, forge_row) in [
+        (logo_row1_ctx, logo_row1_forge),
+        (logo_row2_ctx, logo_row2_forge),
+        (logo_row3_ctx, logo_row3_forge),
+    ] {
+        body.push(
+            element! {
+                MixedText(align: TextAlign::Center, contents: vec![
+                    MixedTextContent::new(ctx_row).color(theme.muted).weight(Weight::Bold),
+                    MixedTextContent::new(forge_row).color(theme.accent).weight(Weight::Bold),
+                ])
+            }
+            .into_any(),
+        );
+    }
+
     body.push(element! { Text(content: "") }.into_any());
     body.push(
         element! {
