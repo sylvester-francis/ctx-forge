@@ -12,15 +12,15 @@ use crate::motion_core::{constants, ease_out_cubic};
 use crate::paths::{config_file_path, CtxforgeRoot};
 use crate::resolve;
 use crate::tokens;
-use crate::tui::preview::PromptPreview;
-use crate::tui::prompt_input::PromptInput;
-use crate::tui::theme::{config::resolve_theme_name, registry, AppTheme};
-use crate::tui::tree::{self, TreeEntry};
-use crate::tui2::components::{
+use crate::preview::PromptPreview;
+use crate::prompt_input::PromptInput;
+use crate::theme::{config::resolve_theme_name, registry, AppTheme};
+use crate::tree::{self, TreeEntry};
+use crate::tui::components::{
     bundle_summary::render_bundle_rows, prompt_preview::render_preview, tree::render_tree_rows,
 };
-use crate::tui2::motion::use_animated;
-use crate::tui2::theme::Theme;
+use crate::tui::motion::use_animated;
+use crate::tui::theme::Theme;
 use iocraft::hooks::UseTerminalSize;
 use iocraft::prelude::*;
 use std::collections::HashSet;
@@ -44,15 +44,15 @@ struct AppData {
     // Transient status message shown in the footer.
     status: String,
     // Code viewer pane state.
-    viewer: crate::tui2::viewer::ViewerState,
+    viewer: crate::tui::viewer::ViewerState,
     // Action that requires leaving the render loop (export / pipe / editor).
-    pending_action: Option<crate::tui2::mode::PendingAction>,
+    pending_action: Option<crate::tui::mode::PendingAction>,
 }
 
 fn load_app_data(root: CtxforgeRoot) -> AppData {
     // Pre-warm the shared syntect highlighter so the first viewer toggle
     // doesn't stall on SyntaxSet deserialization (~200ms).
-    let _ = crate::tui2::viewer::highlight::shared();
+    let _ = crate::tui::viewer::highlight::shared();
 
     let bundle = Bundle::load_or_default(&root).unwrap_or_default();
     let project_root = root.project_root().to_path_buf();
@@ -94,7 +94,7 @@ fn load_app_data(root: CtxforgeRoot) -> AppData {
         root,
         project_root,
         status: String::new(),
-        viewer: crate::tui2::viewer::ViewerState::new(),
+        viewer: crate::tui::viewer::ViewerState::new(),
         pending_action: None,
     }
 }
@@ -170,10 +170,10 @@ impl AppData {
     /// for actions that only set status / quit / stay in Normal mode.
     fn dispatch_command(
         &mut self,
-        action: crate::tui2::command_registry::CommandAction,
-    ) -> Option<crate::tui2::mode::Mode> {
-        use crate::tui2::command_registry::CommandAction as A;
-        use crate::tui2::mode::Mode;
+        action: crate::tui::command_registry::CommandAction,
+    ) -> Option<crate::tui::mode::Mode> {
+        use crate::tui::command_registry::CommandAction as A;
+        use crate::tui::mode::Mode;
         match action {
             A::Help => Some(Mode::Help),
             A::Scenario => Some(Mode::ScenarioPicker { cursor: 0 }),
@@ -182,7 +182,7 @@ impl AppData {
                 self.set_status("quit requested".to_string());
                 None
             }
-            A::Theme => Some(crate::tui2::mode::Mode::ThemePicker { cursor: 0 }),
+            A::Theme => Some(crate::tui::mode::Mode::ThemePicker { cursor: 0 }),
             A::ToggleViewer => {
                 self.viewer.toggle();
                 let enabled = self.viewer.enabled;
@@ -193,13 +193,13 @@ impl AppData {
                 self.add_viewer_selection_to_bundle();
                 None
             }
-            A::Deliver => Some(crate::tui2::mode::Mode::DeliveryPicker { cursor: 0 }),
+            A::Deliver => Some(crate::tui::mode::Mode::DeliveryPicker { cursor: 0 }),
             A::EditPrompt => {
                 let content = self
                     .render_payload(crate::format::Format::Markdown)
                     .unwrap_or_else(|e| format!("Error: {e}"));
                 self.pending_action =
-                    Some(crate::tui2::mode::PendingAction::Editor(content));
+                    Some(crate::tui::mode::PendingAction::Editor(content));
                 None
             }
             A::Copy => { self.set_status("use CLI: ctxforge copy".to_string()); None }
@@ -230,18 +230,18 @@ impl AppData {
     /// (so any theme-dependent colors re-render), and persists the selection
     /// to `~/.config/ctxforge/config.toml`.
     fn apply_theme(&mut self, name: &str) -> std::result::Result<(), String> {
-        let raw = crate::tui::theme::registry::by_name(name)
+        let raw = crate::theme::registry::by_name(name)
             .ok_or_else(|| format!("unknown theme '{name}'"))?;
         self.theme = Theme::from_app_theme(raw);
         self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
 
         if let Some(path) = crate::paths::config_file_path() {
-            let existing = crate::tui::theme::config::load_from(&path).unwrap_or_default();
-            let next = crate::tui::theme::config::Config {
+            let existing = crate::theme::config::load_from(&path).unwrap_or_default();
+            let next = crate::theme::config::Config {
                 theme: name.to_string(),
                 default_send: existing.default_send,
             };
-            let _ = crate::tui::theme::config::save_to(&path, &next);
+            let _ = crate::theme::config::save_to(&path, &next);
         }
         self.set_status(format!("theme → {name}"));
         Ok(())
@@ -313,7 +313,7 @@ impl AppData {
         let bundle_rendered = crate::format::render(format, &resolved, &notes);
 
         if let Some(scenario) = &self.bundle.scenario {
-            let body = crate::tui::scenario::load_body(&self.root, scenario)
+            let body = crate::scenario::load_body(&self.root, scenario)
                 .map_err(|e| format!("load scenario: {e}"))?;
             crate::template::substitute(scenario, &body, &bundle_rendered, &self.bundle.task_text)
                 .map_err(|e| format!("render template: {e}"))
@@ -324,9 +324,9 @@ impl AppData {
 
     /// Execute a delivery choice. Copy goes to clipboard (no suspend needed).
     /// Pipe/Export stash a PendingAction for the outer run() loop.
-    fn run_delivery(&mut self, choice: crate::tui::deliver::DeliverChoice) {
-        use crate::tui::deliver::DeliverChoice as DC;
-        use crate::tui2::mode::PendingAction;
+    fn run_delivery(&mut self, choice: crate::deliver::DeliverChoice) {
+        use crate::deliver::DeliverChoice as DC;
+        use crate::tui::mode::PendingAction;
 
         let format = match choice {
             DC::PipeClaude | DC::CopyXml => crate::format::Format::Xml,
@@ -416,7 +416,7 @@ impl AppData {
 /// Payload written by a completed background viewer load. The generation
 /// tag lets `apply_bg_load` drop stale results (from files the user has
 /// since navigated past while the load was in flight).
-type ViewerBgResult = (u64, PathBuf, crate::tui2::viewer::ViewerLoad);
+type ViewerBgResult = (u64, PathBuf, crate::tui::viewer::ViewerLoad);
 type ViewerBgSlot = State<Option<ViewerBgResult>>;
 
 /// Fire a background file load and return immediately. The task runs on
@@ -434,9 +434,9 @@ fn spawn_viewer_load(path: PathBuf, generation: u64, mut result_slot: ViewerBgSl
     smol::spawn(async move {
         let path_for_task = path.clone();
         let load = smol::unblock(move || {
-            crate::tui2::viewer::read_and_highlight(
+            crate::tui::viewer::read_and_highlight(
                 &path_for_task,
-                crate::tui2::viewer::highlight::shared(),
+                crate::tui::viewer::highlight::shared(),
             )
         })
         .await;
@@ -479,11 +479,11 @@ fn reload_viewer(data: &mut AppData, new_cursor: usize, slot: ViewerBgSlot) {
 }
 
 fn build_preview(root: &CtxforgeRoot, bundle: &Bundle, item_tokens: &[usize]) -> PromptPreview {
-    use crate::tui::preview::{ContextItem, Section};
+    use crate::preview::{ContextItem, Section};
     let mut sections = Vec::new();
     match &bundle.scenario {
         None => sections.push(Section::NoScenarioPlaceholder),
-        Some(name) => match crate::tui::preview::render::load_wrapped(root, name) {
+        Some(name) => match crate::preview::render::load_wrapped(root, name) {
             Ok(wrapped) => {
                 sections.push(Section::ScenarioHeader {
                     scenario: name.clone(),
@@ -568,7 +568,7 @@ fn gauge_color(pct: f64, theme: &Theme) -> Color {
 
 thread_local! {
     static STARTUP: std::cell::RefCell<Option<AppData>> = const { std::cell::RefCell::new(None) };
-    static PENDING: std::cell::RefCell<Option<crate::tui2::mode::PendingAction>> = const { std::cell::RefCell::new(None) };
+    static PENDING: std::cell::RefCell<Option<crate::tui::mode::PendingAction>> = const { std::cell::RefCell::new(None) };
     static ROOT_STASH: std::cell::RefCell<Option<CtxforgeRoot>> = const { std::cell::RefCell::new(None) };
 }
 
@@ -595,12 +595,12 @@ pub async fn run(root: CtxforgeRoot) -> Result<()> {
         let action = PENDING.with(|p| p.borrow_mut().take());
         match action {
             None => return Ok(()), // Normal quit — no action, exit app.
-            Some(crate::tui2::mode::PendingAction::Export(content)) => {
+            Some(crate::tui::mode::PendingAction::Export(content)) => {
                 println!("{content}");
                 eprintln!("\nPress any key to return to ctxforge...");
                 let _ = crossterm::event::read();
             }
-            Some(crate::tui2::mode::PendingAction::Pipe { target, content }) => {
+            Some(crate::tui::mode::PendingAction::Pipe { target, content }) => {
                 match std::process::Command::new(&target)
                     .stdin(std::process::Stdio::piped())
                     .spawn()
@@ -619,8 +619,8 @@ pub async fn run(root: CtxforgeRoot) -> Result<()> {
                     }
                 }
             }
-            Some(crate::tui2::mode::PendingAction::Editor(starting)) => {
-                match crate::tui::editor::spawn_editor(&starting) {
+            Some(crate::tui::mode::PendingAction::Editor(starting)) => {
+                match crate::editor::spawn_editor(&starting) {
                     Ok(_updated) => {
                         // TODO: apply the edited text as a prompt override
                     }
@@ -678,12 +678,12 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     let mut focus: State<Focus> = hooks.use_state(|| Focus::FileTree);
     let mut cursor: State<usize> = hooks.use_state(|| 0usize);
     let mut should_quit: State<bool> = hooks.use_state(|| false);
-    let mut mode: State<crate::tui2::mode::Mode> = hooks.use_state(crate::tui2::mode::Mode::default);
+    let mut mode: State<crate::tui::mode::Mode> = hooks.use_state(crate::tui::mode::Mode::default);
     let mut prompt_input: State<PromptInput> = hooks.use_state(|| {
         let initial = app_data.read().bundle.task_text.clone();
         PromptInput::with_text(initial)
     });
-    let viewer_events: State<Vec<crate::tui2::components::viewer::ViewerMouseEvent>> =
+    let viewer_events: State<Vec<crate::tui::components::viewer::ViewerMouseEvent>> =
         hooks.use_state(Vec::new);
     // Background file-load result slot. `spawn_viewer_load` writes a
     // (generation, path, ViewerLoad) tuple here when done; the render
@@ -720,20 +720,20 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     return;
                 }
                 // ── Search mode: accumulate chars, Esc cancels, Enter confirms ──
-                if matches!(*mode.read(), crate::tui2::mode::Mode::Search { .. }) {
+                if matches!(*mode.read(), crate::tui::mode::Mode::Search { .. }) {
                     match k.code {
                         KeyCode::Esc | KeyCode::Enter => {
-                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                            *mode.write() = crate::tui::mode::Mode::Normal;
                             return;
                         }
                         KeyCode::Backspace => {
-                            if let crate::tui2::mode::Mode::Search { query } = &mut *mode.write() {
+                            if let crate::tui::mode::Mode::Search { query } = &mut *mode.write() {
                                 query.pop();
                             }
                             return;
                         }
                         KeyCode::Char(c) => {
-                            if let crate::tui2::mode::Mode::Search { query } = &mut *mode.write() {
+                            if let crate::tui::mode::Mode::Search { query } = &mut *mode.write() {
                                 query.push(c);
                             }
                             return;
@@ -743,10 +743,10 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 }
 
                 // ── Help overlay ────────────────────────────────
-                if matches!(*mode.read(), crate::tui2::mode::Mode::Help) {
+                if matches!(*mode.read(), crate::tui::mode::Mode::Help) {
                     match k.code {
                         KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
-                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                            *mode.write() = crate::tui::mode::Mode::Normal;
                         }
                         _ => {}
                     }
@@ -754,22 +754,22 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 }
 
                 // ── Scenario picker overlay ─────────────────────
-                if matches!(*mode.read(), crate::tui2::mode::Mode::ScenarioPicker { .. }) {
-                    let scenarios = crate::tui2::overlays::scenario_picker::load(&app_data.read().root);
+                if matches!(*mode.read(), crate::tui::mode::Mode::ScenarioPicker { .. }) {
+                    let scenarios = crate::tui::overlays::scenario_picker::load(&app_data.read().root);
                     let count = scenarios.len();
                     match k.code {
                         KeyCode::Esc => {
-                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                            *mode.write() = crate::tui::mode::Mode::Normal;
                         }
                         KeyCode::Up | KeyCode::Char('k') => {
-                            if let crate::tui2::mode::Mode::ScenarioPicker { cursor } = &mut *mode.write() {
+                            if let crate::tui::mode::Mode::ScenarioPicker { cursor } = &mut *mode.write() {
                                 if *cursor > 0 {
                                     *cursor -= 1;
                                 }
                             }
                         }
                         KeyCode::Down | KeyCode::Char('j') => {
-                            if let crate::tui2::mode::Mode::ScenarioPicker { cursor } = &mut *mode.write() {
+                            if let crate::tui::mode::Mode::ScenarioPicker { cursor } = &mut *mode.write() {
                                 if *cursor + 1 < count {
                                     *cursor += 1;
                                 }
@@ -777,14 +777,14 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         }
                         KeyCode::Enter => {
                             let cur = match *mode.read() {
-                                crate::tui2::mode::Mode::ScenarioPicker { cursor } => cursor,
+                                crate::tui::mode::Mode::ScenarioPicker { cursor } => cursor,
                                 _ => 0,
                             };
                             if let Some(picked) = scenarios.get(cur) {
                                 let name = picked.name.clone();
                                 app_data.write().set_scenario(Some(name));
                             }
-                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                            *mode.write() = crate::tui::mode::Mode::Normal;
                         }
                         _ => {}
                     }
@@ -792,22 +792,22 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 }
 
                 // ── Theme picker overlay ────────────────────────
-                if matches!(*mode.read(), crate::tui2::mode::Mode::ThemePicker { .. }) {
-                    let themes = crate::tui2::overlays::theme_picker::all();
+                if matches!(*mode.read(), crate::tui::mode::Mode::ThemePicker { .. }) {
+                    let themes = crate::tui::overlays::theme_picker::all();
                     let count = themes.len();
                     match k.code {
                         KeyCode::Esc => {
-                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                            *mode.write() = crate::tui::mode::Mode::Normal;
                         }
                         KeyCode::Up | KeyCode::Char('k') => {
-                            if let crate::tui2::mode::Mode::ThemePicker { cursor } = &mut *mode.write() {
+                            if let crate::tui::mode::Mode::ThemePicker { cursor } = &mut *mode.write() {
                                 if *cursor > 0 {
                                     *cursor -= 1;
                                 }
                             }
                         }
                         KeyCode::Down | KeyCode::Char('j') => {
-                            if let crate::tui2::mode::Mode::ThemePicker { cursor } = &mut *mode.write() {
+                            if let crate::tui::mode::Mode::ThemePicker { cursor } = &mut *mode.write() {
                                 if *cursor + 1 < count {
                                     *cursor += 1;
                                 }
@@ -815,14 +815,14 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         }
                         KeyCode::Enter => {
                             let cur = match *mode.read() {
-                                crate::tui2::mode::Mode::ThemePicker { cursor } => cursor,
+                                crate::tui::mode::Mode::ThemePicker { cursor } => cursor,
                                 _ => 0,
                             };
                             if let Some(picked) = themes.get(cur) {
                                 let name = picked.name.to_string();
                                 let _ = app_data.write().apply_theme(&name);
                             }
-                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                            *mode.write() = crate::tui::mode::Mode::Normal;
                         }
                         _ => {}
                     }
@@ -830,27 +830,27 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 }
 
                 // ── @ file picker ──────────────────────────────
-                if matches!(*mode.read(), crate::tui2::mode::Mode::AtPicker { .. }) {
+                if matches!(*mode.read(), crate::tui::mode::Mode::AtPicker { .. }) {
                     match k.code {
                         KeyCode::Esc => {
                             // Cancel — remove the '@' we inserted
                             prompt_input.write().backspace();
                             let text = prompt_input.read().text().to_string();
                             app_data.write().sync_task_text(text);
-                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                            *mode.write() = crate::tui::mode::Mode::Normal;
                         }
                         KeyCode::Backspace => {
                             let query_empty = matches!(
                                 &*mode.read(),
-                                crate::tui2::mode::Mode::AtPicker { query, .. } if query.is_empty()
+                                crate::tui::mode::Mode::AtPicker { query, .. } if query.is_empty()
                             );
                             if query_empty {
                                 prompt_input.write().backspace();
                                 let text = prompt_input.read().text().to_string();
                                 app_data.write().sync_task_text(text);
-                                *mode.write() = crate::tui2::mode::Mode::Normal;
+                                *mode.write() = crate::tui::mode::Mode::Normal;
                             } else {
-                                if let crate::tui2::mode::Mode::AtPicker { query, cursor, .. } =
+                                if let crate::tui::mode::Mode::AtPicker { query, cursor, .. } =
                                     &mut *mode.write()
                                 {
                                     query.pop();
@@ -862,7 +862,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             }
                         }
                         KeyCode::Up => {
-                            if let crate::tui2::mode::Mode::AtPicker { cursor, .. } =
+                            if let crate::tui::mode::Mode::AtPicker { cursor, .. } =
                                 &mut *mode.write()
                             {
                                 if *cursor > 0 {
@@ -871,16 +871,16 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             }
                         }
                         KeyCode::Down => {
-                            if let crate::tui2::mode::Mode::AtPicker {
+                            if let crate::tui::mode::Mode::AtPicker {
                                 cursor,
                                 query,
                                 files,
                             } = &mut *mode.write()
                             {
-                                let ranked = crate::tui::prompt_input::at_picker::rank(
+                                let ranked = crate::prompt_input::at_picker::rank(
                                     files,
                                     query,
-                                    crate::tui::prompt_input::at_picker::RESULT_LIMIT,
+                                    crate::prompt_input::at_picker::RESULT_LIMIT,
                                 );
                                 if *cursor + 1 < ranked.len() {
                                     *cursor += 1;
@@ -890,16 +890,16 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         KeyCode::Enter => {
                             let picked = {
                                 let m = mode.read();
-                                if let crate::tui2::mode::Mode::AtPicker {
+                                if let crate::tui::mode::Mode::AtPicker {
                                     cursor,
                                     query,
                                     files,
                                 } = &*m
                                 {
-                                    let ranked = crate::tui::prompt_input::at_picker::rank(
+                                    let ranked = crate::prompt_input::at_picker::rank(
                                         files,
                                         query,
-                                        crate::tui::prompt_input::at_picker::RESULT_LIMIT,
+                                        crate::prompt_input::at_picker::RESULT_LIMIT,
                                     );
                                     ranked.get(*cursor).cloned()
                                 } else {
@@ -911,7 +911,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                 let cursor_pos = prompt_input.read().cursor();
                                 let text = prompt_input.read().text().to_string();
                                 let query_len = match &*mode.read() {
-                                    crate::tui2::mode::Mode::AtPicker { query, .. } => query.len(),
+                                    crate::tui::mode::Mode::AtPicker { query, .. } => query.len(),
                                     _ => 0,
                                 };
                                 // The prompt text has "@<query>" before the cursor.
@@ -931,10 +931,10 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                     app_data.write().toggle_bundle(&path);
                                 }
                             }
-                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                            *mode.write() = crate::tui::mode::Mode::Normal;
                         }
                         KeyCode::Char(c) => {
-                            if let crate::tui2::mode::Mode::AtPicker { query, cursor, .. } =
+                            if let crate::tui::mode::Mode::AtPicker { query, cursor, .. } =
                                 &mut *mode.write()
                             {
                                 query.push(c);
@@ -950,34 +950,34 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 }
 
                 // ── Full prompt preview overlay ─────────────────
-                if matches!(*mode.read(), crate::tui2::mode::Mode::FullPromptPreview { .. }) {
+                if matches!(*mode.read(), crate::tui::mode::Mode::FullPromptPreview { .. }) {
                     match k.code {
                         KeyCode::Esc | KeyCode::Char('P') | KeyCode::Char('q') => {
-                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                            *mode.write() = crate::tui::mode::Mode::Normal;
                         }
                         KeyCode::Up | KeyCode::Char('k') => {
-                            if let crate::tui2::mode::Mode::FullPromptPreview { scroll, .. } =
+                            if let crate::tui::mode::Mode::FullPromptPreview { scroll, .. } =
                                 &mut *mode.write()
                             {
                                 *scroll = scroll.saturating_sub(1);
                             }
                         }
                         KeyCode::Down | KeyCode::Char('j') => {
-                            if let crate::tui2::mode::Mode::FullPromptPreview { scroll, .. } =
+                            if let crate::tui::mode::Mode::FullPromptPreview { scroll, .. } =
                                 &mut *mode.write()
                             {
                                 *scroll += 1;
                             }
                         }
                         KeyCode::Char('g') => {
-                            if let crate::tui2::mode::Mode::FullPromptPreview { scroll, .. } =
+                            if let crate::tui::mode::Mode::FullPromptPreview { scroll, .. } =
                                 &mut *mode.write()
                             {
                                 *scroll = 0;
                             }
                         }
                         KeyCode::Char('G') => {
-                            if let crate::tui2::mode::Mode::FullPromptPreview {
+                            if let crate::tui::mode::Mode::FullPromptPreview {
                                 scroll, content,
                             } = &mut *mode.write()
                             {
@@ -991,14 +991,14 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 }
 
                 // ── Delivery picker overlay ─────────────────────
-                if matches!(*mode.read(), crate::tui2::mode::Mode::DeliveryPicker { .. }) {
-                    let count = crate::tui::deliver::DeliverChoice::all().len();
+                if matches!(*mode.read(), crate::tui::mode::Mode::DeliveryPicker { .. }) {
+                    let count = crate::deliver::DeliverChoice::all().len();
                     match k.code {
                         KeyCode::Esc => {
-                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                            *mode.write() = crate::tui::mode::Mode::Normal;
                         }
                         KeyCode::Up | KeyCode::Char('k') => {
-                            if let crate::tui2::mode::Mode::DeliveryPicker { cursor } =
+                            if let crate::tui::mode::Mode::DeliveryPicker { cursor } =
                                 &mut *mode.write()
                             {
                                 if *cursor > 0 {
@@ -1007,7 +1007,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             }
                         }
                         KeyCode::Down | KeyCode::Char('j') => {
-                            if let crate::tui2::mode::Mode::DeliveryPicker { cursor } =
+                            if let crate::tui::mode::Mode::DeliveryPicker { cursor } =
                                 &mut *mode.write()
                             {
                                 if *cursor + 1 < count {
@@ -1017,10 +1017,10 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         }
                         KeyCode::Enter => {
                             let cur = match *mode.read() {
-                                crate::tui2::mode::Mode::DeliveryPicker { cursor } => cursor,
+                                crate::tui::mode::Mode::DeliveryPicker { cursor } => cursor,
                                 _ => 0,
                             };
-                            let choices = crate::tui::deliver::DeliverChoice::all();
+                            let choices = crate::deliver::DeliverChoice::all();
                             if let Some(&choice) = choices.get(cur) {
                                 app_data.write().run_delivery(choice);
                                 // If a pending action was set (pipe/export), need
@@ -1029,7 +1029,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                     *should_quit.write() = true;
                                 }
                             }
-                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                            *mode.write() = crate::tui::mode::Mode::Normal;
                         }
                         _ => {}
                     }
@@ -1037,13 +1037,13 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 }
 
                 // ── Command palette overlay ────────────────────
-                if matches!(*mode.read(), crate::tui2::mode::Mode::CommandPalette { .. }) {
+                if matches!(*mode.read(), crate::tui::mode::Mode::CommandPalette { .. }) {
                     match k.code {
                         KeyCode::Esc => {
-                            *mode.write() = crate::tui2::mode::Mode::Normal;
+                            *mode.write() = crate::tui::mode::Mode::Normal;
                         }
                         KeyCode::Up => {
-                            if let crate::tui2::mode::Mode::CommandPalette { cursor, .. } =
+                            if let crate::tui::mode::Mode::CommandPalette { cursor, .. } =
                                 &mut *mode.write()
                             {
                                 if *cursor > 0 {
@@ -1054,13 +1054,13 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         KeyCode::Down => {
                             let count = {
                                 let m = mode.read();
-                                if let crate::tui2::mode::Mode::CommandPalette { query, .. } = &*m {
-                                    crate::tui2::command_registry::filter(query).len()
+                                if let crate::tui::mode::Mode::CommandPalette { query, .. } = &*m {
+                                    crate::tui::command_registry::filter(query).len()
                                 } else {
                                     0
                                 }
                             };
-                            if let crate::tui2::mode::Mode::CommandPalette { cursor, .. } =
+                            if let crate::tui::mode::Mode::CommandPalette { cursor, .. } =
                                 &mut *mode.write()
                             {
                                 if *cursor + 1 < count {
@@ -1069,7 +1069,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             }
                         }
                         KeyCode::Backspace => {
-                            if let crate::tui2::mode::Mode::CommandPalette { query, cursor } =
+                            if let crate::tui::mode::Mode::CommandPalette { query, cursor } =
                                 &mut *mode.write()
                             {
                                 query.pop();
@@ -1077,7 +1077,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             }
                         }
                         KeyCode::Char(c) => {
-                            if let crate::tui2::mode::Mode::CommandPalette { query, cursor } =
+                            if let crate::tui::mode::Mode::CommandPalette { query, cursor } =
                                 &mut *mode.write()
                             {
                                 query.push(c);
@@ -1086,12 +1086,12 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         }
                         KeyCode::Enter => {
                             let (query_owned, cursor_idx) = match &*mode.read() {
-                                crate::tui2::mode::Mode::CommandPalette { query, cursor } => {
+                                crate::tui::mode::Mode::CommandPalette { query, cursor } => {
                                     (query.clone(), *cursor)
                                 }
                                 _ => (String::new(), 0),
                             };
-                            let results = crate::tui2::command_registry::filter(&query_owned);
+                            let results = crate::tui::command_registry::filter(&query_owned);
                             if let Some(cmd) = results.get(cursor_idx) {
                                 let action = cmd.action;
                                 let next_mode = app_data.write().dispatch_command(action);
@@ -1100,15 +1100,15 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                     None => {
                                         if matches!(
                                             action,
-                                            crate::tui2::command_registry::CommandAction::Quit
+                                            crate::tui::command_registry::CommandAction::Quit
                                         ) {
                                             *should_quit.write() = true;
                                         }
-                                        *mode.write() = crate::tui2::mode::Mode::Normal;
+                                        *mode.write() = crate::tui::mode::Mode::Normal;
                                     }
                                 }
                             } else {
-                                *mode.write() = crate::tui2::mode::Mode::Normal;
+                                *mode.write() = crate::tui::mode::Mode::Normal;
                             }
                         }
                         _ => {}
@@ -1139,10 +1139,10 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         KeyCode::Char('@') => {
                             prompt_input.write().insert_char('@');
                             // Open the @ file picker
-                            let files = crate::tui::prompt_input::at_picker::walk_files(
+                            let files = crate::prompt_input::at_picker::walk_files(
                                 &app_data.read().project_root,
                             );
-                            *mode.write() = crate::tui2::mode::Mode::AtPicker {
+                            *mode.write() = crate::tui::mode::Mode::AtPicker {
                                 query: String::new(),
                                 cursor: 0,
                                 files,
@@ -1166,10 +1166,10 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 match k.code {
                     KeyCode::Char('q') => *should_quit.write() = true,
                     KeyCode::Char('?') => {
-                        *mode.write() = crate::tui2::mode::Mode::Help;
+                        *mode.write() = crate::tui::mode::Mode::Help;
                     }
                     KeyCode::Char('S') => {
-                        *mode.write() = crate::tui2::mode::Mode::ScenarioPicker { cursor: 0 };
+                        *mode.write() = crate::tui::mode::Mode::ScenarioPicker { cursor: 0 };
                     }
                     KeyCode::Char('P') => {
                         let content = {
@@ -1177,29 +1177,29 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             d.render_payload(crate::format::Format::Markdown)
                                 .unwrap_or_else(|e| format!("Error: {e}"))
                         };
-                        *mode.write() = crate::tui2::mode::Mode::FullPromptPreview {
+                        *mode.write() = crate::tui::mode::Mode::FullPromptPreview {
                             content,
                             scroll: 0,
                         };
                     }
                     KeyCode::Char('d') if !k.modifiers.contains(KeyModifiers::CONTROL) => {
-                        *mode.write() = crate::tui2::mode::Mode::DeliveryPicker { cursor: 0 };
+                        *mode.write() = crate::tui::mode::Mode::DeliveryPicker { cursor: 0 };
                     }
                     // x = export to stdout (shortcut for /deliver → export)
                     KeyCode::Char('x') => {
-                        app_data.write().run_delivery(crate::tui::deliver::DeliverChoice::Export);
+                        app_data.write().run_delivery(crate::deliver::DeliverChoice::Export);
                         if app_data.read().pending_action.is_some() {
                             *should_quit.write() = true;
                         }
                     }
                     KeyCode::Char('/') => {
-                        *mode.write() = crate::tui2::mode::Mode::CommandPalette {
+                        *mode.write() = crate::tui::mode::Mode::CommandPalette {
                             query: String::new(),
                             cursor: 0,
                         };
                     }
                     KeyCode::Char('f') if k.modifiers.contains(KeyModifiers::CONTROL) => {
-                        *mode.write() = crate::tui2::mode::Mode::Search { query: String::new() };
+                        *mode.write() = crate::tui::mode::Mode::Search { query: String::new() };
                     }
                     KeyCode::Char('i') if *focus.read() != Focus::Prompt => {
                         *focus.write() = Focus::Prompt;
@@ -1465,7 +1465,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         .try_read()
         .map(|g| !g.is_empty())
         .unwrap_or(false);
-    let pending_mouse: Vec<crate::tui2::components::viewer::ViewerMouseEvent> = if has_mouse {
+    let pending_mouse: Vec<crate::tui::components::viewer::ViewerMouseEvent> = if has_mouse {
         let mut events = viewer_events;
         match events.try_write() {
             Some(mut guard) => std::mem::take(&mut *guard),
@@ -1478,7 +1478,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         let viewport = viewer_viewport(term_h);
         let mut d = app_data.write();
         for ev in pending_mouse {
-            use crate::tui2::components::viewer::ViewerMouseEvent as VE;
+            use crate::tui::components::viewer::ViewerMouseEvent as VE;
             match ev {
                 VE::ScrollUp => d.viewer.scroll_by(-3, viewport),
                 VE::ScrollDown => d.viewer.scroll_by(3, viewport),
@@ -1504,7 +1504,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     // Search query — cloned to &'static String so we can use it in both the
     // search bar and the tree branch selection.
     let search_query: Option<String> = match &*mode.read() {
-        crate::tui2::mode::Mode::Search { query } => Some(query.clone()),
+        crate::tui::mode::Mode::Search { query } => Some(query.clone()),
         _ => None,
     };
     let search_active = search_query.as_ref().is_some_and(|q| !q.is_empty());
@@ -1690,7 +1690,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             height: 100pct,
                         ) {
                             #(search_query.as_ref().map(|q| {
-                                crate::tui2::components::search_bar::render_search_bar(q, &theme)
+                                crate::tui::components::search_bar::render_search_bar(q, &theme)
                             }))
                             View(
                                 flex_direction: FlexDirection::Column,
@@ -1708,7 +1708,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                 ])
                                 Text(content: "")
                                 #(if search_active {
-                                    crate::tui2::components::tree::render_search_rows(
+                                    crate::tui::components::tree::render_search_rows(
                                         &data.tree_entries,
                                         search_query.as_deref().unwrap_or(""),
                                         cur,
@@ -1757,8 +1757,8 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                         MixedTextContent::new(viewer_file_title).color(theme.accent).weight(Weight::Bold),
                                     ])
                                     Text(content: "")
-                                    crate::tui2::components::viewer::Viewer(
-                                        viewer: crate::tui2::components::viewer::ViewerStateSnapshot::from_state(&data.viewer),
+                                    crate::tui::components::viewer::Viewer(
+                                        viewer: crate::tui::components::viewer::ViewerStateSnapshot::from_state(&data.viewer),
                                         theme: Some(theme),
                                         events: Some(viewer_events),
                                     )
@@ -1804,8 +1804,8 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                 .map(|s| format!("VIEWER · {}", s))
                                 .unwrap_or_else(|| "VIEWER".to_string());
                             let viewer_element = element! {
-                                crate::tui2::components::viewer::Viewer(
-                                    viewer: crate::tui2::components::viewer::ViewerStateSnapshot::from_state(&data.viewer),
+                                crate::tui::components::viewer::Viewer(
+                                    viewer: crate::tui::components::viewer::ViewerStateSnapshot::from_state(&data.viewer),
                                     theme: Some(theme),
                                     events: Some(viewer_events),
                                 )
@@ -1822,7 +1822,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             tree_title_styled.clone(),
                             tree_border,
                             if search_active {
-                                crate::tui2::components::tree::render_search_rows(
+                                crate::tui::components::tree::render_search_rows(
                                     &data.tree_entries,
                                     search_query.as_deref().unwrap_or(""),
                                     cur,
@@ -1858,7 +1858,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
             })
 
             // ─── PROMPT INPUT (auto-grow 4..=10 rows) ──
-            #(crate::tui2::components::prompt_input::render_prompt_input(
+            #(crate::tui::components::prompt_input::render_prompt_input(
                 &prompt_input.read(),
                 cur_focus == Focus::Prompt,
                 prompt_border,
@@ -1923,7 +1923,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             MixedTextContent::new(" done").color(theme.muted),
                         ])
                     }
-                } else if matches!(*mode.read(), crate::tui2::mode::Mode::Search { .. }) {
+                } else if matches!(*mode.read(), crate::tui::mode::Mode::Search { .. }) {
                     // Search mode: typing into query
                     element! {
                         MixedText(contents: vec![
@@ -1977,59 +1977,59 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
 
             // ─── OVERLAY LAYER (rendered above main layout) ──
             #(match &*mode.read() {
-                crate::tui2::mode::Mode::Help => Some(
-                    crate::tui2::overlays::card::render_card(
+                crate::tui::mode::Mode::Help => Some(
+                    crate::tui::overlays::card::render_card(
                         "HELP",
-                        crate::tui2::overlays::help::render_body(&theme),
+                        crate::tui::overlays::help::render_body(&theme),
                         &theme,
                         term_w,
                         term_h,
                     )
                 ),
-                crate::tui2::mode::Mode::ScenarioPicker { cursor } => {
-                    let scenarios = crate::tui2::overlays::scenario_picker::load(&data.root);
+                crate::tui::mode::Mode::ScenarioPicker { cursor } => {
+                    let scenarios = crate::tui::overlays::scenario_picker::load(&data.root);
                     let current = data.bundle.scenario.as_deref();
-                    Some(crate::tui2::overlays::card::render_card(
+                    Some(crate::tui::overlays::card::render_card(
                         "SCENARIO",
-                        crate::tui2::overlays::scenario_picker::render_body(&scenarios, *cursor, current, &theme),
+                        crate::tui::overlays::scenario_picker::render_body(&scenarios, *cursor, current, &theme),
                         &theme,
                         term_w,
                         term_h,
                     ))
                 }
-                crate::tui2::mode::Mode::CommandPalette { query, cursor } => {
-                    let results = crate::tui2::command_registry::filter(query);
-                    Some(crate::tui2::overlays::card::render_card(
+                crate::tui::mode::Mode::CommandPalette { query, cursor } => {
+                    let results = crate::tui::command_registry::filter(query);
+                    Some(crate::tui::overlays::card::render_card(
                         "COMMANDS",
-                        crate::tui2::overlays::command_palette::render_body(query, &results, *cursor, &theme),
+                        crate::tui::overlays::command_palette::render_body(query, &results, *cursor, &theme),
                         &theme,
                         term_w,
                         term_h,
                     ))
                 }
-                crate::tui2::mode::Mode::ThemePicker { cursor } => {
-                    let themes = crate::tui2::overlays::theme_picker::all();
-                    Some(crate::tui2::overlays::card::render_card(
+                crate::tui::mode::Mode::ThemePicker { cursor } => {
+                    let themes = crate::tui::overlays::theme_picker::all();
+                    Some(crate::tui::overlays::card::render_card(
                         "THEME",
-                        crate::tui2::overlays::theme_picker::render_body(themes, *cursor, data.theme.name, &theme),
+                        crate::tui::overlays::theme_picker::render_body(themes, *cursor, data.theme.name, &theme),
                         &theme,
                         term_w,
                         term_h,
                     ))
                 }
-                crate::tui2::mode::Mode::DeliveryPicker { cursor } => {
-                    Some(crate::tui2::overlays::card::render_card(
+                crate::tui::mode::Mode::DeliveryPicker { cursor } => {
+                    Some(crate::tui::overlays::card::render_card(
                         "DELIVER",
-                        crate::tui2::overlays::delivery_picker::render_body(*cursor, &theme),
+                        crate::tui::overlays::delivery_picker::render_body(*cursor, &theme),
                         &theme,
                         term_w,
                         term_h,
                     ))
                 }
-                crate::tui2::mode::Mode::AtPicker {
+                crate::tui::mode::Mode::AtPicker {
                     query, cursor, files,
                 } => {
-                    let ranked = crate::tui::prompt_input::at_picker::rank(
+                    let ranked = crate::prompt_input::at_picker::rank(
                         files, query, 10,
                     );
                     let mut body: Vec<AnyElement<'static>> = Vec::new();
@@ -2085,7 +2085,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             );
                         }
                     }
-                    Some(crate::tui2::overlays::card::render_card(
+                    Some(crate::tui::overlays::card::render_card(
                         "@ FILE",
                         body,
                         &theme,
@@ -2093,7 +2093,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         term_h,
                     ))
                 }
-                crate::tui2::mode::Mode::FullPromptPreview { content, scroll } => {
+                crate::tui::mode::Mode::FullPromptPreview { content, scroll } => {
                     let lines: Vec<&str> = content.lines().collect();
                     let viewport = (term_h as usize).saturating_sub(8).max(5);
                     let start = (*scroll).min(lines.len().saturating_sub(viewport));
@@ -2112,7 +2112,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                 .into_any(),
                         );
                     }
-                    Some(crate::tui2::overlays::card::render_card(
+                    Some(crate::tui::overlays::card::render_card(
                         "COMPOSED PROMPT",
                         body,
                         &theme,

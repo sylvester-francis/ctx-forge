@@ -5,8 +5,8 @@
 //! text there and using MixedText spans. The cursor only appears when the
 //! input has focus.
 
-use crate::tui::prompt_input::PromptInput;
-use crate::tui2::theme::Theme;
+use crate::prompt_input::PromptInput;
+use crate::tui::theme::Theme;
 use iocraft::prelude::*;
 
 pub fn render_prompt_input(

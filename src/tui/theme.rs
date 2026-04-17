@@ -5,7 +5,7 @@
 //! (`iocraft::Color == crossterm::style::Color`), this is just a Copy
 //! of the AppTheme fields into a struct with the same types.
 
-use crate::tui::theme::AppTheme;
+use crate::theme::AppTheme;
 
 /// Convenience alias — iocraft::Color is crossterm::style::Color.
 pub type Color = crossterm::style::Color;

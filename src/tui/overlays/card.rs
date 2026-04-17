@@ -1,6 +1,6 @@
 //! Reusable overlay card — dimmed full-screen backdrop + centered panel.
 
-use crate::tui2::theme::Theme;
+use crate::tui::theme::Theme;
 use iocraft::prelude::*;
 
 pub fn render_card(

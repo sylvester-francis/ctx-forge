@@ -1,7 +1,7 @@
 //! Delivery picker — the 7 delivery choices with cursor selection.
 
-use crate::tui::deliver::DeliverChoice;
-use crate::tui2::theme::Theme;
+use crate::deliver::DeliverChoice;
+use crate::tui::theme::Theme;
 use iocraft::prelude::*;
 
 pub fn render_body(cursor: usize, theme: &Theme) -> Vec<AnyElement<'static>> {

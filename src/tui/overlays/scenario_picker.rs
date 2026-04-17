@@ -1,7 +1,7 @@
 //! Scenario picker — list of available scenarios with arrow + Enter selection.
 
-use crate::tui::scenario::{self, Scenario, Source};
-use crate::tui2::theme::Theme;
+use crate::scenario::{self, Scenario, Source};
+use crate::tui::theme::Theme;
 use iocraft::prelude::*;
 
 pub fn load(root: &crate::paths::CtxforgeRoot) -> Vec<Scenario> {

@@ -1,6 +1,6 @@
 //! Search input bar — shown above the file tree when Mode::Search is active.
 
-use crate::tui2::theme::Theme;
+use crate::tui::theme::Theme;
 use iocraft::prelude::*;
 
 pub fn render_search_bar(query: &str, theme: &Theme) -> AnyElement<'static> {

@@ -1,7 +1,7 @@
 //! Registry of available themes.
 
-use crate::tui::theme::AppTheme;
-use crate::tui::theme::palettes;
+use crate::theme::AppTheme;
+use crate::theme::palettes;
 
 pub fn all_themes() -> &'static [AppTheme] {
     &[

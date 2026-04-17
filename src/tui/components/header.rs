@@ -3,8 +3,8 @@
 //! Uses `use_animated` to smoothly fill the gauge when token totals change.
 
 use crate::motion_core::{constants, ease_out_quad};
-use crate::tui2::motion::use_animated;
-use crate::tui2::theme::Theme;
+use crate::tui::motion::use_animated;
+use crate::tui::theme::Theme;
 use iocraft::prelude::*;
 
 fn format_tokens(n: usize) -> String {
@@ -39,7 +39,7 @@ pub struct HeaderProps {
 #[component]
 pub fn Header(hooks: &mut Hooks, props: &HeaderProps) -> impl Into<AnyElement<'static>> {
     let theme = props.theme.unwrap_or_else(|| {
-        Theme::from_app_theme(crate::tui::theme::registry::default_theme())
+        Theme::from_app_theme(crate::theme::registry::default_theme())
     });
 
     let pct = if props.model_window == 0 {

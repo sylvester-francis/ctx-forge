@@ -7,8 +7,8 @@
 //! - `▶` cursor indicator (left gutter) when focused
 //! - Selected row: inverted colors with leading `▶`
 
-use crate::tui::tree::TreeEntry;
-use crate::tui2::theme::Theme;
+use crate::tree::TreeEntry;
+use crate::tui::theme::Theme;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use iocraft::prelude::*;

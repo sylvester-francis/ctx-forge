@@ -31,22 +31,22 @@ const BUILT_IN: &[&str] = &["bugfix", "code-review", "explain", "refactor", "mig
 /// Template bodies for built-in starters, embedded at compile time.
 /// Same source files `src/commands/template.rs` pulls in.
 const BUILT_IN_BODIES: &[(&str, &str)] = &[
-    ("bugfix", include_str!("../../templates/starters/bugfix.md")),
+    ("bugfix", include_str!("../templates/starters/bugfix.md")),
     (
         "code-review",
-        include_str!("../../templates/starters/code-review.md"),
+        include_str!("../templates/starters/code-review.md"),
     ),
     (
         "explain",
-        include_str!("../../templates/starters/explain.md"),
+        include_str!("../templates/starters/explain.md"),
     ),
     (
         "refactor",
-        include_str!("../../templates/starters/refactor.md"),
+        include_str!("../templates/starters/refactor.md"),
     ),
     (
         "migrate",
-        include_str!("../../templates/starters/migrate.md"),
+        include_str!("../templates/starters/migrate.md"),
     ),
 ];
 

@@ -6,6 +6,8 @@ pub mod bundle;
 pub mod cli;
 pub mod clipboard;
 pub mod commands;
+pub mod deliver;
+pub mod editor;
 pub mod error;
 #[cfg(feature = "extract")]
 pub mod extract;
@@ -19,12 +21,16 @@ pub mod models;
 pub mod motion_core;
 pub mod output;
 pub mod paths;
+pub mod preview;
 pub mod profile;
+pub mod prompt_input;
 pub mod resolve;
+pub mod scenario;
 pub mod template;
 pub mod test_helpers;
+pub mod theme;
 pub mod tokens;
-pub mod tui;
+pub mod tree;
 #[cfg(feature = "tui-v2")]
-pub mod tui2;
+pub mod tui;
 pub mod walk;

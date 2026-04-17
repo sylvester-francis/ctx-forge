@@ -1,14 +1,20 @@
-//! Shared TUI modules — used by `tui2` (iocraft v2 TUI).
+//! iocraft-based TUI (v2).
 //!
-//! These were originally part of v1 (ratatui). Now that v2 is the sole TUI,
-//! these modules remain here as shared domain code: theme palettes, file
-//! tree building, scenario loading, prompt input widget, delivery choices,
-//! and editor spawning. They have NO ratatui dependency.
+//! Selectable via `--tui-v2` CLI flag or `CTXFORGE_TUI=v2` env var.
+//! v1 (`crate::tui`) continues to ship as default; this module is additive.
 
-pub mod deliver;
-pub mod editor;
-pub mod preview;
-pub mod prompt_input;
-pub mod scenario;
+pub mod app;
+pub mod command_registry;
+pub mod components;
+pub mod mode;
+pub mod motion;
+pub mod overlays;
 pub mod theme;
-pub mod tree;
+pub mod viewer;
+
+use crate::error::Result;
+use crate::paths::CtxforgeRoot;
+
+pub fn run(root: CtxforgeRoot) -> Result<()> {
+    smol::block_on(app::run(root))
+}

@@ -1,6 +1,6 @@
 //! Gruvbox dark — earthy browns + amber.
 
-use crate::tui::theme::AppTheme;
+use crate::theme::AppTheme;
 use crossterm::style::Color;
 
 pub const GRUVBOX: AppTheme = AppTheme {

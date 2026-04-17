@@ -17,7 +17,7 @@ pub struct Wrapped {
 /// the full composed prompt (used by `P` overlay and by delivery) still
 /// renders the whole template.
 pub fn load_wrapped(root: &CtxforgeRoot, name: &str) -> Result<Wrapped, String> {
-    let body = crate::tui::scenario::load_body(root, name)?;
+    let body = crate::scenario::load_body(root, name)?;
     Ok(split(&body))
 }
 

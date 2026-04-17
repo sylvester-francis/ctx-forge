@@ -3,7 +3,7 @@ use ctxforge::error::{CtxforgeError, Result};
 use ctxforge::{commands, output, paths};
 
 #[cfg(feature = "tui-v2")]
-use ctxforge::tui2;
+use ctxforge::tui;
 #[cfg(feature = "tui-v2")]
 use std::io::IsTerminal;
 
@@ -39,7 +39,7 @@ fn run() -> Result<()> {
     if cli.command.is_none() && std::io::stdin().is_terminal() {
         let cwd = std::env::current_dir()?;
         let root = paths::CtxforgeRoot::find_or_create(&cwd)?;
-        return tui2::run(root);
+        return tui::run(root);
     }
 
     commands::dispatch(cli)

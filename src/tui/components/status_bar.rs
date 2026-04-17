@@ -1,6 +1,6 @@
 //! Footer — status message + keybindings hint.
 
-use crate::tui2::theme::Theme;
+use crate::tui::theme::Theme;
 use iocraft::prelude::*;
 
 pub fn render_footer(status: &str, theme: &Theme) -> AnyElement<'static> {

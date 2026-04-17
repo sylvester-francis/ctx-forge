@@ -1,7 +1,7 @@
 //! Command palette overlay — inline search bar + fuzzy-filtered command list.
 
-use crate::tui2::command_registry::CommandSpec;
-use crate::tui2::theme::Theme;
+use crate::tui::command_registry::CommandSpec;
+use crate::tui::theme::Theme;
 use iocraft::prelude::*;
 
 pub fn render_body(

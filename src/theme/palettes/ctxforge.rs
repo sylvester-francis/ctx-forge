@@ -1,6 +1,6 @@
 //! Default palette — matches the colours used before the theme refactor.
 
-use crate::tui::theme::AppTheme;
+use crate::theme::AppTheme;
 use crossterm::style::Color;
 
 pub const CTXFORGE: AppTheme = AppTheme {

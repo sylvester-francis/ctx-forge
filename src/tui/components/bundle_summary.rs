@@ -1,7 +1,7 @@
 //! Bundle list — indexed badges, truncated paths, right-aligned tokens.
 
 use crate::bundle::Bundle;
-use crate::tui2::theme::Theme;
+use crate::tui::theme::Theme;
 use iocraft::prelude::*;
 
 fn format_tokens(n: usize) -> String {

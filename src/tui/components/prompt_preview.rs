@@ -7,8 +7,8 @@
 //! - Right-aligned token counts
 //! - Danger color for template errors with warning icon ⚠
 
-use crate::tui::preview::{PromptPreview, Section};
-use crate::tui2::theme::Theme;
+use crate::preview::{PromptPreview, Section};
+use crate::tui::theme::Theme;
 use iocraft::prelude::*;
 
 fn format_tokens(n: usize) -> String {

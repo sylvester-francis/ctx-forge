@@ -1,8 +1,8 @@
 //! Viewer pane renderer — line-numbered, syntect-highlighted code with
 //! scroll, mouse wheel, and drag-to-select a range of lines.
 
-use crate::tui2::theme::Theme;
-use crate::tui2::viewer::ViewerState;
+use crate::tui::theme::Theme;
+use crate::tui::viewer::ViewerState;
 use iocraft::prelude::*;
 
 // `use_local_terminal_events` (method on UseTerminalEvents trait) gives
@@ -124,7 +124,7 @@ pub fn Viewer(hooks: &mut Hooks, props: &ViewerProps) -> impl Into<AnyElement<'s
 
     let theme = props
         .theme
-        .unwrap_or_else(|| Theme::from_app_theme(crate::tui::theme::registry::default_theme()));
+        .unwrap_or_else(|| Theme::from_app_theme(crate::theme::registry::default_theme()));
     let rows = render_rows(&props.viewer, &theme, rendered_height);
 
     element! {

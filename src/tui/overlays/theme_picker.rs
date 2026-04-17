@@ -1,7 +1,7 @@
 //! Theme picker — list the available themes with a small color swatch per row.
 
-use crate::tui::theme::{registry, AppTheme};
-use crate::tui2::theme::Theme;
+use crate::theme::{registry, AppTheme};
+use crate::tui::theme::Theme;
 use iocraft::prelude::*;
 
 pub fn all() -> &'static [AppTheme] {

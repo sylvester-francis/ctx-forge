@@ -1,6 +1,6 @@
 //! Tokyo-night inspired — cool blues + purple.
 
-use crate::tui::theme::AppTheme;
+use crate::theme::AppTheme;
 use crossterm::style::Color;
 
 pub const TOKYO_NIGHT: AppTheme = AppTheme {

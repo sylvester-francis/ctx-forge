@@ -1,6 +1,6 @@
 //! Help modal — grouped keybinding list.
 
-use crate::tui2::theme::Theme;
+use crate::tui::theme::Theme;
 use iocraft::prelude::*;
 
 fn section_header(label: &'static str, theme: &Theme) -> AnyElement<'static> {

@@ -1,6 +1,6 @@
 //! Warm dark — zinc background, terracotta accent.
 
-use crate::tui::theme::AppTheme;
+use crate::theme::AppTheme;
 use crossterm::style::Color;
 
 pub const ZINC: AppTheme = AppTheme {
