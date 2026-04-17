@@ -244,7 +244,9 @@ mod tests {
     fn file_source_roundtrip() {
         let uri: Uri = "file:///src/main.rs".parse().unwrap();
         let source = Source::from_uri(&uri).unwrap();
-        assert!(matches!(&source, Source::File(f) if f.path == std::path::Path::new("/src/main.rs")));
+        assert!(
+            matches!(&source, Source::File(f) if f.path == std::path::Path::new("/src/main.rs"))
+        );
         assert_eq!(source.to_uri().to_string(), "file:///src/main.rs");
     }
 
