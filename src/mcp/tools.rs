@@ -209,6 +209,43 @@ pub fn tool_list() -> Value {
                     },
                     "required": ["template"]
                 }
+            },
+            // ── Network sources ────────────────────────────────────
+            {
+                "name": "ctxforge_add_url",
+                "description": "Add a URL as a context source. Content is fetched and cached with provenance tracking.",
+                "annotations": { "destructiveHint": false },
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "url": { "type": "string", "description": "HTTPS URL to fetch" }
+                    },
+                    "required": ["url"]
+                }
+            },
+            {
+                "name": "ctxforge_refresh",
+                "description": "Refresh cached URL sources. Omit `uri` to refresh all stale items; pass `all: true` to refresh even fresh entries.",
+                "annotations": { "destructiveHint": false },
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "uri": { "type": "string", "description": "Canonical URI to refresh (e.g. url://host/path)" },
+                        "all": { "type": "boolean", "description": "Refresh all cached items, not just stale" }
+                    }
+                }
+            },
+            {
+                "name": "ctxforge_list_sources",
+                "description": "List bundle items grouped by scheme with freshness status for cacheable sources.",
+                "annotations": { "readOnlyHint": true },
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "scheme": { "type": "string", "description": "Filter by scheme (file, range, func, type, url)" },
+                        "stale_only": { "type": "boolean", "description": "Only show stale items" }
+                    }
+                }
             }
         ]
     })
@@ -231,8 +268,89 @@ pub fn call_tool(root: &CtxforgeRoot, name: &str, args: &Value) -> Result<Value,
         "ctxforge_export" => tool_export(root, args),
         "ctxforge_list_templates" => tool_list_templates(root),
         "ctxforge_apply_template" => tool_apply_template(root, args),
+        "ctxforge_add_url" => tool_add_url(root, args),
+        "ctxforge_refresh" => tool_refresh(root, args),
+        "ctxforge_list_sources" => tool_list_sources(root, args),
         _ => Err(format!("unknown tool: {name}")),
     }
+}
+
+fn tool_add_url(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
+    let url = args
+        .get("url")
+        .and_then(|v| v.as_str())
+        .ok_or("missing required 'url' argument")?;
+    crate::source::url::validate_url(url, false, false)?;
+    let mut bundle = Bundle::load_or_default(root).map_err(|e| e.to_string())?;
+    bundle.add(Item {
+        source: Source::Url(crate::source::UrlSource { url: url.into() }),
+        label: None,
+    });
+    bundle.save(root).map_err(|e| e.to_string())?;
+    Ok(json!({
+        "type": "text",
+        "text": format!("Added URL source `{url}`; bundle now has {} item(s)", bundle.len()),
+    }))
+}
+
+fn tool_refresh(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
+    let uri = args.get("uri").and_then(|v| v.as_str());
+    let all = args
+        .get("all")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    crate::commands::refresh::run(root, uri, all).map_err(|e| e.to_string())?;
+    Ok(json!({
+        "type": "text",
+        "text": "refresh complete",
+    }))
+}
+
+fn tool_list_sources(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
+    let scheme_filter = args.get("scheme").and_then(|v| v.as_str());
+    let stale_only = args
+        .get("stale_only")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let bundle = Bundle::load_or_default(root).map_err(|e| e.to_string())?;
+    let cache = crate::paths::global_cache_dir()
+        .and_then(|d| crate::cache::ContentCache::open(d).ok());
+
+    let mut out = Vec::new();
+    for (i, item) in bundle.items.iter().enumerate() {
+        let scheme = item.source.scheme_name();
+        if let Some(s) = scheme_filter {
+            if scheme != s {
+                continue;
+            }
+        }
+        let (fresh, stale_flag) =
+            if let (true, Some(c)) = (item.source.is_cacheable(), cache.as_ref()) {
+                let key = item.source.cache_key();
+                match c.get(&key).unwrap_or(crate::cache::CacheRead::Miss) {
+                    crate::cache::CacheRead::Fresh { .. } => (Some(true), false),
+                    crate::cache::CacheRead::Stale { .. } => (Some(false), true),
+                    crate::cache::CacheRead::Miss => (None, false),
+                }
+            } else {
+                (None, false)
+            };
+        if stale_only && !stale_flag {
+            continue;
+        }
+        out.push(json!({
+            "index": i + 1,
+            "uri": item.source.to_uri().to_string(),
+            "scheme": scheme,
+            "fresh": fresh,
+            "stale": stale_flag,
+            "label": item.label,
+        }));
+    }
+    Ok(json!({
+        "type": "text",
+        "text": serde_json::to_string_pretty(&out).unwrap_or_default(),
+    }))
 }
 
 // ── Memory ─────────────────────────────────────────────────────────────
@@ -400,6 +518,16 @@ fn tool_list_items(root: &CtxforgeRoot) -> Result<Value, String> {
 
 // ── Context assembly ───────────────────────────────────────────────────
 
+fn is_uri_pattern(pat: &str) -> bool {
+    pat.starts_with("https://")
+        || pat.starts_with("http://")
+        || pat.starts_with("url:")
+        || pat.starts_with("file://")
+        || pat.starts_with("range://")
+        || pat.starts_with("func:")
+        || pat.starts_with("type:")
+}
+
 fn tool_add_files(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
     let patterns = args
         .get("patterns")
@@ -412,6 +540,19 @@ fn tool_add_files(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
 
     for pat_val in patterns {
         let pat = pat_val.as_str().ok_or("each pattern must be a string")?;
+
+        // URI-like patterns route through parse_add_argument. URL sources
+        // get validated against the default (strict) policy — MCP clients
+        // that want looser policy should use ctxforge_add_url explicitly.
+        if is_uri_pattern(pat) {
+            let item = Item::parse_add_argument(pat).map_err(|e| e.to_string())?;
+            if let Source::Url(u) = &item.source {
+                crate::source::url::validate_url(&u.url, false, false)?;
+            }
+            bundle.add(item);
+            added_count += 1;
+            continue;
+        }
 
         // Check for range syntax (path:start-end)
         if let Some((_path_part, range_part)) = pat.rsplit_once(':') {
