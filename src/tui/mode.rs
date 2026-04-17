@@ -2,7 +2,9 @@
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum Mode {
+    /// Full-screen welcome splash. Any keypress transitions to Normal.
     #[default]
+    Welcome,
     Normal,
     Search {
         query: String,

@@ -759,6 +759,12 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 if k.kind != KeyEventKind::Press {
                     return;
                 }
+                // ── Welcome splash: any key dismisses ──
+                if matches!(*mode.read(), crate::tui::mode::Mode::Welcome) {
+                    *mode.write() = crate::tui::mode::Mode::Normal;
+                    return;
+                }
+
                 // ── Search mode: accumulate chars, Esc cancels, Enter confirms ──
                 if matches!(*mode.read(), crate::tui::mode::Mode::Search { .. }) {
                     match k.code {
@@ -1675,6 +1681,25 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     let w = term_w as u32;
     let h = term_h as u32;
 
+    // ─── Welcome splash: full-screen, dismisses on any key ──
+    if matches!(&*mode.read(), crate::tui::mode::Mode::Welcome) {
+        return element! {
+            View(
+                flex_direction: FlexDirection::Column,
+                background_color: theme.bg,
+                width: w,
+                height: h,
+            ) {
+                #(crate::tui::components::welcome::render_splash(
+                    &theme,
+                    visible_count,
+                    term_w,
+                    term_h,
+                ))
+            }
+        };
+    }
+
     element! {
         View(
             flex_direction: FlexDirection::Column,
@@ -1824,14 +1849,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                 MixedTextContent::new(preview_title_styled.clone()).color(theme.accent).weight(Weight::Bold),
                             ])
                             Text(content: "")
-                            #({
-                                let mut content = crate::tui::components::welcome::render_welcome(&theme, visible_count);
-                                if !data.bundle.is_empty() || data.bundle.scenario.is_some() {
-                                    content.push(element! { Text(content: "") }.into_any());
-                                    content.extend(render_preview(&data.preview, &theme));
-                                }
-                                content
-                            })
+                            #(render_preview(&data.preview, &theme))
                         }
                     }
                 }.into_any()
@@ -1863,14 +1881,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         Focus::Prompt => (
                             preview_title_styled.clone(),
                             preview_border,
-                            {
-                                let mut content = crate::tui::components::welcome::render_welcome(&theme, visible_count);
-                                if !data.bundle.is_empty() || data.bundle.scenario.is_some() {
-                                    content.push(element! { Text(content: "") }.into_any());
-                                    content.extend(render_preview(&data.preview, &theme));
-                                }
-                                content
-                            },
+                            render_preview(&data.preview, &theme),
                         ),
                         Focus::FileTree => (
                             tree_title_styled.clone(),
