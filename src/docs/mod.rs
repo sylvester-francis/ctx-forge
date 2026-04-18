@@ -68,7 +68,8 @@ pub fn run_detect(
     for m in &manifests {
         let deps = match m.ecosystem {
             Ecosystem::Rust => cargo::parse(&m.path).unwrap_or_default(),
-            // JS/Python/Go parsers arrive in T13–T15; empty for now.
+            Ecosystem::Js => parsers::npm::parse(&m.path).unwrap_or_default(),
+            // Python + Go parsers arrive in T14–T15; empty for now.
             _ => Vec::new(),
         };
         for dep in deps {

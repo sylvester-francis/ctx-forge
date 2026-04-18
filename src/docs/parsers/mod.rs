@@ -4,6 +4,7 @@
 //! specific version available (lock file > manifest spec).
 
 pub mod cargo;
+pub mod npm;
 
 use crate::source::Ecosystem;
 use std::path::PathBuf;
