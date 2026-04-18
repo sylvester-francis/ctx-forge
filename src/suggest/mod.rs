@@ -181,6 +181,30 @@ fn compute_stale(
     out
 }
 
+/// A single suggestion the user can act on via `apply_suggestion`.
+pub enum Suggestion<'a> {
+    Missing(&'a MissingDep),
+    Stale(&'a StaleDep),
+}
+
+/// Apply one suggestion. For a `Missing` dep, delegates to
+/// `docs_cmd::add` (network round-trip for description / forge). For a
+/// `Stale` dep, delegates to `docs_cmd::rm`. Caller is responsible for
+/// reloading the bundle afterwards.
+pub fn apply_suggestion(
+    suggestion: &Suggestion<'_>,
+    root: &crate::paths::CtxforgeRoot,
+) -> Result<()> {
+    match suggestion {
+        Suggestion::Missing(m) => crate::commands::docs_cmd::add(
+            root,
+            m.name.clone(),
+            Some(m.ecosystem.as_str().to_string()),
+        ),
+        Suggestion::Stale(s) => crate::commands::docs_cmd::rm(root, s.name.clone()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,5 +358,35 @@ mod tests {
         assert!(report.is_empty());
         assert_eq!(report.warnings.len(), 1);
         assert!(report.warnings[0].contains("main.rs"));
+    }
+
+    #[test]
+    fn apply_stale_removes_from_bundle() {
+        use crate::paths::CtxforgeRoot;
+        let td = TempDir::new().unwrap();
+        let root = CtxforgeRoot::find_or_create(td.path()).unwrap();
+
+        let mut bundle = Bundle::new();
+        bundle.items.push(make_docs_item(
+            "dead-lib",
+            Ecosystem::Rust,
+            Some("Cargo.toml"),
+        ));
+        bundle.save(&root).unwrap();
+
+        let stale = StaleDep {
+            name: "dead-lib".into(),
+            ecosystem: Ecosystem::Rust,
+            reason: StaleReason::NotImported,
+            suggested_command: "ctxforge docs rm dead-lib".into(),
+            source: match &bundle.items[0].source {
+                Source::Docs(d) => d.clone(),
+                _ => unreachable!(),
+            },
+        };
+        apply_suggestion(&Suggestion::Stale(&stale), &root).unwrap();
+
+        let reloaded = Bundle::load_or_default(&root).unwrap();
+        assert!(reloaded.items.is_empty());
     }
 }
