@@ -367,7 +367,7 @@ fn prompts_get_renders_prompt() {
 // ── Comprehensive tool count ───────────────────────────────────────────
 
 #[test]
-fn tools_list_contains_all_23_tools() {
+fn tools_list_contains_all_31_tools() {
     let td = TempDir::new().unwrap();
     let responses = mcp_requests(
         td.path(),
@@ -384,6 +384,7 @@ fn tools_list_contains_all_23_tools() {
         "ctxforge_load_bundle",
         "ctxforge_save_bundle",
         "ctxforge_list_profiles",
+        "ctxforge_profiles_rm",
         "ctxforge_status",
         "ctxforge_list_items",
         "ctxforge_add_files",
@@ -394,12 +395,19 @@ fn tools_list_contains_all_23_tools() {
         "ctxforge_export",
         "ctxforge_list_templates",
         "ctxforge_apply_template",
+        "ctxforge_templates_new",
+        "ctxforge_templates_rm",
         "ctxforge_add_url",
         "ctxforge_refresh",
         "ctxforge_list_sources",
+        "ctxforge_cache_list",
+        "ctxforge_cache_clear",
+        "ctxforge_cache_verify",
         "ctxforge_docs_detect",
         "ctxforge_docs_add",
+        "ctxforge_docs_rm",
         "ctxforge_docs_list",
+        "ctxforge_docs_refresh",
         "ctxforge_suggest",
         "ctxforge_suggest_apply",
     ];
