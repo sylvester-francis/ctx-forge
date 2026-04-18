@@ -17,6 +17,7 @@ pub fn scan_imports(source: &str, language: &str) -> Vec<(String, Ecosystem)> {
         "rust" => (scan_rust(source), Ecosystem::Rust),
         "javascript" | "typescript" | "tsx" | "jsx" => (scan_js(source), Ecosystem::Js),
         "python" => (scan_python(source), Ecosystem::Python),
+        "go" => (scan_go(source), Ecosystem::Go),
         _ => return Vec::new(),
     };
     let mut seen = std::collections::BTreeSet::new();
@@ -91,6 +92,26 @@ fn scan_python(source: &str) -> Vec<String> {
     for cap in FROM_RE.captures_iter(source) {
         if let Some(first) = cap[1].split('.').next() {
             out.push(first.to_string());
+        }
+    }
+    out
+}
+
+fn scan_go(source: &str) -> Vec<String> {
+    static SINGLE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r#"(?m)^\s*import\s+"([^"]+)""#).unwrap());
+    static BLOCK: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r#"(?s)import\s*\(([^)]*)\)"#).unwrap());
+    static QUOTED: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r#""([^"]+)""#).unwrap());
+
+    let mut out = Vec::new();
+    for cap in SINGLE.captures_iter(source) {
+        out.push(cap[1].to_string());
+    }
+    for cap in BLOCK.captures_iter(source) {
+        for inner in QUOTED.captures_iter(&cap[1]) {
+            out.push(inner[1].to_string());
         }
     }
     out
@@ -281,5 +302,49 @@ import d from 'https://esm.sh/react';
         let src = "import numpy as np\n";
         let imports = scan_imports(src, "python");
         assert_eq!(imports, vec![("numpy".to_string(), Ecosystem::Python)]);
+    }
+
+    #[test]
+    fn go_single_line_import() {
+        let src = r#"package main
+
+import "github.com/gin-gonic/gin"
+"#;
+        let imports = scan_imports(src, "go");
+        assert_eq!(
+            imports,
+            vec![("github.com/gin-gonic/gin".to_string(), Ecosystem::Go)]
+        );
+    }
+
+    #[test]
+    fn go_block_import() {
+        let src = r#"package main
+
+import (
+    "fmt"
+    "net/http"
+    "github.com/gin-gonic/gin"
+    "golang.org/x/sync/errgroup"
+)
+"#;
+        let imports = scan_imports(src, "go");
+        assert_eq!(
+            imports,
+            vec![
+                ("github.com/gin-gonic/gin".to_string(), Ecosystem::Go),
+                ("golang.org/x/sync/errgroup".to_string(), Ecosystem::Go),
+            ]
+        );
+    }
+
+    #[test]
+    fn go_skips_stdlib() {
+        let src = r#"import (
+    "context"
+    "encoding/json"
+    "net/http"
+)"#;
+        assert!(scan_imports(src, "go").is_empty());
     }
 }
