@@ -58,6 +58,7 @@ pub enum CommandAction {
     DocsAdd,
     DocsRm,
     AddUrl,
+    AddGh,
 
     // ── Prompt override management ──
     ClearPromptOverride,
@@ -274,6 +275,11 @@ pub static COMMANDS: &[CommandSpec] = &[
         name: "url add",
         description: "attach an arbitrary URL to the bundle",
         action: CommandAction::AddUrl,
+    },
+    CommandSpec {
+        name: "github attach",
+        description: "attach a GitHub issue / PR / release / file by gh:// URI",
+        action: CommandAction::AddGh,
     },
     CommandSpec {
         name: "clear prompt override",

@@ -68,6 +68,7 @@ pub enum TextPromptPurpose {
     DocsAdd,
     DocsRm,
     AddUrl,
+    AddGh,
 }
 
 impl TextPromptPurpose {
@@ -83,6 +84,7 @@ impl TextPromptPurpose {
             Self::DocsAdd => "docs add — dep name",
             Self::DocsRm => "docs rm — dep name",
             Self::AddUrl => "URL (https://…)",
+            Self::AddGh => "GitHub attach — gh:///owner/repo/…",
         }
     }
 }
