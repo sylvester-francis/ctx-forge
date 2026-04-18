@@ -1,0 +1,7 @@
+{
+  "title": "WebSocket disconnect drops message",
+  "state": "closed",
+  "user": { "login": "alice" },
+  "created_at": "2025-11-04T10:00:00Z",
+  "body": "When using axum's WebSocket upgrade with a long-running handler, the disconnect event sometimes drops the final message mid-frame.\n\nRepro:\n1. Connect a websocket client.\n2. Send one message, then immediately close.\n3. Server panics."
+}

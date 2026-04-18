@@ -1,0 +1,6 @@
+{
+  "info": {
+    "summary": "Modern web framework for APIs.",
+    "project_urls": { "Source": "https://github.com/tiangolo/fastapi" }
+  }
+}

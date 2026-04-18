@@ -1,0 +1,8 @@
+{
+  "title": "Fix panic in websocket close path",
+  "state": "closed",
+  "merged": true,
+  "user": { "login": "bob" },
+  "created_at": "2025-11-05T12:00:00Z",
+  "body": "Fixes #1234. Tests added."
+}
