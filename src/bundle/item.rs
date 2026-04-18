@@ -86,6 +86,7 @@ impl Item {
             || input.starts_with("func:")
             || input.starts_with("type:")
             || input.starts_with("url://")
+            || input.starts_with("gh://")
         {
             let canonical = canonicalize_uri_prefix(input);
             let uri: crate::source::Uri = canonical.parse()?;
