@@ -80,8 +80,13 @@ fn write_item(out: &mut String, r: &ResolvedItem, no_provenance: bool) {
             // partitions them out), but kept for exhaustiveness.
             return;
         }
-        Source::Gh(g) => {
-            out.push_str(&format!("## `{}`\n\n", g.resource.browser_url()));
+        Source::Gh(_) => {
+            // Body is already a complete markdown section (heading + metadata
+            // + body) produced by gh::render::render_markdown_section; emit
+            // verbatim without wrapping in a code fence.
+            out.push_str(&r.content);
+            out.push('\n');
+            return;
         }
     }
 
@@ -161,8 +166,7 @@ fn write_project_stack(out: &mut String, docs: &[&ResolvedItem], all_items: &[Re
             .collect();
         tiered.sort_by_key(|d| d.tier_order());
         for d in &tiered {
-            out.push_str(&d.render_line());
-            out.push('\n');
+            render_dep_with_forge(out, d);
         }
         let library_count = deps.iter().filter(|d| d.tier == DocsTier::Library).count();
         if library_count > 0 {
@@ -176,10 +180,52 @@ fn write_project_stack(out: &mut String, docs: &[&ResolvedItem], all_items: &[Re
     if !no_manifest.is_empty() {
         out.push_str("### Added manually\n\n");
         for d in &no_manifest {
+            render_dep_with_forge(out, d);
+        }
+        out.push('\n');
+    }
+}
+
+fn render_dep_with_forge(out: &mut String, d: &crate::source::DocsSource) {
+    use crate::gh::forge::ForgeHost;
+    let desc_suffix = d
+        .description
+        .as_deref()
+        .map(|desc| format!(" — {desc}"))
+        .unwrap_or_default();
+
+    match &d.forge {
+        Some(f) if !matches!(f.host, ForgeHost::Other) => {
+            out.push_str(&format!(
+                "- **{}**: {} {}{}\n",
+                d.tier.label(),
+                d.name,
+                d.version,
+                desc_suffix,
+            ));
+            out.push_str(&format!("  - docs: {}\n", d.url));
+            if let Some(r) = f.releases_url() {
+                out.push_str(&format!("  - releases: {r}\n"));
+            }
+            if let Some(i) = f.issues_url() {
+                out.push_str(&format!("  - open issues: {i}\n"));
+            }
+        }
+        Some(f) => {
+            out.push_str(&format!(
+                "- **{}**: {} {} — {} · source: {}{}\n",
+                d.tier.label(),
+                d.name,
+                d.version,
+                d.url,
+                f.raw_url,
+                desc_suffix,
+            ));
+        }
+        None => {
             out.push_str(&d.render_line());
             out.push('\n');
         }
-        out.push('\n');
     }
 }
 
@@ -421,5 +467,76 @@ mod tests {
         let api_idx = rendered.find("services/api").unwrap();
         let web_idx = rendered.find("apps/web").unwrap();
         assert!(api_idx < web_idx);
+    }
+
+    #[test]
+    fn project_stack_renders_github_urls_when_forge_is_some() {
+        use crate::gh::forge::{ForgeHost, ForgeRef};
+        use crate::source::{DocsSource, DocsTier, Ecosystem};
+        let item = Item {
+            source: Source::Docs(DocsSource {
+                name: "axum".into(),
+                version: "0.7.5".into(),
+                ecosystem: Ecosystem::Rust,
+                tier: DocsTier::Framework,
+                url: "https://docs.rs/axum/0.7.5/".into(),
+                description: Some("Web framework".into()),
+                manifest_path: Some("Cargo.toml".into()),
+                forge: Some(ForgeRef {
+                    host: ForgeHost::GitHub,
+                    path: "tokio-rs/axum".into(),
+                    raw_url: "https://github.com/tokio-rs/axum".into(),
+                }),
+            }),
+            label: None,
+        };
+        let resolved = ResolvedItem {
+            provenance: crate::source::Provenance::local(
+                item.source.to_uri().to_string(),
+                String::new(),
+            ),
+            item,
+            content: String::new(),
+            language: "markdown",
+        };
+        let out = render(&[resolved], &[], true);
+        assert!(out.contains("  - docs: https://docs.rs/axum/0.7.5/"));
+        assert!(out.contains("  - releases: https://github.com/tokio-rs/axum/releases"));
+        assert!(out.contains("  - open issues: https://github.com/tokio-rs/axum/issues"));
+    }
+
+    #[test]
+    fn project_stack_renders_single_line_for_other_forge() {
+        use crate::gh::forge::{ForgeHost, ForgeRef};
+        use crate::source::{DocsSource, DocsTier, Ecosystem};
+        let item = Item {
+            source: Source::Docs(DocsSource {
+                name: "aerc".into(),
+                version: "0.18".into(),
+                ecosystem: Ecosystem::Rust,
+                tier: DocsTier::Framework,
+                url: "https://docs.rs/aerc/0.18/".into(),
+                description: None,
+                manifest_path: Some("Cargo.toml".into()),
+                forge: Some(ForgeRef {
+                    host: ForgeHost::Other,
+                    path: "~sircmpwn/aerc".into(),
+                    raw_url: "https://git.sr.ht/~sircmpwn/aerc".into(),
+                }),
+            }),
+            label: None,
+        };
+        let resolved = ResolvedItem {
+            provenance: crate::source::Provenance::local(
+                item.source.to_uri().to_string(),
+                String::new(),
+            ),
+            item,
+            content: String::new(),
+            language: "markdown",
+        };
+        let out = render(&[resolved], &[], true);
+        assert!(out.contains("source: https://git.sr.ht/~sircmpwn/aerc"));
+        assert!(!out.contains("  - docs:"));
     }
 }
