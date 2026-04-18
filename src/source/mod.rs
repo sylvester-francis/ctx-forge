@@ -1,5 +1,6 @@
 //! Context source abstraction.
 
+pub mod docs;
 pub mod file;
 pub mod func;
 pub mod provenance;
@@ -8,6 +9,7 @@ pub mod type_;
 pub mod uri;
 pub mod url;
 
+pub use docs::{DocsSource, DocsTier, Ecosystem};
 pub use file::FileSource;
 pub use func::FuncSource;
 pub use provenance::Provenance;
