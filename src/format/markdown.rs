@@ -317,4 +317,96 @@ mod tests {
         let r = render(&[sample_file("a.rs", "fn a() {}\n", "rust")], &[], true);
         assert!(!r.contains("<!-- ctxforge:"));
     }
+
+    #[test]
+    fn project_stack_renders_subsection_per_manifest() {
+        use crate::source::{DocsSource, DocsTier, Ecosystem};
+        let item = Item {
+            source: Source::Docs(DocsSource {
+                name: "axum".into(),
+                version: "0.7.5".into(),
+                ecosystem: Ecosystem::Rust,
+                tier: DocsTier::Framework,
+                url: "https://docs.rs/axum/0.7.5/".into(),
+                description: Some("Ergonomic web framework".into()),
+                manifest_path: Some("Cargo.toml".into()),
+            }),
+            label: None,
+        };
+        let resolved = ResolvedItem {
+            provenance: crate::source::Provenance::local(
+                item.source.to_uri().to_string(),
+                String::new(),
+            ),
+            item,
+            content: String::new(),
+            language: "markdown",
+        };
+        let out = render(&[resolved], &[], true);
+        assert!(out.contains("## Project stack"));
+        assert!(out.contains("### `Cargo.toml` (Rust)"));
+        assert!(out.contains("axum 0.7.5"));
+        assert!(out.contains("https://docs.rs/axum/0.7.5/"));
+    }
+
+    #[test]
+    fn subsections_ordered_by_attention_weight() {
+        use crate::source::{DocsSource, DocsTier, Ecosystem, FileSource};
+
+        fn docs_item(manifest: &str, name: &str, tier: DocsTier, eco: Ecosystem) -> ResolvedItem {
+            let item = Item {
+                source: Source::Docs(DocsSource {
+                    name: name.into(),
+                    version: "1.0".into(),
+                    ecosystem: eco,
+                    tier,
+                    url: "https://example/".into(),
+                    description: None,
+                    manifest_path: Some(manifest.into()),
+                }),
+                label: None,
+            };
+            ResolvedItem {
+                provenance: crate::source::Provenance::local(
+                    item.source.to_uri().to_string(),
+                    String::new(),
+                ),
+                item,
+                content: String::new(),
+                language: "markdown",
+            }
+        }
+
+        fn file_item(path: &str) -> ResolvedItem {
+            let item = Item {
+                source: Source::File(FileSource { path: path.into() }),
+                label: None,
+            };
+            ResolvedItem {
+                provenance: crate::source::Provenance::local(
+                    item.source.to_uri().to_string(),
+                    String::new(),
+                ),
+                item,
+                content: "x\n".into(),
+                language: "text",
+            }
+        }
+
+        // 3 files under services/api, 1 file under apps/web.
+        // Expect services/api subsection before apps/web.
+        let items = vec![
+            docs_item("services/api/go.mod", "gin", DocsTier::Framework, Ecosystem::Go),
+            docs_item("apps/web/package.json", "next", DocsTier::Framework, Ecosystem::Js),
+            file_item("services/api/main.go"),
+            file_item("services/api/handler.go"),
+            file_item("services/api/db.go"),
+            file_item("apps/web/src/App.tsx"),
+        ];
+
+        let rendered = render(&items, &[], true);
+        let api_idx = rendered.find("services/api").unwrap();
+        let web_idx = rendered.find("apps/web").unwrap();
+        assert!(api_idx < web_idx);
+    }
 }

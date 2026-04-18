@@ -66,31 +66,107 @@ pub fn scoped(bundle: &Bundle, project_root: &Path) -> Vec<DetectedManifest> {
 }
 
 /// Full-scan mode — enumerate workspace members if the root is workspace-aware,
-/// else shallow walk (cwd + 1 level) for manifest files.
+/// else shallow walk (cwd + 2 levels) for manifest files.
 pub fn full_scan(project_root: &Path) -> Vec<DetectedManifest> {
-    // First, check for Cargo workspace root.
+    let mut workspace_members: Vec<DetectedManifest> = Vec::new();
+
+    // Cargo workspace.
     let root_cargo = project_root.join("Cargo.toml");
     if root_cargo.is_file() {
         if let Some(members) = cargo::workspace_members(&root_cargo) {
-            if !members.is_empty() {
-                return members
-                    .into_iter()
-                    .map(|p| DetectedManifest {
-                        path: p,
-                        ecosystem: Ecosystem::Rust,
-                    })
-                    .collect();
+            for p in members {
+                workspace_members.push(DetectedManifest {
+                    path: p,
+                    ecosystem: Ecosystem::Rust,
+                });
             }
         }
     }
 
-    // Shallow walk: root + 2 levels deep. Monorepos typically have manifests
-    // at `services/api/`, `apps/web/`, `packages/ui/` — 2 levels down from root.
-    // Stops at SKIP_DIRS to avoid descending into build outputs.
+    // npm / yarn / pnpm workspace via package.json `workspaces` field.
+    let root_pkg = project_root.join("package.json");
+    if root_pkg.is_file() {
+        if let Some(members) = crate::docs::parsers::npm::workspace_members(&root_pkg) {
+            for p in members {
+                workspace_members.push(DetectedManifest {
+                    path: p,
+                    ecosystem: Ecosystem::Js,
+                });
+            }
+        }
+    }
+
+    // Standalone pnpm-workspace.yaml.
+    let pnpm_ws = project_root.join("pnpm-workspace.yaml");
+    if pnpm_ws.is_file() {
+        if let Ok(raw) = std::fs::read_to_string(&pnpm_ws) {
+            if let Ok(value) = serde_yaml::from_str::<serde_yaml::Value>(&raw) {
+                if let Some(patterns) = value.get("packages").and_then(|v| v.as_sequence()) {
+                    for p in patterns {
+                        if let Some(pat) = p.as_str() {
+                            expand_pnpm_pattern(project_root, pat, &mut workspace_members);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // go.work.
+    let go_work = project_root.join("go.work");
+    if go_work.is_file() {
+        if let Some(members) = crate::docs::parsers::go::workspace_members(&go_work) {
+            for p in members {
+                workspace_members.push(DetectedManifest {
+                    path: p,
+                    ecosystem: Ecosystem::Go,
+                });
+            }
+        }
+    }
+
+    if !workspace_members.is_empty() {
+        return dedup_manifests(workspace_members);
+    }
+
+    // No workspace — shallow walk cwd + 2 levels.
     let mut out = Vec::new();
     scan_directory(project_root, &mut out);
     walk_subdirs(project_root, 2, &mut out);
-    out
+    dedup_manifests(out)
+}
+
+fn expand_pnpm_pattern(root: &Path, pat: &str, out: &mut Vec<DetectedManifest>) {
+    if !pat.contains('*') {
+        let p = root.join(pat).join("package.json");
+        if p.is_file() {
+            out.push(DetectedManifest {
+                path: p,
+                ecosystem: Ecosystem::Js,
+            });
+        }
+        return;
+    }
+    let prefix = pat.trim_end_matches("/*");
+    let dir = root.join(prefix);
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let p = entry.path().join("package.json");
+        if p.is_file() {
+            out.push(DetectedManifest {
+                path: p,
+                ecosystem: Ecosystem::Js,
+            });
+        }
+    }
+}
+
+fn dedup_manifests(mut xs: Vec<DetectedManifest>) -> Vec<DetectedManifest> {
+    xs.sort_by(|a, b| a.path.cmp(&b.path));
+    xs.dedup();
+    xs
 }
 
 fn walk_subdirs(dir: &Path, max_depth: usize, out: &mut Vec<DetectedManifest>) {
