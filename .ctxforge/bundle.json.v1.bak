@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "path": "scripts/gif-convert.sh",
+      "kind": {
+        "kind": "file"
+      }
+    },
+    {
+      "path": "CLA.md",
+      "kind": {
+        "kind": "file"
+      }
+    },
+    {
+      "path": "src/git.rs",
+      "kind": {
+        "kind": "file"
+      }
+    },
+    {
+      "path": "tests/integration_recall.rs",
+      "kind": {
+        "kind": "file"
+      }
+    },
+    {
+      "path": "tests/integration_profiles.rs",
+      "kind": {
+        "kind": "file"
+      }
+    },
+    {
+      "path": "tests/integration_template.rs",
+      "kind": {
+        "kind": "file"
+      }
+    },
+    {
+      "path": "tests/integration_resume.rs",
+      "kind": {
+        "kind": "file"
+      }
+    },
+    {
+      "path": "tests/integration_mcp.rs",
+      "kind": {
+        "kind": "file"
+      }
+    },
+    {
+      "path": "tests/integration_export_json.rs",
+      "kind": {
+        "kind": "file"
+      }
+    },
+    {
+      "path": "src/models.rs",
+      "kind": {
+        "kind": "file"
+      }
+    },
+    {
+      "path": "CHANGELOG.md",
+      "kind": {
+        "kind": "file"
+      }
+    },
+    {
+      "path": "scripts/record-demo.sh",
+      "kind": {
+        "kind": "file"
+      }
+    },
+    {
+      "path": "NOTICE",
+      "kind": {
+        "kind": "file"
+      }
+    },
+    {
+      "path": "CHANGELOG.md",
+      "kind": {
+        "kind": "range",
+        "start": 1,
+        "end": 56
+      }
+    }
+  ],
+  "model": null,
+  "task_text": "Explain the sources that I have here do a research too n the video:**\n1. **Animated caption-style text** at the bottom (e.g. \"This is the right time to go\" in orange/white) — changes throughout the video\n2. **`@FOCUS_EDUCATIONAL_SERVICES`** handle + Instagram icon on the left-middle3. **Focus Educational Services logo** (top-right corner) — presumably a brand watermark\n4. **End card** (~2:20 onward) — a full static contact-info graphic\n\n**The problem with truly erasing them (Option 3):**\n\nLook at where the text sits:\n- The **big caption** overlays the speaker's **body, lanyard, hands, and lap** — moving, detailed background\n- The **`@FOCUS_EDUCATIONAL_SERVICES` handle** sits over the **water bottle, his arm, the lanyard** — also detailed and moving- Only the **top-right logo** sits on a clean black backdrop\n\nFFmpeg `delogo` will produce an obvious smudgy blob over the captions and the handle — the background is just too complex. For a clean erasure on those, you really do need AI inpainting (RunwayML's \"Remove Tool\" or ProPainter). I can't do that from here — it needs a GUI web tool or a GPU-heavy local run.\n\n**Two questions before we decide:**\n\n1. **Which texts actually have the spelling mistakes?** Just the big captions, or also the `@FOCUS_EDUCATIONAL_SERVICES` handle, or the top-right logo? (I can only help efficiently if I know where to focus.) Also, what *are* the misspellings? — \"This is the right time to go\" looked spelled correctly to me, so there must be other caption lines I need to see.\n2. **Given the background complexity, would you reconsider Option 1** (cover the misspelled caption with a *corrected* version, using matching styling)? That would actually look clean — Remotion is well-suited for it, and the replacement text would naturally hide the original underneath. The downside: if a frame shows even a sliver of the old text peeking out, it'd be visible.\n\nIf you still want true erasure, I'd point you at RunwayML and step out — it's the right tool and I can't drive it for you. Which way do you want to go?",
+  "scenario": "explain"
+}

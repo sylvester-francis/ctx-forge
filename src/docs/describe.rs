@@ -49,7 +49,7 @@ pub fn fetch_description(
             fetched.etag,
             fetched.content_type,
         );
-        return extract(ecosystem, &fetched.body);
+        extract(ecosystem, &fetched.body)
     }
     #[cfg(not(feature = "fetch"))]
     {

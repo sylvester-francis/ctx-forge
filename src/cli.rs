@@ -279,6 +279,40 @@ pub enum Command {
         #[arg(long)]
         all: bool,
     },
+
+    /// Library documentation gatherer (detects deps → attaches doc links).
+    Docs {
+        #[command(subcommand)]
+        action: DocsAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum DocsAction {
+    /// Detect deps in manifest/lock files and attach docs items to the bundle.
+    Detect {
+        /// Include Library-tier deps too (default: only Framework / Database /
+        /// AsyncRuntime / LanguageCore deps are attached).
+        #[arg(long)]
+        all: bool,
+
+        /// Explicit path to a project directory or manifest file. Overrides
+        /// the default scoped-to-bundle behavior.
+        path: Option<std::path::PathBuf>,
+    },
+    /// Add a specific dep by name.
+    Add {
+        name: String,
+        /// Disambiguate when the name appears in multiple detected ecosystems.
+        #[arg(long)]
+        ecosystem: Option<String>,
+    },
+    /// Remove a docs item from the bundle by name.
+    Rm { name: String },
+    /// List docs items currently in the bundle.
+    List,
+    /// Re-read lock files and update versions on existing docs items.
+    Refresh,
 }
 
 #[derive(Subcommand, Debug)]

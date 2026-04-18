@@ -40,7 +40,7 @@ pub fn manifest_for(start: &Path) -> Option<DetectedManifest> {
     start.ancestors().find_map(|dir| {
         MANIFESTS.iter().find_map(|(name, eco)| {
             let p = dir.join(name);
-            p.is_file().then(|| DetectedManifest {
+            p.is_file().then_some(DetectedManifest {
                 path: p,
                 ecosystem: *eco,
             })
