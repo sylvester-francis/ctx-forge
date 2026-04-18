@@ -16,6 +16,7 @@ pub fn scan_imports(source: &str, language: &str) -> Vec<(String, Ecosystem)> {
     let (raws, eco) = match language {
         "rust" => (scan_rust(source), Ecosystem::Rust),
         "javascript" | "typescript" | "tsx" | "jsx" => (scan_js(source), Ecosystem::Js),
+        "python" => (scan_python(source), Ecosystem::Python),
         _ => return Vec::new(),
     };
     let mut seen = std::collections::BTreeSet::new();
@@ -71,6 +72,30 @@ fn scan_js(source: &str) -> Vec<String> {
 /// - deep scoped (`@scope/name/sub`) → `@scope/name`
 /// - deep unscoped (`lodash/debounce`) → `lodash`
 /// - bare name (`react`) → `react`
+fn scan_python(source: &str) -> Vec<String> {
+    static IMPORT_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?m)^\s*import\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)")
+            .unwrap()
+    });
+    static FROM_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?m)^\s*from\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s+import")
+            .unwrap()
+    });
+
+    let mut out = Vec::new();
+    for cap in IMPORT_RE.captures_iter(source) {
+        if let Some(first) = cap[1].split('.').next() {
+            out.push(first.to_string());
+        }
+    }
+    for cap in FROM_RE.captures_iter(source) {
+        if let Some(first) = cap[1].split('.').next() {
+            out.push(first.to_string());
+        }
+    }
+    out
+}
+
 fn normalize_js_package(raw: &str) -> Option<String> {
     if raw.starts_with('.') || raw.starts_with('/') {
         return None;
@@ -216,5 +241,45 @@ import d from 'https://esm.sh/react';
         let src = "import 'zone.js';\n";
         let imports = scan_imports(src, "javascript");
         assert_eq!(imports, vec![("zone.js".to_string(), Ecosystem::Js)]);
+    }
+
+    #[test]
+    fn python_plain_import() {
+        let src = "import requests\n";
+        let imports = scan_imports(src, "python");
+        assert_eq!(imports, vec![("requests".to_string(), Ecosystem::Python)]);
+    }
+
+    #[test]
+    fn python_from_import() {
+        let src = "from fastapi import FastAPI\n";
+        let imports = scan_imports(src, "python");
+        assert_eq!(imports, vec![("fastapi".to_string(), Ecosystem::Python)]);
+    }
+
+    #[test]
+    fn python_dotted_path_truncated_to_root() {
+        let src = "from google.cloud.storage import Client\n";
+        let imports = scan_imports(src, "python");
+        assert_eq!(imports, vec![("google".to_string(), Ecosystem::Python)]);
+    }
+
+    #[test]
+    fn python_skips_stdlib() {
+        let src = "import os\nimport sys\nfrom typing import Optional\nimport json\n";
+        assert!(scan_imports(src, "python").is_empty());
+    }
+
+    #[test]
+    fn python_skips_relative_imports() {
+        let src = "from .local import Helper\nfrom ..parent import Base\n";
+        assert!(scan_imports(src, "python").is_empty());
+    }
+
+    #[test]
+    fn python_import_as_alias() {
+        let src = "import numpy as np\n";
+        let imports = scan_imports(src, "python");
+        assert_eq!(imports, vec![("numpy".to_string(), Ecosystem::Python)]);
     }
 }
