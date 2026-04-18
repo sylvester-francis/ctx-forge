@@ -3,5 +3,6 @@
 
 pub mod forge;
 pub mod parse;
+pub mod render;
 #[cfg(feature = "fetch")]
 pub mod fetch;
