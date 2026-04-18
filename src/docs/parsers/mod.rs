@@ -5,6 +5,7 @@
 
 pub mod cargo;
 pub mod npm;
+pub mod python;
 
 use crate::source::Ecosystem;
 use std::path::PathBuf;
