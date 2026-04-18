@@ -6,7 +6,7 @@
 \____/ /_/  /_/|_/_/    \____/_/ |_|\____/_____/
 ```
 
-### The prompt engineer for AI coding agents.
+### Deterministic prompt engineer for AI coding agents.
 
 [![crates.io](https://img.shields.io/crates/v/ctxforge.svg)](https://crates.io/crates/ctxforge)
 [![GitHub release](https://img.shields.io/github/v/release/sylvester-francis/ctx-forge?include_prereleases)](https://github.com/sylvester-francis/ctx-forge/releases)
@@ -17,7 +17,7 @@
   <img src="https://github.com/sylvester-francis/ctx-forge/releases/download/v1.1.1/hero-tui.gif" alt="ctxforge TUI — file tree, token gauge, slash command palette" width="720" />
 </p>
 
-ctxforge assembles, enriches, and exports token-disciplined prompts for Claude Code, Cursor, Aider, and any LLM. The output IS the crafted prompt. **ctxforge never calls an LLM** — it does everything a human prompt engineer does *except* the reasoning step.
+ctxforge is stack-aware, GitHub-aware, and gap-aware. It scans your manifest to attach per-dep doc URLs, inlines specific GitHub issues / PRs / releases / files via `gh://` URIs, flags when your bundle imports don't match your attached docs, and hands off to Claude Code, Cursor, Aider, or any LLM. The output IS the crafted prompt. **ctxforge never calls an LLM** — it does everything a human prompt engineer does *except* the reasoning step.
 
 ---
 
@@ -442,7 +442,7 @@ No telemetry. No analytics. No API keys required (`GITHUB_TOKEN` is optional). T
 
 Every shipped release, newest first. See [CHANGELOG.md](CHANGELOG.md) for the full notes.
 
-### v1.3+ (current) — P-series roadmap + parity
+### v2.0 (current) — prompt engineer release
 
 - **Parity audit** — MCP filled in to 31 tools (docs_rm, docs_refresh, profiles_rm, templates_new/rm, cache_list/clear/verify). TUI palette now 48 unique entries (`/rm`, `/clear`, `/list sources` added). Claude plugin `skills/ctxforge.md` rewritten with a 31-tool reference and an 8-step workflow covering docs_detect → gh:// attach → suggest.
 - **P4 — Auto-suggest** — `ctxforge suggest` scans bundle imports (Rust `use`, JS/TS `import`, Python `from`/`import`, Go `import`) against the Project stack and flags missing + stale entries. `--apply` bulk-runs fixes. Zero prompt leakage — `ctxforge export` output is byte-identical with or without suggest loaded.

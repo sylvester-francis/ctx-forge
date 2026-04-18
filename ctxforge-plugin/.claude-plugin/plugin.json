@@ -1,6 +1,6 @@
 {
   "name": "ctxforge",
-  "description": "Context engineering for AI coding agents — assemble, enrich, and export token-disciplined prompts. 31 MCP tools for building bundles, managing profiles / templates / cache, gathering library docs, attaching GitHub issues and PRs, and auto-suggesting missing context. Deterministic; no LLM-in-the-loop.",
+  "description": "Deterministic prompt engineer for AI coding agents — stack-aware, GitHub-aware, gap-aware. Scans your Cargo.toml / package.json / pyproject.toml / go.mod to attach per-dep doc URLs. Inlines specific GitHub issues, PRs, releases, and files via gh:// URIs. Flags when bundle imports don't match attached docs. 31 MCP tools. Never calls an LLM — the agent does.",
   "author": {
     "name": "Sylvester Francis"
   }
