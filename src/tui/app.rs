@@ -365,6 +365,44 @@ impl AppData {
                 ));
                 None
             }
+            A::Suggest => {
+                let bundle = self.bundle.clone();
+                let project_root = self.root.project_root().to_path_buf();
+                let report = crate::suggest::run_suggest(
+                    &bundle,
+                    &project_root,
+                    &crate::suggest::SuggestOptions::default(),
+                )
+                .unwrap_or_else(|_| crate::suggest::SuggestReport {
+                    missing: vec![],
+                    stale: vec![],
+                    warnings: vec![],
+                });
+                if report.is_empty() {
+                    self.set_status("suggest: no missing / stale deps".to_string());
+                    return None;
+                }
+                let items: Vec<String> = report
+                    .missing
+                    .iter()
+                    .map(|m| format!("[add] {}/{}", m.ecosystem.as_str(), m.name))
+                    .chain(
+                        report
+                            .stale
+                            .iter()
+                            .map(|s| format!("[rm]  {}/{}", s.ecosystem.as_str(), s.name)),
+                    )
+                    .collect();
+                self.pending_action = Some(crate::tui::mode::PendingAction::PickerList {
+                    purpose: PickerPurpose::Suggest,
+                    items,
+                });
+                None
+            }
+            A::SuggestApplyAll => {
+                self.run_suggest_apply_all();
+                None
+            }
             A::ClearPromptOverride => {
                 self.clear_prompt_override();
                 None
@@ -674,6 +712,12 @@ impl AppData {
                     Err(e) => self.set_status(format!("template rm: {e}")),
                 }
             }
+            P::Suggest => {
+                // Suggest uses the suspend/resume multi-select flow in
+                // handle_suggest_picker; this native-overlay variant is
+                // reserved for a future in-TUI multi-select widget.
+                self.set_status("suggest: use palette, not native overlay".to_string());
+            }
         }
     }
 
@@ -858,6 +902,11 @@ fn handle_picker(purpose: crate::tui::mode::PickerPurpose, items: Vec<String>) {
         return;
     }
 
+    if purpose == P::Suggest {
+        handle_suggest_picker(&root, items);
+        return;
+    }
+
     eprintln!("ctxforge · {}", purpose.label());
     let selection = match dialoguer::Select::new()
         .with_prompt(purpose.label())
@@ -876,6 +925,7 @@ fn handle_picker(purpose: crate::tui::mode::PickerPurpose, items: Vec<String>) {
         P::LoadProfile => crate::commands::load::run(&root, &selection)
             .map(|()| format!("loaded profile `{selection}`"))
             .map_err(|e| e.to_string()),
+        P::Suggest => unreachable!("routed to handle_suggest_picker above"),
         P::Model => {
             // Model picker only stashes the choice; persistence happens
             // via the config file, which the TUI reads on restart. For
@@ -1000,6 +1050,49 @@ impl AppData {
             Ok(()) => self.set_status("URL sources refreshed".to_string()),
             Err(e) => self.set_status(format!("url refresh: {e}")),
         }
+    }
+
+    fn run_suggest_apply_all(&mut self) {
+        let report = match crate::suggest::run_suggest(
+            &self.bundle,
+            self.root.project_root(),
+            &crate::suggest::SuggestOptions::default(),
+        ) {
+            Ok(r) => r,
+            Err(e) => {
+                self.set_status(format!("suggest: {e}"));
+                return;
+            }
+        };
+        if report.is_empty() {
+            self.set_status("suggest: nothing to apply".to_string());
+            return;
+        }
+        let mut ok = 0;
+        let mut fail = 0;
+        for m in &report.missing {
+            if crate::suggest::apply_suggestion(
+                &crate::suggest::Suggestion::Missing(m),
+                &self.root,
+            )
+            .is_ok()
+            {
+                ok += 1;
+            } else {
+                fail += 1;
+            }
+        }
+        for s in &report.stale {
+            if crate::suggest::apply_suggestion(&crate::suggest::Suggestion::Stale(s), &self.root)
+                .is_ok()
+            {
+                ok += 1;
+            } else {
+                fail += 1;
+            }
+        }
+        self.reload_bundle();
+        self.set_status(format!("suggest apply all: {ok} applied, {fail} failed"));
     }
 
     fn run_cache_list(&mut self) {
@@ -3119,4 +3212,66 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
             })
         }
     }
+}
+
+/// Suspended-TUI handler for the Suggest picker — multi-select.
+fn handle_suggest_picker(root: &crate::paths::CtxforgeRoot, items: Vec<String>) {
+    eprintln!("ctxforge · suggest (space to toggle, enter to apply)");
+    let selections: Vec<usize> = match dialoguer::MultiSelect::new()
+        .with_prompt("apply which?")
+        .items(&items)
+        .interact()
+    {
+        Ok(v) => v,
+        Err(_) => {
+            eprintln!("cancelled");
+            return;
+        }
+    };
+    if selections.is_empty() {
+        eprintln!("nothing selected");
+        return;
+    }
+
+    let bundle = match crate::bundle::Bundle::load_or_default(root) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("bundle load failed: {e}");
+            return;
+        }
+    };
+    let report = match crate::suggest::run_suggest(
+        &bundle,
+        root.project_root(),
+        &crate::suggest::SuggestOptions::default(),
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("suggest failed: {e}");
+            return;
+        }
+    };
+
+    let mut all: Vec<crate::suggest::Suggestion> = Vec::new();
+    for m in &report.missing {
+        all.push(crate::suggest::Suggestion::Missing(m));
+    }
+    for s in &report.stale {
+        all.push(crate::suggest::Suggestion::Stale(s));
+    }
+
+    let mut ok = 0;
+    let mut fail = 0;
+    for idx in selections {
+        if let Some(sugg) = all.get(idx) {
+            match crate::suggest::apply_suggestion(sugg, root) {
+                Ok(()) => ok += 1,
+                Err(e) => {
+                    eprintln!("  ✗ {e}");
+                    fail += 1;
+                }
+            }
+        }
+    }
+    eprintln!("✓ applied {ok}, failed {fail}");
 }

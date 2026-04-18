@@ -60,6 +60,10 @@ pub enum CommandAction {
     AddUrl,
     AddGh,
 
+    // ── P4: auto-suggest ──
+    Suggest,
+    SuggestApplyAll,
+
     // ── Prompt override management ──
     ClearPromptOverride,
 }
@@ -280,6 +284,16 @@ pub static COMMANDS: &[CommandSpec] = &[
         name: "github attach",
         description: "attach a GitHub issue / PR / release / file by gh:// URI",
         action: CommandAction::AddGh,
+    },
+    CommandSpec {
+        name: "suggest",
+        description: "list missing + stale deps; pick which to apply",
+        action: CommandAction::Suggest,
+    },
+    CommandSpec {
+        name: "suggest apply all",
+        description: "apply every missing/stale suggestion without asking",
+        action: CommandAction::SuggestApplyAll,
     },
     CommandSpec {
         name: "clear prompt override",

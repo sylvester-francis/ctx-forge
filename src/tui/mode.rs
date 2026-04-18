@@ -95,6 +95,7 @@ pub enum PickerPurpose {
     Model,
     ApplyTemplate,
     RemoveTemplate,
+    Suggest,
 }
 
 impl PickerPurpose {
@@ -104,6 +105,7 @@ impl PickerPurpose {
             Self::Model => "select model",
             Self::ApplyTemplate => "apply template",
             Self::RemoveTemplate => "remove template",
+            Self::Suggest => "apply suggestions",
         }
     }
 }
