@@ -32,6 +32,7 @@ pub mod prompt_input;
 pub mod resolve;
 pub mod scenario;
 pub mod source;
+pub mod suggest;
 pub mod template;
 pub mod test_helpers;
 pub mod theme;
