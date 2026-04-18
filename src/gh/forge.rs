@@ -66,13 +66,9 @@ pub fn parse_forge_url(input: &str) -> Option<ForgeRef> {
     let stripped = trimmed.strip_prefix("git+").unwrap_or(trimmed);
 
     // Only HTTPS or HTTP (strip ssh git@ — can't render those as browser URLs).
-    let after_scheme = if let Some(s) = stripped.strip_prefix("https://") {
-        s
-    } else if let Some(s) = stripped.strip_prefix("http://") {
-        s
-    } else {
-        return None;
-    };
+    let after_scheme = stripped
+        .strip_prefix("https://")
+        .or_else(|| stripped.strip_prefix("http://"))?;
 
     // Split host from path.
     let (host, rest) = after_scheme.split_once('/')?;
