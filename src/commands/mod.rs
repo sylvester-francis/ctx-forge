@@ -69,7 +69,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             task,
             strict,
             offline,
-            no_provenance,
+            with_provenance,
         }) => {
             let fmt = resolve_format(format.as_deref(), xml, json)?;
             export::run(
@@ -83,7 +83,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                 task,
                 strict,
                 offline,
-                no_provenance,
+                !with_provenance,
             )
         }
         Some(Command::Copy {

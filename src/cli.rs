@@ -106,9 +106,12 @@ pub enum Command {
         #[arg(long)]
         offline: bool,
 
-        /// Strip provenance comments/attributes from output.
+        /// Include provenance comments (uri/sha/fetched_at) in output.
+        /// Default: off — provenance is audit-trail metadata, not prompt
+        /// content, and emitting it wastes ~40 tokens per item.
+        /// Opt in when debugging or when the downstream consumer needs traceability.
         #[arg(long)]
-        no_provenance: bool,
+        with_provenance: bool,
     },
 
     /// Copy the current bundle to the system clipboard.
