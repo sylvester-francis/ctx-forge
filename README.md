@@ -51,12 +51,16 @@ cargo install ctxforge --no-default-features
 
 ### Claude Code plugin
 
+ctxforge is live in the [Anthropic community plugin marketplace](https://github.com/anthropics/claude-plugins-community). Install is a **two-step** flow:
+
 ```bash
 claude plugin marketplace add anthropics/claude-plugins-community
 claude plugin install ctxforge@claude-community
 ```
 
 Ships the `/ctxforge` slash command, a context-engineering skill, and the MCP server pre-wired — no separate `claude mcp add` needed.
+
+> **Use `@claude-community`, not `@claude-plugin-directory`.** If you see a `not found` error, the most common cause is (a) using the wrong marketplace tag or (b) skipping the `marketplace add` step. Run both commands above, in that order.
 
 ---
 
