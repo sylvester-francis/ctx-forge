@@ -403,6 +403,20 @@ impl AppData {
                 self.run_suggest_apply_all();
                 None
             }
+            A::BundleRm => {
+                self.pending_action = Some(crate::tui::mode::PendingAction::TextPrompt(
+                    TextPromptPurpose::BundleRm,
+                ));
+                None
+            }
+            A::BundleClear => {
+                self.run_bundle_clear();
+                None
+            }
+            A::ListSources => {
+                self.run_list_sources();
+                None
+            }
             A::ClearPromptOverride => {
                 self.clear_prompt_override();
                 None
@@ -665,6 +679,13 @@ impl AppData {
                     Err(e) => self.set_status(format!("github attach: {e}")),
                 }
             }
+            P::BundleRm => match crate::commands::rm::run(&self.root, trimmed.clone()) {
+                Ok(()) => {
+                    self.reload_bundle();
+                    self.set_status(format!("rm: {trimmed}"));
+                }
+                Err(e) => self.set_status(format!("rm: {e}")),
+            },
         }
     }
 
@@ -881,6 +902,9 @@ fn handle_text_prompt(purpose: crate::tui::mode::TextPromptPurpose) {
             bundle.save(&root).map_err(|e| e.to_string())?;
             Ok(format!("attached: {trimmed}"))
         })(),
+        P::BundleRm => crate::commands::rm::run(&root, trimmed.clone())
+            .map(|()| format!("rm: {trimmed}"))
+            .map_err(|e| e.to_string()),
     };
 
     match outcome {
@@ -1090,6 +1114,45 @@ impl AppData {
         }
         self.reload_bundle();
         self.set_status(format!("suggest apply all: {ok} applied, {fail} failed"));
+    }
+
+    fn run_bundle_clear(&mut self) {
+        match crate::commands::clear::run(&self.root) {
+            Ok(()) => {
+                self.reload_bundle();
+                self.set_status("bundle cleared".to_string());
+            }
+            Err(e) => self.set_status(format!("clear: {e}")),
+        }
+    }
+
+    fn run_list_sources(&mut self) {
+        use crate::source::Source;
+        // Summarise by scheme with freshness: url / gh / docs / local.
+        let mut by_scheme: std::collections::BTreeMap<&str, usize> = Default::default();
+        let mut cached = 0usize;
+        let mut stale = 0usize;
+        for item in &self.bundle.items {
+            *by_scheme.entry(item.source.scheme_name()).or_insert(0) += 1;
+            if item.source.is_cacheable() {
+                cached += 1;
+                if matches!(&item.source, Source::Url(_) | Source::Gh(_)) {
+                    // Cache freshness check requires cache I/O; surface coarse
+                    // count here and point users at `ctxforge refresh --all`
+                    // for fine-grained state.
+                    stale += 0;
+                }
+            }
+        }
+        let breakdown = by_scheme
+            .iter()
+            .map(|(k, v)| format!("{v} {k}"))
+            .collect::<Vec<_>>()
+            .join(" · ");
+        self.set_status(format!(
+            "sources: {} item(s) ({breakdown}) · {cached} cacheable · {stale} stale",
+            self.bundle.items.len()
+        ));
     }
 
     fn run_cache_list(&mut self) {

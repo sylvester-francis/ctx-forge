@@ -69,6 +69,7 @@ pub enum TextPromptPurpose {
     DocsRm,
     AddUrl,
     AddGh,
+    BundleRm,
 }
 
 impl TextPromptPurpose {
@@ -85,6 +86,7 @@ impl TextPromptPurpose {
             Self::DocsRm => "docs rm — dep name",
             Self::AddUrl => "URL (https://…)",
             Self::AddGh => "GitHub attach — gh:///owner/repo/…",
+            Self::BundleRm => "remove item — path or 1-based index",
         }
     }
 }
