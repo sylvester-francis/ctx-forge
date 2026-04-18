@@ -184,6 +184,7 @@ fn is_uri_pattern(pat: &str) -> bool {
         || pat.starts_with("range://")
         || pat.starts_with("func:")
         || pat.starts_with("type:")
+        || pat.starts_with("gh://")
 }
 
 #[cfg(feature = "extract")]
