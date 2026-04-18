@@ -9,6 +9,8 @@ pub enum DeliverChoice {
     CopyXml,
     CopyJson,
     Export,
+    ExportXml,
+    ExportJson,
 }
 
 impl DeliverChoice {
@@ -20,7 +22,9 @@ impl DeliverChoice {
             Self::CopyMarkdown => "copy markdown",
             Self::CopyXml => "copy XML",
             Self::CopyJson => "copy JSON",
-            Self::Export => "export to stdout",
+            Self::Export => "export markdown to stdout",
+            Self::ExportXml => "export XML to stdout",
+            Self::ExportJson => "export JSON to stdout",
         }
     }
 
@@ -33,6 +37,8 @@ impl DeliverChoice {
             Self::CopyXml,
             Self::CopyJson,
             Self::Export,
+            Self::ExportXml,
+            Self::ExportJson,
         ]
     }
 }

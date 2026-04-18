@@ -53,6 +53,11 @@ pub enum CommandAction {
     CacheList,
     CacheClear,
     CacheVerify,
+
+    // ── Input-required actions (text prompt overlay) ──
+    DocsAdd,
+    DocsRm,
+    AddUrl,
 }
 
 pub struct CommandSpec {
@@ -251,6 +256,21 @@ pub static COMMANDS: &[CommandSpec] = &[
         name: "cache verify",
         description: "verify cache integrity (SHA + HMAC)",
         action: CommandAction::CacheVerify,
+    },
+    CommandSpec {
+        name: "docs add",
+        description: "manually attach a dep's doc URL by name",
+        action: CommandAction::DocsAdd,
+    },
+    CommandSpec {
+        name: "docs rm",
+        description: "remove a docs item from the bundle by name",
+        action: CommandAction::DocsRm,
+    },
+    CommandSpec {
+        name: "url add",
+        description: "attach an arbitrary URL to the bundle",
+        action: CommandAction::AddUrl,
     },
 ];
 

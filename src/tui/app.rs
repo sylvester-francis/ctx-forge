@@ -189,7 +189,7 @@ impl AppData {
         action: crate::tui::command_registry::CommandAction,
     ) -> Option<crate::tui::mode::Mode> {
         use crate::tui::command_registry::CommandAction as A;
-        use crate::tui::mode::Mode;
+        use crate::tui::mode::{Mode, PickerPurpose, TextPromptPurpose};
         match action {
             A::Help => Some(Mode::Help),
             A::Scenario => Some(Mode::ScenarioPicker { cursor: 0 }),
@@ -224,87 +224,132 @@ impl AppData {
                 None
             }
             A::Copy => {
-                self.set_status("use CLI: ctxforge copy".to_string());
+                self.run_delivery(crate::deliver::DeliverChoice::CopyMarkdown);
                 None
             }
             A::CopyXml => {
-                self.set_status("use CLI: ctxforge copy --xml".to_string());
+                self.run_delivery(crate::deliver::DeliverChoice::CopyXml);
                 None
             }
             A::CopyJson => {
-                self.set_status("use CLI: ctxforge copy --json".to_string());
+                self.run_delivery(crate::deliver::DeliverChoice::CopyJson);
                 None
             }
             A::Export => {
-                self.set_status("use CLI: ctxforge export".to_string());
+                self.run_delivery(crate::deliver::DeliverChoice::Export);
                 None
             }
             A::ExportXml => {
-                self.set_status("use CLI: ctxforge export --xml".to_string());
+                self.run_delivery(crate::deliver::DeliverChoice::ExportXml);
                 None
             }
             A::ExportJson => {
-                self.set_status("use CLI: ctxforge export --json".to_string());
+                self.run_delivery(crate::deliver::DeliverChoice::ExportJson);
                 None
             }
-            A::Pipe => {
-                self.set_status("use CLI: ctxforge copy | your-agent".to_string());
-                None
-            }
+            A::Pipe => Some(crate::tui::mode::Mode::DeliveryPicker { cursor: 0 }),
             A::SaveProfile => {
-                self.set_status("use CLI: ctxforge profile save <name>".to_string());
+                self.pending_action = Some(crate::tui::mode::PendingAction::TextPrompt(
+                    TextPromptPurpose::SaveProfile,
+                ));
                 None
             }
             A::LoadProfile => {
-                self.set_status("use CLI: ctxforge profile load <name>".to_string());
+                let items = crate::profile::list(&self.root).unwrap_or_default();
+                self.pending_action = Some(crate::tui::mode::PendingAction::PickerList {
+                    purpose: PickerPurpose::LoadProfile,
+                    items,
+                });
                 None
             }
             A::Narrow => {
-                self.set_status("use CLI: ctxforge narrow <path> <start> <end>".to_string());
+                self.pending_action = Some(crate::tui::mode::PendingAction::TextPrompt(
+                    TextPromptPurpose::Narrow,
+                ));
                 None
             }
             A::Model => {
-                self.set_status("set model via --model flag or config.toml".to_string());
+                let items = crate::models::list_ids();
+                self.pending_action = Some(crate::tui::mode::PendingAction::PickerList {
+                    purpose: PickerPurpose::Model,
+                    items,
+                });
                 None
             }
             A::Memory => {
-                self.set_status("use CLI: ctxforge memory".to_string());
+                self.show_memory();
                 None
             }
             A::Note => {
-                self.set_status("use CLI: ctxforge memory note".to_string());
+                self.pending_action = Some(crate::tui::mode::PendingAction::TextPrompt(
+                    TextPromptPurpose::Note,
+                ));
                 None
             }
             A::FindFn => {
-                self.set_status("use CLI: ctxforge add --fn <name> <path>".to_string());
+                self.pending_action = Some(crate::tui::mode::PendingAction::TextPrompt(
+                    TextPromptPurpose::FindFn,
+                ));
                 None
             }
             A::FindType => {
-                self.set_status("use CLI: ctxforge add --type <name> <path>".to_string());
+                self.pending_action = Some(crate::tui::mode::PendingAction::TextPrompt(
+                    TextPromptPurpose::FindType,
+                ));
                 None
             }
             A::FindDiff => {
-                self.set_status("use CLI: ctxforge add --diff <branch>".to_string());
+                self.pending_action = Some(crate::tui::mode::PendingAction::TextPrompt(
+                    TextPromptPurpose::FindDiff,
+                ));
                 None
             }
             A::Template => {
-                self.set_status("use CLI: ctxforge template".to_string());
+                let items = crate::template::list_all_names(&self.root);
+                self.pending_action = Some(crate::tui::mode::PendingAction::PickerList {
+                    purpose: PickerPurpose::ApplyTemplate,
+                    items,
+                });
                 None
             }
             A::TemplateNew => {
-                self.set_status("use CLI: ctxforge template new <name>".to_string());
+                self.pending_action = Some(crate::tui::mode::PendingAction::TextPrompt(
+                    TextPromptPurpose::TemplateNew,
+                ));
                 None
             }
             A::TemplateRm => {
-                self.set_status("use CLI: ctxforge template rm <name>".to_string());
+                let items = crate::template::list_project_names(&self.root);
+                self.pending_action = Some(crate::tui::mode::PendingAction::PickerList {
+                    purpose: PickerPurpose::RemoveTemplate,
+                    items,
+                });
                 None
             }
             A::TemplateStarters => {
-                self.set_status("use CLI: ctxforge template starters".to_string());
+                self.show_template_starters();
                 None
             }
             A::TemplateList => {
-                self.set_status("use CLI: ctxforge template list".to_string());
+                self.show_template_list();
+                None
+            }
+            A::DocsAdd => {
+                self.pending_action = Some(crate::tui::mode::PendingAction::TextPrompt(
+                    TextPromptPurpose::DocsAdd,
+                ));
+                None
+            }
+            A::DocsRm => {
+                self.pending_action = Some(crate::tui::mode::PendingAction::TextPrompt(
+                    TextPromptPurpose::DocsRm,
+                ));
+                None
+            }
+            A::AddUrl => {
+                self.pending_action = Some(crate::tui::mode::PendingAction::TextPrompt(
+                    TextPromptPurpose::AddUrl,
+                ));
                 None
             }
             A::DocsDetect => {
@@ -342,6 +387,490 @@ impl AppData {
         }
     }
 
+    fn show_memory(&mut self) {
+        use crate::memory;
+        let notes = memory::index::read_all(&self.root).unwrap_or_default();
+        if notes.is_empty() {
+            self.set_status("no memory notes yet".to_string());
+            return;
+        }
+        let body = notes
+            .iter()
+            .rev()
+            .take(50)
+            .map(|n| {
+                let ts = n.timestamp.format("%Y-%m-%d %H:%M").to_string();
+                match &n.tag {
+                    Some(t) => format!("[{ts}] [{t}] {}", n.body),
+                    None => format!("[{ts}] {}", n.body),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.pending_action = Some(crate::tui::mode::PendingAction::Editor(body));
+    }
+
+    fn show_template_list(&mut self) {
+        let project = crate::template::list_project_names(&self.root);
+        let global = crate::template::list_all_names(&self.root)
+            .into_iter()
+            .filter(|n| !project.contains(n))
+            .collect::<Vec<_>>();
+        let summary = format!(
+            "templates — {} project, {} global",
+            project.len(),
+            global.len(),
+        );
+        if project.is_empty() && global.is_empty() {
+            self.set_status("no templates yet — ctxforge templates new <name>".to_string());
+            return;
+        }
+        self.set_status(format!(
+            "{summary} · {}",
+            project
+                .iter()
+                .chain(global.iter())
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", "),
+        ));
+    }
+
+    fn show_template_starters(&mut self) {
+        let names = crate::template::list_starter_names()
+            .into_iter()
+            .map(|(n, _)| n.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        self.set_status(format!("starters: {names}"));
+    }
+
+    /// Submit a text-prompt value. Called by the key handler when the user
+    /// presses Enter inside `Mode::TextPrompt` (reserved for future in-TUI
+    /// overlay; current flow uses `PendingAction::TextPrompt` +
+    /// `handle_text_prompt`).
+    #[allow(dead_code)]
+    pub(crate) fn submit_text_prompt(
+        &mut self,
+        purpose: crate::tui::mode::TextPromptPurpose,
+        input: String,
+    ) {
+        use crate::tui::mode::TextPromptPurpose as P;
+        let trimmed = input.trim().to_string();
+        if trimmed.is_empty() {
+            self.set_status("input was empty".to_string());
+            return;
+        }
+        match purpose {
+            P::SaveProfile => match crate::profile::save(&self.root, &trimmed, &self.bundle) {
+                Ok(()) => self.set_status(format!("saved profile `{trimmed}`")),
+                Err(e) => self.set_status(format!("save profile: {e}")),
+            },
+            P::Narrow => {
+                // format: path:start-end
+                match parse_narrow(&trimmed) {
+                    Ok((path, start, end)) => {
+                        use crate::source::{RangeSource, Source};
+                        match RangeSource::new(path.into(), start, end) {
+                            Ok(rs) => {
+                                self.bundle.add(crate::bundle::Item {
+                                    source: Source::Range(rs),
+                                    label: None,
+                                });
+                                let _ = self.bundle.save(&self.root);
+                                self.recompute_tokens();
+                                self.preview =
+                                    build_preview(&self.root, &self.bundle, &self.item_tokens);
+                                self.set_status(format!("narrowed {trimmed}"));
+                            }
+                            Err(e) => self.set_status(format!("narrow: {e}")),
+                        }
+                    }
+                    Err(e) => self.set_status(format!("narrow: {e}")),
+                }
+            }
+            P::Note => {
+                // Input is body; tag is ignored for MVP (the CLI supports a
+                // separate --tag flag; the TUI wraps it in body for now).
+                use crate::memory::{self, Note};
+                let note = Note::new(trimmed.clone(), None);
+                match memory::index::append(&self.root, &note) {
+                    Ok(()) => self.set_status("note saved".to_string()),
+                    Err(e) => self.set_status(format!("note: {e}")),
+                }
+            }
+            P::FindFn => match crate::commands::add::run(
+                &self.root,
+                &self.project_root,
+                Vec::new(),
+                Vec::new(),
+                None,
+                vec![trimmed.clone()],
+                Vec::new(),
+                false,
+                false,
+            ) {
+                Ok(()) => {
+                    self.reload_bundle();
+                    self.set_status(format!("added fn:{trimmed}"));
+                }
+                Err(e) => self.set_status(format!("find fn: {e}")),
+            },
+            P::FindType => match crate::commands::add::run(
+                &self.root,
+                &self.project_root,
+                Vec::new(),
+                Vec::new(),
+                None,
+                Vec::new(),
+                vec![trimmed.clone()],
+                false,
+                false,
+            ) {
+                Ok(()) => {
+                    self.reload_bundle();
+                    self.set_status(format!("added type:{trimmed}"));
+                }
+                Err(e) => self.set_status(format!("find type: {e}")),
+            },
+            P::FindDiff => match crate::commands::add::run(
+                &self.root,
+                &self.project_root,
+                Vec::new(),
+                Vec::new(),
+                Some(trimmed.clone()),
+                Vec::new(),
+                Vec::new(),
+                false,
+                false,
+            ) {
+                Ok(()) => {
+                    self.reload_bundle();
+                    self.set_status(format!("added diff vs {trimmed}"));
+                }
+                Err(e) => self.set_status(format!("find diff: {e}")),
+            },
+            P::TemplateNew => {
+                use crate::cli::TemplatesAction;
+                match crate::commands::template::run(
+                    &self.root,
+                    Some(TemplatesAction::New {
+                        name: trimmed.clone(),
+                        from: None,
+                    }),
+                ) {
+                    Ok(()) => self.set_status(format!("template new: {trimmed}")),
+                    Err(e) => self.set_status(format!("template new: {e}")),
+                }
+            }
+            P::DocsAdd => match crate::commands::docs_cmd::add(&self.root, trimmed.clone(), None) {
+                Ok(()) => {
+                    self.reload_bundle();
+                    self.set_status(format!("docs add: {trimmed}"));
+                }
+                Err(e) => self.set_status(format!("docs add: {e}")),
+            },
+            P::DocsRm => match crate::commands::docs_cmd::rm(&self.root, trimmed.clone()) {
+                Ok(()) => {
+                    self.reload_bundle();
+                    self.set_status(format!("docs rm: {trimmed}"));
+                }
+                Err(e) => self.set_status(format!("docs rm: {e}")),
+            },
+            P::AddUrl => {
+                use crate::bundle::Item;
+                use crate::source::{Source, UrlSource};
+                match crate::source::url::validate_url(&trimmed, false, false) {
+                    Ok(()) => {
+                        self.bundle.add(Item {
+                            source: Source::Url(UrlSource {
+                                url: trimmed.clone(),
+                            }),
+                            label: None,
+                        });
+                        let _ = self.bundle.save(&self.root);
+                        self.reload_bundle();
+                        self.set_status(format!("added url: {trimmed}"));
+                    }
+                    Err(e) => self.set_status(format!("url add: {e}")),
+                }
+            }
+        }
+    }
+
+    /// Submit a picker selection from `Mode::PickerList` (reserved for
+    /// future in-TUI overlay; current flow uses `PendingAction::PickerList`
+    /// + `handle_picker`).
+    #[allow(dead_code)]
+    pub(crate) fn submit_picker(
+        &mut self,
+        purpose: crate::tui::mode::PickerPurpose,
+        choice: String,
+    ) {
+        use crate::tui::mode::PickerPurpose as P;
+        match purpose {
+            P::LoadProfile => match crate::commands::load::run(&self.root, &choice) {
+                Ok(()) => {
+                    self.reload_bundle();
+                    self.set_status(format!("loaded profile `{choice}`"));
+                }
+                Err(e) => self.set_status(format!("load profile: {e}")),
+            },
+            P::Model => {
+                self.model_name = choice.clone();
+                let m = crate::models::lookup(&self.model_name);
+                self.model_window = m.window;
+                self.recompute_tokens();
+                self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
+                self.set_status(format!("model → {choice}"));
+            }
+            P::ApplyTemplate => {
+                self.bundle.scenario = Some(choice.clone());
+                let _ = self.bundle.save(&self.root);
+                self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
+                self.set_status(format!("scenario → {choice}"));
+            }
+            P::RemoveTemplate => {
+                use crate::cli::TemplatesAction;
+                match crate::commands::template::run(
+                    &self.root,
+                    Some(TemplatesAction::Rm {
+                        name: choice.clone(),
+                    }),
+                ) {
+                    Ok(()) => self.set_status(format!("template rm: {choice}")),
+                    Err(e) => self.set_status(format!("template rm: {e}")),
+                }
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    fn reload_bundle(&mut self) {
+        match crate::bundle::Bundle::load_or_default(&self.root) {
+            Ok(b) => {
+                self.bundle = b;
+                self.recompute_tokens();
+                self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
+            }
+            Err(e) => self.set_status(format!("bundle reload: {e}")),
+        }
+    }
+}
+
+/// Suspended-TUI handler for `PendingAction::TextPrompt`. Reads the root
+/// via the thread-local `ROOT_STASH` so it doesn't need `AppData`.
+fn handle_text_prompt(purpose: crate::tui::mode::TextPromptPurpose) {
+    use crate::tui::mode::TextPromptPurpose as P;
+    let Some(root) = ROOT_STASH.with(|r| r.borrow().clone()) else {
+        eprintln!("ctxforge root not available");
+        return;
+    };
+
+    eprintln!("ctxforge · {}", purpose.label());
+    let input: String = match dialoguer::Input::new()
+        .with_prompt(purpose.label())
+        .allow_empty(false)
+        .interact_text()
+    {
+        Ok(v) => v,
+        Err(_) => {
+            eprintln!("cancelled");
+            return;
+        }
+    };
+    let trimmed = input.trim().to_string();
+
+    let outcome: std::result::Result<String, String> = match purpose {
+        P::SaveProfile => (|| -> std::result::Result<String, String> {
+            let bundle =
+                crate::bundle::Bundle::load_or_default(&root).map_err(|e| e.to_string())?;
+            crate::profile::save(&root, &trimmed, &bundle).map_err(|e| e.to_string())?;
+            Ok(format!("saved profile `{trimmed}`"))
+        })(),
+        P::Narrow => (|| -> std::result::Result<String, String> {
+            let (path, start, end) = parse_narrow(&trimmed)?;
+            use crate::bundle::{Bundle, Item};
+            use crate::source::{RangeSource, Source};
+            let mut bundle = Bundle::load_or_default(&root).map_err(|e| e.to_string())?;
+            let rs = RangeSource::new(path.into(), start, end).map_err(|e| e.to_string())?;
+            bundle.add(Item {
+                source: Source::Range(rs),
+                label: None,
+            });
+            bundle.save(&root).map_err(|e| e.to_string())?;
+            Ok(format!("narrowed {trimmed}"))
+        })(),
+        P::Note => {
+            use crate::memory::{self, Note};
+            let note = Note::new(trimmed.clone(), None);
+            memory::index::append(&root, &note)
+                .map(|()| "note saved".to_string())
+                .map_err(|e| e.to_string())
+        }
+        P::FindFn => crate::commands::add::run(
+            &root,
+            root.project_root(),
+            Vec::new(),
+            Vec::new(),
+            None,
+            vec![trimmed.clone()],
+            Vec::new(),
+            false,
+            false,
+        )
+        .map(|()| format!("added fn:{trimmed}"))
+        .map_err(|e| e.to_string()),
+        P::FindType => crate::commands::add::run(
+            &root,
+            root.project_root(),
+            Vec::new(),
+            Vec::new(),
+            None,
+            Vec::new(),
+            vec![trimmed.clone()],
+            false,
+            false,
+        )
+        .map(|()| format!("added type:{trimmed}"))
+        .map_err(|e| e.to_string()),
+        P::FindDiff => crate::commands::add::run(
+            &root,
+            root.project_root(),
+            Vec::new(),
+            Vec::new(),
+            Some(trimmed.clone()),
+            Vec::new(),
+            Vec::new(),
+            false,
+            false,
+        )
+        .map(|()| format!("added diff vs {trimmed}"))
+        .map_err(|e| e.to_string()),
+        P::TemplateNew => {
+            use crate::cli::TemplatesAction;
+            crate::commands::template::run(
+                &root,
+                Some(TemplatesAction::New {
+                    name: trimmed.clone(),
+                    from: None,
+                }),
+            )
+            .map(|()| format!("template new: {trimmed}"))
+            .map_err(|e| e.to_string())
+        }
+        P::DocsAdd => crate::commands::docs_cmd::add(&root, trimmed.clone(), None)
+            .map(|()| format!("docs add: {trimmed}"))
+            .map_err(|e| e.to_string()),
+        P::DocsRm => crate::commands::docs_cmd::rm(&root, trimmed.clone())
+            .map(|()| format!("docs rm: {trimmed}"))
+            .map_err(|e| e.to_string()),
+        P::AddUrl => (|| -> std::result::Result<String, String> {
+            use crate::bundle::{Bundle, Item};
+            use crate::source::{Source, UrlSource};
+            crate::source::url::validate_url(&trimmed, false, false)?;
+            let mut bundle = Bundle::load_or_default(&root).map_err(|e| e.to_string())?;
+            bundle.add(Item {
+                source: Source::Url(UrlSource {
+                    url: trimmed.clone(),
+                }),
+                label: None,
+            });
+            bundle.save(&root).map_err(|e| e.to_string())?;
+            Ok(format!("added url: {trimmed}"))
+        })(),
+    };
+
+    match outcome {
+        Ok(msg) => eprintln!("✓ {msg}"),
+        Err(e) => eprintln!("✗ {e}"),
+    }
+}
+
+/// Suspended-TUI handler for `PendingAction::PickerList`.
+fn handle_picker(purpose: crate::tui::mode::PickerPurpose, items: Vec<String>) {
+    use crate::tui::mode::PickerPurpose as P;
+    let Some(root) = ROOT_STASH.with(|r| r.borrow().clone()) else {
+        eprintln!("ctxforge root not available");
+        return;
+    };
+
+    if items.is_empty() {
+        eprintln!("no items to pick — nothing to do");
+        return;
+    }
+
+    eprintln!("ctxforge · {}", purpose.label());
+    let selection = match dialoguer::Select::new()
+        .with_prompt(purpose.label())
+        .items(&items)
+        .default(0)
+        .interact()
+    {
+        Ok(idx) => items[idx].clone(),
+        Err(_) => {
+            eprintln!("cancelled");
+            return;
+        }
+    };
+
+    let outcome: std::result::Result<String, String> = match purpose {
+        P::LoadProfile => crate::commands::load::run(&root, &selection)
+            .map(|()| format!("loaded profile `{selection}`"))
+            .map_err(|e| e.to_string()),
+        P::Model => {
+            // Model picker only stashes the choice; persistence happens
+            // via the config file, which the TUI reads on restart. For
+            // one-session use, the user will re-pick next launch.
+            let path = crate::paths::config_file_path();
+            if let Some(p) = path {
+                let existing = crate::theme::config::load_from(&p).unwrap_or_default();
+                let _ = crate::theme::config::save_to(
+                    &p,
+                    &crate::theme::config::Config {
+                        theme: existing.theme,
+                        default_send: existing.default_send,
+                    },
+                );
+            }
+            Ok(format!("model → {selection} (restart TUI to apply)"))
+        }
+        P::ApplyTemplate => (|| -> std::result::Result<String, String> {
+            let mut bundle =
+                crate::bundle::Bundle::load_or_default(&root).map_err(|e| e.to_string())?;
+            bundle.scenario = Some(selection.clone());
+            bundle.save(&root).map_err(|e| e.to_string())?;
+            Ok(format!("scenario → {selection}"))
+        })(),
+        P::RemoveTemplate => {
+            use crate::cli::TemplatesAction;
+            crate::commands::template::run(
+                &root,
+                Some(TemplatesAction::Rm {
+                    name: selection.clone(),
+                }),
+            )
+            .map(|()| format!("template rm: {selection}"))
+            .map_err(|e| e.to_string())
+        }
+    };
+
+    match outcome {
+        Ok(msg) => eprintln!("✓ {msg}"),
+        Err(e) => eprintln!("✗ {e}"),
+    }
+}
+
+fn parse_narrow(input: &str) -> std::result::Result<(String, usize, usize), String> {
+    // Format: path:start-end
+    let (path, range) = input.rsplit_once(':').ok_or("expected path:start-end")?;
+    let (start_s, end_s) = range.split_once('-').ok_or("expected start-end")?;
+    let start: usize = start_s.parse().map_err(|_| "start not numeric")?;
+    let end: usize = end_s.parse().map_err(|_| "end not numeric")?;
+    Ok((path.to_string(), start, end))
+}
+
+impl AppData {
     fn run_docs_detect(&mut self, all: bool) {
         match crate::commands::docs_cmd::detect(&self.root, all, None) {
             Ok(()) => {
@@ -593,8 +1122,8 @@ impl AppData {
         use crate::tui::mode::PendingAction;
 
         let format = match choice {
-            DC::PipeClaude | DC::CopyXml => crate::format::Format::Xml,
-            DC::CopyJson => crate::format::Format::Json,
+            DC::PipeClaude | DC::CopyXml | DC::ExportXml => crate::format::Format::Xml,
+            DC::CopyJson | DC::ExportJson => crate::format::Format::Json,
             _ => crate::format::Format::Markdown,
         };
 
@@ -643,7 +1172,7 @@ impl AppData {
                     content,
                 });
             }
-            DC::Export => {
+            DC::Export | DC::ExportXml | DC::ExportJson => {
                 self.pending_action = Some(PendingAction::Export(content));
             }
         }
@@ -897,6 +1426,16 @@ pub async fn run(root: CtxforgeRoot) -> Result<()> {
                         let _ = crossterm::event::read();
                     }
                 }
+            }
+            Some(crate::tui::mode::PendingAction::TextPrompt(purpose)) => {
+                handle_text_prompt(purpose);
+                eprintln!("\nPress any key to return to ctxforge...");
+                let _ = crossterm::event::read();
+            }
+            Some(crate::tui::mode::PendingAction::PickerList { purpose, items }) => {
+                handle_picker(purpose, items);
+                eprintln!("\nPress any key to return to ctxforge...");
+                let _ = crossterm::event::read();
             }
         }
 
