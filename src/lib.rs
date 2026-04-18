@@ -7,6 +7,7 @@ pub mod cache;
 pub mod cli;
 pub mod clipboard;
 pub mod commands;
+pub mod docs;
 pub mod deliver;
 pub mod editor;
 pub mod error;
