@@ -43,6 +43,16 @@ pub enum CommandAction {
     TemplateRm,
     TemplateStarters,
     TemplateList,
+
+    // ── P5/P1 parity: real handlers, no input required ──
+    DocsDetect,
+    DocsDetectAll,
+    DocsRefresh,
+    DocsList,
+    UrlRefresh,
+    CacheList,
+    CacheClear,
+    CacheVerify,
 }
 
 pub struct CommandSpec {
@@ -201,6 +211,46 @@ pub static COMMANDS: &[CommandSpec] = &[
         name: "quit",
         description: "quit ctxforge",
         action: CommandAction::Quit,
+    },
+    CommandSpec {
+        name: "docs detect",
+        description: "detect project deps and attach doc URLs",
+        action: CommandAction::DocsDetect,
+    },
+    CommandSpec {
+        name: "docs detect --all",
+        description: "detect all direct deps including Library tier",
+        action: CommandAction::DocsDetectAll,
+    },
+    CommandSpec {
+        name: "docs refresh",
+        description: "re-read lock files; update versions on existing docs items",
+        action: CommandAction::DocsRefresh,
+    },
+    CommandSpec {
+        name: "docs list",
+        description: "list docs items currently attached to the bundle",
+        action: CommandAction::DocsList,
+    },
+    CommandSpec {
+        name: "url refresh",
+        description: "force-refresh all stale cached URL sources",
+        action: CommandAction::UrlRefresh,
+    },
+    CommandSpec {
+        name: "cache list",
+        description: "list cached URL responses",
+        action: CommandAction::CacheList,
+    },
+    CommandSpec {
+        name: "cache clear",
+        description: "clear all cached URL responses",
+        action: CommandAction::CacheClear,
+    },
+    CommandSpec {
+        name: "cache verify",
+        description: "verify cache integrity (SHA + HMAC)",
+        action: CommandAction::CacheVerify,
     },
 ];
 

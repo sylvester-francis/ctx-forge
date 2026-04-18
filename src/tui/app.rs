@@ -307,6 +307,179 @@ impl AppData {
                 self.set_status("use CLI: ctxforge template list".to_string());
                 None
             }
+            A::DocsDetect => {
+                self.run_docs_detect(false);
+                None
+            }
+            A::DocsDetectAll => {
+                self.run_docs_detect(true);
+                None
+            }
+            A::DocsRefresh => {
+                self.run_docs_refresh();
+                None
+            }
+            A::DocsList => {
+                self.run_docs_list();
+                None
+            }
+            A::UrlRefresh => {
+                self.run_url_refresh();
+                None
+            }
+            A::CacheList => {
+                self.run_cache_list();
+                None
+            }
+            A::CacheClear => {
+                self.run_cache_clear();
+                None
+            }
+            A::CacheVerify => {
+                self.run_cache_verify();
+                None
+            }
+        }
+    }
+
+    fn run_docs_detect(&mut self, all: bool) {
+        match crate::commands::docs_cmd::detect(&self.root, all, None) {
+            Ok(()) => {
+                // Reload bundle so the freshly-attached docs items show up in
+                // the preview + status line without restarting the TUI.
+                match crate::bundle::Bundle::load_or_default(&self.root) {
+                    Ok(b) => {
+                        self.bundle = b;
+                        self.recompute_tokens();
+                        self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
+                        let docs_count = self
+                            .bundle
+                            .items
+                            .iter()
+                            .filter(|i| matches!(&i.source, crate::source::Source::Docs(_)))
+                            .count();
+                        self.set_status(format!("docs detected ({docs_count} attached)"));
+                    }
+                    Err(e) => self.set_status(format!("docs detect reload: {e}")),
+                }
+            }
+            Err(e) => self.set_status(format!("docs detect: {e}")),
+        }
+    }
+
+    fn run_docs_refresh(&mut self) {
+        match crate::commands::docs_cmd::refresh(&self.root) {
+            Ok(()) => {
+                if let Ok(b) = crate::bundle::Bundle::load_or_default(&self.root) {
+                    self.bundle = b;
+                    self.recompute_tokens();
+                    self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
+                }
+                self.set_status("docs refreshed".to_string());
+            }
+            Err(e) => self.set_status(format!("docs refresh: {e}")),
+        }
+    }
+
+    fn run_docs_list(&mut self) {
+        use crate::source::Source;
+        let docs_items: Vec<&crate::source::DocsSource> = self
+            .bundle
+            .items
+            .iter()
+            .filter_map(|i| match &i.source {
+                Source::Docs(d) => Some(d),
+                _ => None,
+            })
+            .collect();
+        if docs_items.is_empty() {
+            self.set_status("no docs items in bundle".to_string());
+            return;
+        }
+        let mut by_eco: std::collections::BTreeMap<&str, usize> = Default::default();
+        for d in &docs_items {
+            *by_eco.entry(d.ecosystem.as_str()).or_insert(0) += 1;
+        }
+        let breakdown = by_eco
+            .iter()
+            .map(|(k, v)| format!("{v} {k}"))
+            .collect::<Vec<_>>()
+            .join(" · ");
+        self.set_status(format!("{} docs items ({breakdown})", docs_items.len()));
+    }
+
+    fn run_url_refresh(&mut self) {
+        match crate::commands::refresh::run(&self.root, None, false) {
+            Ok(()) => self.set_status("URL sources refreshed".to_string()),
+            Err(e) => self.set_status(format!("url refresh: {e}")),
+        }
+    }
+
+    fn run_cache_list(&mut self) {
+        let Some(dir) = crate::paths::global_cache_dir() else {
+            self.set_status("cache: no XDG/HOME dir".to_string());
+            return;
+        };
+        if !dir.exists() {
+            self.set_status("cache is empty".to_string());
+            return;
+        }
+        match crate::cache::ContentCache::open(dir) {
+            Ok(cache) => match cache.list() {
+                Ok(metas) => self.set_status(format!("{} cached entries", metas.len())),
+                Err(e) => self.set_status(format!("cache list: {e}")),
+            },
+            Err(e) => self.set_status(format!("cache open: {e}")),
+        }
+    }
+
+    fn run_cache_clear(&mut self) {
+        let Some(dir) = crate::paths::global_cache_dir() else {
+            self.set_status("cache: no XDG/HOME dir".to_string());
+            return;
+        };
+        if !dir.exists() {
+            self.set_status("cache already empty".to_string());
+            return;
+        }
+        match crate::cache::ContentCache::open(dir) {
+            Ok(cache) => match cache.clear() {
+                Ok(count) => self.set_status(format!("cleared {count} cached entries")),
+                Err(e) => self.set_status(format!("cache clear: {e}")),
+            },
+            Err(e) => self.set_status(format!("cache open: {e}")),
+        }
+    }
+
+    fn run_cache_verify(&mut self) {
+        let Some(dir) = crate::paths::global_cache_dir() else {
+            self.set_status("cache: no XDG/HOME dir".to_string());
+            return;
+        };
+        if !dir.exists() {
+            self.set_status("cache is empty — nothing to verify".to_string());
+            return;
+        }
+        match crate::cache::ContentCache::open(dir) {
+            Ok(cache) => match cache.verify() {
+                Ok(r) => {
+                    if r.body_mismatch.is_empty()
+                        && r.hmac_mismatch.is_empty()
+                        && r.read_error.is_empty()
+                    {
+                        self.set_status(format!("cache verified — {} entries OK", r.ok));
+                    } else {
+                        self.set_status(format!(
+                            "cache integrity issues: {} body, {} hmac, {} read",
+                            r.body_mismatch.len(),
+                            r.hmac_mismatch.len(),
+                            r.read_error.len(),
+                        ));
+                    }
+                }
+                Err(e) => self.set_status(format!("cache verify: {e}")),
+            },
+            Err(e) => self.set_status(format!("cache open: {e}")),
         }
     }
 
