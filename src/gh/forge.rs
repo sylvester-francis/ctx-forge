@@ -32,15 +32,9 @@ impl ForgeRef {
     /// `raw_url`.
     pub fn releases_url(&self) -> Option<String> {
         match self.host {
-            ForgeHost::GitHub => {
-                Some(format!("https://github.com/{}/releases", self.path))
-            }
-            ForgeHost::GitLab => {
-                Some(format!("https://gitlab.com/{}/-/releases", self.path))
-            }
-            ForgeHost::Codeberg => {
-                Some(format!("https://codeberg.org/{}/releases", self.path))
-            }
+            ForgeHost::GitHub => Some(format!("https://github.com/{}/releases", self.path)),
+            ForgeHost::GitLab => Some(format!("https://gitlab.com/{}/-/releases", self.path)),
+            ForgeHost::Codeberg => Some(format!("https://codeberg.org/{}/releases", self.path)),
             ForgeHost::Other => None,
         }
     }
@@ -48,15 +42,9 @@ impl ForgeRef {
     /// URL for open issues. None for `Other`.
     pub fn issues_url(&self) -> Option<String> {
         match self.host {
-            ForgeHost::GitHub => {
-                Some(format!("https://github.com/{}/issues", self.path))
-            }
-            ForgeHost::GitLab => {
-                Some(format!("https://gitlab.com/{}/-/issues", self.path))
-            }
-            ForgeHost::Codeberg => {
-                Some(format!("https://codeberg.org/{}/issues", self.path))
-            }
+            ForgeHost::GitHub => Some(format!("https://github.com/{}/issues", self.path)),
+            ForgeHost::GitLab => Some(format!("https://gitlab.com/{}/-/issues", self.path)),
+            ForgeHost::Codeberg => Some(format!("https://codeberg.org/{}/issues", self.path)),
             ForgeHost::Other => None,
         }
     }

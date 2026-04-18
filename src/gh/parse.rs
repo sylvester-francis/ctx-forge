@@ -88,7 +88,9 @@ pub fn to_resource(path: &str) -> Result<GhResource, UriParseError> {
                 .to_string();
             let rest: Vec<&str> = parts.collect();
             if rest.is_empty() {
-                return Err(UriParseError::BadFragment("gh:// blob requires a file path"));
+                return Err(UriParseError::BadFragment(
+                    "gh:// blob requires a file path",
+                ));
             }
             let path = rest.join("/");
             Ok(GhResource::Blob {

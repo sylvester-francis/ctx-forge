@@ -64,11 +64,7 @@ pub fn fetch_metadata(cache: &ContentCache, ecosystem: Ecosystem, name: &str) ->
 }
 
 /// Back-compat shim — existing call sites that only need the description.
-pub fn fetch_description(
-    cache: &ContentCache,
-    ecosystem: Ecosystem,
-    name: &str,
-) -> Option<String> {
+pub fn fetch_description(cache: &ContentCache, ecosystem: Ecosystem, name: &str) -> Option<String> {
     fetch_metadata(cache, ecosystem, name).description
 }
 
@@ -102,10 +98,7 @@ fn extract_rust(v: &Value) -> Metadata {
 }
 
 fn extract_js(v: &Value) -> Metadata {
-    let description = v
-        .get("description")
-        .and_then(|d| d.as_str())
-        .map(truncate);
+    let description = v.get("description").and_then(|d| d.as_str()).map(truncate);
     // npm `repository` is either a string or { "url": "..." }.
     let repo_url = v.get("repository").and_then(|r| {
         if let Some(s) = r.as_str() {
@@ -187,10 +180,7 @@ mod tests {
     fn extract_js_string_form_repository() {
         let body = br#"{"description":"Lib.","repository":"https://github.com/foo/bar"}"#;
         let md = extract(Ecosystem::Js, body);
-        assert_eq!(
-            md.forge.as_ref().map(|f| f.path.as_str()),
-            Some("foo/bar"),
-        );
+        assert_eq!(md.forge.as_ref().map(|f| f.path.as_str()), Some("foo/bar"),);
     }
 
     #[test]
@@ -207,10 +197,7 @@ mod tests {
     fn extract_python_home_page_fallback() {
         let body = br#"{"info":{"summary":"Thing.","home_page":"https://github.com/foo/bar"}}"#;
         let md = extract(Ecosystem::Python, body);
-        assert_eq!(
-            md.forge.as_ref().map(|f| f.path.as_str()),
-            Some("foo/bar"),
-        );
+        assert_eq!(md.forge.as_ref().map(|f| f.path.as_str()), Some("foo/bar"),);
     }
 
     #[test]

@@ -134,11 +134,7 @@ fn fetch_release(cfg: &FetchConfig, owner: &str, repo: &str, tag: &str) -> Resul
             .or_else(|| json.get("tag_name").and_then(|t| t.as_str()))
             .unwrap_or(tag)
             .to_string(),
-        state: if json
-            .get("draft")
-            .and_then(|d| d.as_bool())
-            .unwrap_or(false)
-        {
+        state: if json.get("draft").and_then(|d| d.as_bool()).unwrap_or(false) {
             "draft".into()
         } else if json
             .get("prerelease")
@@ -187,9 +183,8 @@ fn fetch_blob(
 
 fn github_api_get(cfg: &FetchConfig, url: &str) -> Result<Value> {
     let result = crate::fetch::fetch(url, cfg).map_err(|e| map_github_error(&e, cfg))?;
-    serde_json::from_slice(&result.body).map_err(|e| {
-        CtxforgeError::Fetch(format!("GitHub API response was not valid JSON: {e}"))
-    })
+    serde_json::from_slice(&result.body)
+        .map_err(|e| CtxforgeError::Fetch(format!("GitHub API response was not valid JSON: {e}")))
 }
 
 /// Convert a raw fetch error string into a more actionable message for
@@ -198,8 +193,7 @@ fn map_github_error(e: &str, cfg: &FetchConfig) -> CtxforgeError {
     if e.contains("HTTP 403") {
         if cfg.auth_token.is_none() {
             return CtxforgeError::Fetch(
-                "GitHub anonymous rate limit hit (60/hr); set GITHUB_TOKEN for 5000/hr"
-                    .to_string(),
+                "GitHub anonymous rate limit hit (60/hr); set GITHUB_TOKEN for 5000/hr".to_string(),
             );
         }
         return CtxforgeError::Fetch(format!("GitHub access denied: {e}"));

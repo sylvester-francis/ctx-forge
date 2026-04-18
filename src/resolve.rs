@@ -306,8 +306,7 @@ fn resolve_network_gh(
         }
         CacheRead::Stale { body, meta } => match crate::gh::fetch::fetch_resource(&g.resource) {
             Ok(fetched) => {
-                let rendered =
-                    crate::gh::render::render_markdown_section(&g.resource, &fetched);
+                let rendered = crate::gh::render::render_markdown_section(&g.resource, &fetched);
                 let meta2 = cache.put(
                     &key,
                     &uri_str,
@@ -338,8 +337,7 @@ fn resolve_network_gh(
         }
         CacheRead::Miss => match crate::gh::fetch::fetch_resource(&g.resource) {
             Ok(fetched) => {
-                let rendered =
-                    crate::gh::render::render_markdown_section(&g.resource, &fetched);
+                let rendered = crate::gh::render::render_markdown_section(&g.resource, &fetched);
                 let meta = cache.put(
                     &key,
                     &uri_str,
