@@ -27,31 +27,40 @@ pub fn migrate_json(raw: &str) -> Result<(Bundle, MigrationOutcome)> {
     let version = peek.get("version").and_then(|v| v.as_u64()).unwrap_or(1);
     match version {
         2 => {
-            let b: Bundle = serde_json::from_str(raw)?;
-            Ok((b, MigrationOutcome::AlreadyV2))
+            // The version header says v2, but the items might still be v1
+            // shape (a concurrent writer or manual edit can leave the header
+            // out of sync). Try v2 first; fall back to v1 migration if that
+            // parse fails, so the user gets recovery rather than the cryptic
+            // `missing field \`source\`` error.
+            match serde_json::from_str::<Bundle>(raw) {
+                Ok(b) => Ok((b, MigrationOutcome::AlreadyV2)),
+                Err(_) => parse_as_v1(raw),
+            }
         }
-        0 | 1 => {
-            let v1: BundleV1 = serde_json::from_str(raw)?;
-            let items = v1
-                .items
-                .iter()
-                .map(item_from_v1)
-                .collect::<Result<Vec<_>>>()?;
-            Ok((
-                Bundle {
-                    version: 2,
-                    items,
-                    model: v1.model,
-                    task_text: v1.task_text,
-                    scenario: v1.scenario,
-                },
-                MigrationOutcome::MigratedFromV1,
-            ))
-        }
+        0 | 1 => parse_as_v1(raw),
         other => Err(CtxforgeError::Msg(format!(
             "bundle version {other} is newer than this ctxforge — please upgrade"
         ))),
     }
+}
+
+fn parse_as_v1(raw: &str) -> Result<(Bundle, MigrationOutcome)> {
+    let v1: BundleV1 = serde_json::from_str(raw)?;
+    let items = v1
+        .items
+        .iter()
+        .map(item_from_v1)
+        .collect::<Result<Vec<_>>>()?;
+    Ok((
+        Bundle {
+            version: 2,
+            items,
+            model: v1.model,
+            task_text: v1.task_text,
+            scenario: v1.scenario,
+        },
+        MigrationOutcome::MigratedFromV1,
+    ))
 }
 
 fn item_from_v1(i: &ItemV1) -> Result<Item> {
@@ -114,5 +123,20 @@ mod tests {
     fn future_version_errors() {
         let err = migrate_json(r#"{"version":99,"items":[]}"#).unwrap_err();
         assert!(err.to_string().contains("upgrade"));
+    }
+
+    #[test]
+    fn version_2_header_with_v1_items_falls_back_to_v1_migration() {
+        // Regression guard — a bundle that got its version bumped to 2 but
+        // never had its items rewritten (happens after partial crashes or
+        // manual edits) must still load, not throw `missing field source`.
+        let raw = r#"{
+          "version": 2,
+          "items": [{"path": "src/main.rs", "kind": {"kind": "file"}}]
+        }"#;
+        let (b, outcome) = migrate_json(raw).unwrap();
+        assert_eq!(outcome, MigrationOutcome::MigratedFromV1);
+        assert_eq!(b.items.len(), 1);
+        assert!(matches!(b.items[0].source, Source::File(_)));
     }
 }
