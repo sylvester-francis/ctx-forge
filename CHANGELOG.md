@@ -1,5 +1,75 @@
 # Changelog
 
+## 2.0.0 — prompt engineer release
+
+A major version bump to signal the shift from "context bundler with a TUI" to **prompt engineer** — ctxforge now understands your project stack, attaches GitHub resources on demand, detects gaps between your imports and your attached docs, and exposes 31 MCP tools so an agent can drive it directly.
+
+### Highlights
+
+- **Library docs gatherer.** `ctxforge docs detect` scans `Cargo.toml` / `package.json` / `pyproject.toml` / `go.mod` (monorepo-aware) and attaches canonical doc URLs + registry descriptions + forge links (GitHub / GitLab / Codeberg releases and open-issues URLs) for each framework-tier dep. `docs add` / `rm` / `list` / `refresh` for manual management.
+- **GitHub context miner.** New `gh:///owner/repo/<resource>` URI variant attaches a specific issue / PR / release / file body. Pasted `https://github.com/...` URLs auto-canonicalise. `GITHUB_TOKEN` lifts the 60/hr anonymous rate limit to 5000/hr. Per-resource TTLs: issues/PRs 24h, releases 7d, SHA-pinned blobs 30d, branch-pinned blobs 24h. Bodies capped at 2 KB (issue/PR/release) or 10 KB (blob) with UTF-8-safe truncation.
+- **Auto-suggest.** `ctxforge suggest` scans bundle source-file imports (Rust `use`, JS/TS `import` / `require`, Python `import` / `from`, Go `import`) against the Project stack and flags missing + stale entries. `--apply` bulk-runs `docs add` for missing and `docs rm` for stale. Exit code 2 when suggestions exist (useful CI gate). Zero prompt leakage — `ctxforge export` output is byte-identical with or without suggest loaded.
+- **Context source abstraction.** New `Source` enum with `File` / `Range` / `Func` / `Type` / `Url` / `Docs` / `Gh` variants. URI-keyed `ContentCache` with HMAC sidecar integrity (OS entropy via `getrandom`). Provenance records (uri, sha256, fetched_at, etag, stale, failed). SSRF resolver checks on every fetch.
+- **Full CLI / MCP / TUI / plugin parity.** Every user action is available on every surface: 31 MCP tools (up from 15), 48 TUI palette entries, Claude plugin refreshed with an 8-step workflow.
+
+### Added — docs / gh / suggest
+
+- `ctxforge docs detect [--all] [path]` — scan manifests, attach per-dep doc URLs + forge links. `--all` includes library-tier deps (otherwise framework tier only).
+- `ctxforge docs add <name> [--ecosystem]` — manual dep attach. Infers ecosystem from existing bundle when unambiguous.
+- `ctxforge docs rm <name>` — remove a docs entry by name.
+- `ctxforge docs list` — enumerate attached docs items grouped by ecosystem.
+- `ctxforge docs refresh` — re-read lock files, bump versions, refresh descriptions for existing docs items.
+- `ctxforge add gh:///owner/repo/issues/N` — attach a specific GitHub issue (title + state + author + body).
+- `ctxforge add gh:///owner/repo/pull/N` — attach a PR (with `merged` flag included in state).
+- `ctxforge add gh:///owner/repo/releases/tag/<tag>` — attach release notes.
+- `ctxforge add gh:///owner/repo/blob/<ref>/<path>` — attach a file at a ref (branch name or SHA).
+- `ctxforge suggest [--all] [--missing-only] [--json] [--apply] [--yes]` — deterministic import/stack mismatch detector.
+- Registry-based tier classification via embedded `registry.toml` (framework / database / async-runtime / language-core / library).
+- Per-ecosystem parsers: Cargo (with workspace inheritance), npm, Python (pyproject.toml + requirements.txt), Go (go.mod).
+- Integration-test fixture projects for each ecosystem.
+
+### Added — MCP tools (15 → 31)
+
+New tools: `ctxforge_docs_detect`, `ctxforge_docs_add`, `ctxforge_docs_rm`, `ctxforge_docs_list`, `ctxforge_docs_refresh`, `ctxforge_suggest`, `ctxforge_suggest_apply`, `ctxforge_add_url`, `ctxforge_refresh`, `ctxforge_list_sources`, `ctxforge_profiles_rm`, `ctxforge_templates_new`, `ctxforge_templates_rm`, `ctxforge_cache_list`, `ctxforge_cache_clear`, `ctxforge_cache_verify`. Every tool has safety annotations (`readOnlyHint` / `destructiveHint`).
+
+### Added — TUI
+
+- `/docs detect` / `/docs detect --all` / `/docs refresh` / `/docs list` / `/docs add` / `/docs rm` palette entries.
+- `/github attach` — prompts for a `gh://` URI, inlines the resource.
+- `/suggest` — multi-select picker (space to toggle, Enter to apply selected).
+- `/suggest apply all` — one-shot apply without prompting.
+- `/url refresh` / `/cache list` / `/cache clear` / `/cache verify` / `/url add`.
+- `/rm` / `/clear` / `/list sources` — bundle CRUD parity with CLI.
+- `/clear prompt override` — drop `.ctxforge/prompt-override.md` and resume rendering from the bundle.
+- Palette now has 48 unique entries.
+
+### Added — plugin
+
+- `plugin.json` description updated to "31 MCP tools" and mentions docs / gh / suggest.
+- `commands/ctxforge.md` workflow covers `docs_detect` → `gh://` attach → `suggest` loop.
+- `skills/ctxforge.md` rewritten with a 31-tool reference table and an 8-step workflow (assess → understand → build → close gaps → monitor budget → persist → apply template → report).
+
+### Changed
+
+- `Source` enum gained `Docs(DocsSource)` and `Gh(GhSource)` variants; `from_uri` / `to_uri` handle `docs:///` and `gh:///` schemes.
+- `DocsSource` gained optional `forge: Option<ForgeRef>` field (additive — pre-P3 bundles deserialise without it).
+- `FetchConfig` gained `auth_token` field for GitHub Bearer auth.
+- `resolve_network` dispatches by source variant (url / gh) with per-variant TTLs and caching.
+
+### Internal
+
+- New `src/docs/` module: `detect.rs`, `describe.rs`, `classify.rs`, `registry.rs` (+ embedded `registry.toml`), `resolve.rs`, `parsers/` (cargo / npm / python / go).
+- New `src/gh/` module: `forge.rs` (host detection + parse_forge_url), `parse.rs` (gh:// URI parser), `fetch.rs` (REST + raw content with `GITHUB_TOKEN`), `render.rs` (markdown section with body cap).
+- New `src/suggest/` module: `detect.rs` (regex scanners per language), `match_.rs` (hyphen/underscore canonicalisation), `report.rs`, `stdlib.rs` (per-ecosystem blocklists), `mod.rs` (orchestration).
+- New `src/commands/suggest.rs` — CLI handler with `--json` / `--apply` / `--yes`.
+- New `src/source/gh.rs` with `GhSource` + `GhResource` enum (Issue / Pull / Release / Blob).
+- `regex = "1"` added as a direct dep (was transitive).
+- Integration coverage: `tests/gh_regression.rs`, `tests/suggest_regression.rs`, per-ecosystem fixture projects under `tests/fixtures/`.
+
+### Removed
+
+- Nothing removed in this release. Backwards-compatible with v1.3 bundles.
+
 ## 1.3.0 — iocraft TUI rewrite
 
 Complete TUI rewrite from ratatui (immediate-mode) to **iocraft** — a React-like reactive framework with taffy flexbox layout. The ratatui v1 TUI has been removed; iocraft is now the sole rendering engine. Every surface has been rebuilt with a distinctive design language, fluid interactions, and responsive layouts.
