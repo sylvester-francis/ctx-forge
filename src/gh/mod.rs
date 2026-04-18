@@ -3,3 +3,5 @@
 
 pub mod forge;
 pub mod parse;
+#[cfg(feature = "fetch")]
+pub mod fetch;
