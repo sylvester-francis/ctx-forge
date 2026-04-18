@@ -65,6 +65,16 @@ impl Item {
     /// - bare path → `Source::File`
     pub fn parse_add_argument(input: &str) -> Result<Self> {
         if input.starts_with("https://") || input.starts_with("http://") {
+            // Canonicalise pasted GitHub URLs to gh:// form so they route to
+            // the GitHub fetcher instead of the generic URL fetcher.
+            if let Some(canonical) = canonicalise_github_url(input) {
+                let uri: crate::source::Uri = canonical.parse()?;
+                let source = Source::from_uri(&uri)?;
+                return Ok(Item {
+                    source,
+                    label: None,
+                });
+            }
             return Ok(Item {
                 source: Source::Url(crate::source::UrlSource { url: input.into() }),
                 label: None,
@@ -108,6 +118,25 @@ impl Item {
             .clone()
             .unwrap_or_else(|| self.source.display_label())
     }
+}
+
+/// Convert `https://github.com/owner/repo/<resource>/...` to the `gh://`
+/// form. Returns `None` if the URL is not a github.com URL or doesn't
+/// match a known `gh://` resource shape.
+fn canonicalise_github_url(url: &str) -> Option<String> {
+    let stripped = url
+        .strip_prefix("https://github.com/")
+        .or_else(|| url.strip_prefix("http://github.com/"))?;
+    let stripped = stripped.trim_end_matches('/');
+    let parts: Vec<&str> = stripped.splitn(4, '/').collect();
+    if parts.len() < 3 {
+        return None;
+    }
+    let kind = parts[2];
+    if !matches!(kind, "issues" | "pull" | "releases" | "blob") {
+        return None;
+    }
+    Some(format!("gh:///{stripped}"))
 }
 
 fn canonicalize_uri_prefix(input: &str) -> String {
@@ -215,5 +244,27 @@ mod tests {
     fn does_not_eat_colon_in_non_range() {
         let i = Item::parse_add_argument("https://example.com/file").unwrap();
         assert!(matches!(i.source, Source::Url(_)));
+    }
+
+    #[test]
+    fn parses_pasted_github_issue_url() {
+        let i = Item::parse_add_argument("https://github.com/tokio-rs/axum/issues/1234").unwrap();
+        assert!(matches!(&i.source, Source::Gh(_)));
+        assert_eq!(
+            i.source.to_uri().to_string(),
+            "gh:///tokio-rs/axum/issues/1234",
+        );
+    }
+
+    #[test]
+    fn parses_pasted_github_pr_url() {
+        let i = Item::parse_add_argument("https://github.com/foo/bar/pull/7").unwrap();
+        assert!(matches!(&i.source, Source::Gh(_)));
+    }
+
+    #[test]
+    fn pasted_github_wiki_falls_back_to_url_source() {
+        let i = Item::parse_add_argument("https://github.com/foo/bar/wiki/Home").unwrap();
+        assert!(matches!(&i.source, Source::Url(_)));
     }
 }
