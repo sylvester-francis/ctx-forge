@@ -15,6 +15,7 @@ use std::sync::LazyLock;
 pub fn scan_imports(source: &str, language: &str) -> Vec<(String, Ecosystem)> {
     let (raws, eco) = match language {
         "rust" => (scan_rust(source), Ecosystem::Rust),
+        "javascript" | "typescript" | "tsx" | "jsx" => (scan_js(source), Ecosystem::Js),
         _ => return Vec::new(),
     };
     let mut seen = std::collections::BTreeSet::new();
@@ -41,6 +42,53 @@ fn scan_rust(source: &str) -> Vec<String> {
         out.push(cap[1].to_string());
     }
     out
+}
+
+fn scan_js(source: &str) -> Vec<String> {
+    static IMPORT_FROM: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"(?m)^\s*import\s+.+?\s+from\s+['"]([^'"]+)['"]"#).unwrap()
+    });
+    static IMPORT_BARE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r#"(?m)^\s*import\s+['"]([^'"]+)['"]"#).unwrap());
+    static REQUIRE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r#"require\(\s*['"]([^'"]+)['"]\s*\)"#).unwrap());
+
+    let mut out = Vec::new();
+    for re in [&*IMPORT_FROM, &*IMPORT_BARE, &*REQUIRE] {
+        for cap in re.captures_iter(source) {
+            if let Some(pkg) = normalize_js_package(&cap[1]) {
+                out.push(pkg);
+            }
+        }
+    }
+    out
+}
+
+/// JS package normalisation:
+/// - relative / absolute paths (start with `.` or `/`) → None
+/// - URL imports (`http://`, `https://`) → None
+/// - scoped package (`@scope/name`) → keep as `@scope/name`
+/// - deep scoped (`@scope/name/sub`) → `@scope/name`
+/// - deep unscoped (`lodash/debounce`) → `lodash`
+/// - bare name (`react`) → `react`
+fn normalize_js_package(raw: &str) -> Option<String> {
+    if raw.starts_with('.') || raw.starts_with('/') {
+        return None;
+    }
+    if raw.starts_with("http://") || raw.starts_with("https://") {
+        return None;
+    }
+    if raw.starts_with('@') {
+        let mut parts = raw.splitn(3, '/');
+        let scope = parts.next()?;
+        let name = parts.next()?;
+        return Some(format!("{scope}/{name}"));
+    }
+    let first = raw.split('/').next()?;
+    if first.is_empty() {
+        return None;
+    }
+    Some(first.to_string())
 }
 
 #[cfg(test)]
@@ -99,5 +147,74 @@ mod tests {
     #[test]
     fn non_rust_language_returns_empty() {
         assert!(scan_imports("some content", "unknown").is_empty());
+    }
+
+    #[test]
+    fn js_import_from_named() {
+        let src = "import { foo } from 'react';\n";
+        let imports = scan_imports(src, "javascript");
+        assert_eq!(imports, vec![("react".to_string(), Ecosystem::Js)]);
+    }
+
+    #[test]
+    fn js_import_default() {
+        let src = "import axios from 'axios';\n";
+        let imports = scan_imports(src, "typescript");
+        assert_eq!(imports, vec![("axios".to_string(), Ecosystem::Js)]);
+    }
+
+    #[test]
+    fn js_scoped_package_preserved() {
+        let src = "import { Button } from '@next/core';\n";
+        let imports = scan_imports(src, "tsx");
+        assert_eq!(imports, vec![("@next/core".to_string(), Ecosystem::Js)]);
+    }
+
+    #[test]
+    fn js_deep_import_truncated_to_package_root() {
+        let src = "import debounce from 'lodash/debounce';\n";
+        let imports = scan_imports(src, "javascript");
+        assert_eq!(imports, vec![("lodash".to_string(), Ecosystem::Js)]);
+    }
+
+    #[test]
+    fn js_deep_scoped_truncated_to_scope_slash_name() {
+        let src = "import { use } from '@remix-run/router/hooks';\n";
+        let imports = scan_imports(src, "javascript");
+        assert_eq!(
+            imports,
+            vec![("@remix-run/router".to_string(), Ecosystem::Js)]
+        );
+    }
+
+    #[test]
+    fn js_skips_relative_and_url_imports() {
+        let src = r#"
+import a from './foo';
+import b from '../bar';
+import c from '/abs/path';
+import d from 'https://esm.sh/react';
+"#;
+        assert!(scan_imports(src, "javascript").is_empty());
+    }
+
+    #[test]
+    fn js_skips_node_builtins_and_node_prefix() {
+        let src = "import fs from 'fs';\nimport path from 'node:path';\n";
+        assert!(scan_imports(src, "javascript").is_empty());
+    }
+
+    #[test]
+    fn js_require_syntax() {
+        let src = "const express = require('express');\n";
+        let imports = scan_imports(src, "javascript");
+        assert_eq!(imports, vec![("express".to_string(), Ecosystem::Js)]);
+    }
+
+    #[test]
+    fn js_bare_import_side_effect() {
+        let src = "import 'zone.js';\n";
+        let imports = scan_imports(src, "javascript");
+        assert_eq!(imports, vec![("zone.js".to_string(), Ecosystem::Js)]);
     }
 }
