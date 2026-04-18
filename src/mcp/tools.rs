@@ -277,6 +277,35 @@ pub fn tool_list() -> Value {
                 "description": "List docs items currently attached to the bundle.",
                 "annotations": { "readOnlyHint": true },
                 "inputSchema": { "type": "object", "properties": {} }
+            },
+            {
+                "name": "ctxforge_suggest",
+                "description": "Suggest missing and stale documentation entries in the bundle. Missing = import with no DocsSource; stale = DocsSource with no import.",
+                "annotations": { "readOnlyHint": true },
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "scan_all_project": { "type": "boolean", "description": "Scan whole project, not just bundle items" },
+                        "missing_only": { "type": "boolean", "description": "Skip stale check" }
+                    }
+                }
+            },
+            {
+                "name": "ctxforge_suggest_apply",
+                "description": "Apply missing/stale suggestions: add missing docs, remove stale entries. `names` selects a subset; omit to apply all.",
+                "annotations": { "destructiveHint": false },
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "scan_all_project": { "type": "boolean" },
+                        "missing_only": { "type": "boolean" },
+                        "names": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Subset of names to apply; omit to apply all"
+                        }
+                    }
+                }
             }
         ]
     })
@@ -305,6 +334,8 @@ pub fn call_tool(root: &CtxforgeRoot, name: &str, args: &Value) -> Result<Value,
         "ctxforge_docs_detect" => tool_docs_detect(root, args),
         "ctxforge_docs_add" => tool_docs_add(root, args),
         "ctxforge_docs_list" => tool_docs_list(root),
+        "ctxforge_suggest" => tool_suggest(root, args),
+        "ctxforge_suggest_apply" => tool_suggest_apply(root, args),
         _ => Err(format!("unknown tool: {name}")),
     }
 }
@@ -896,5 +927,96 @@ fn tool_apply_template(root: &CtxforgeRoot, args: &Value) -> Result<Value, Strin
     Ok(json!({
         "type": "text",
         "text": rendered
+    }))
+}
+
+fn tool_suggest(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
+    use crate::suggest::{SuggestOptions, run_suggest};
+    let scan_all_project = args
+        .get("scan_all_project")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let missing_only = args
+        .get("missing_only")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let bundle = Bundle::load_or_default(root).map_err(|e| e.to_string())?;
+    let report = run_suggest(
+        &bundle,
+        root.project_root(),
+        &SuggestOptions {
+            scan_all_project,
+            missing_only,
+        },
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(json!({
+        "type": "text",
+        "text": crate::suggest::report::render_json(&report),
+    }))
+}
+
+fn tool_suggest_apply(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
+    use crate::suggest::{SuggestOptions, Suggestion, apply_suggestion, run_suggest};
+    let scan_all_project = args
+        .get("scan_all_project")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let missing_only = args
+        .get("missing_only")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let filter: Option<std::collections::HashSet<String>> = args
+        .get("names")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        });
+
+    let bundle = Bundle::load_or_default(root).map_err(|e| e.to_string())?;
+    let report = run_suggest(
+        &bundle,
+        root.project_root(),
+        &SuggestOptions {
+            scan_all_project,
+            missing_only,
+        },
+    )
+    .map_err(|e| e.to_string())?;
+
+    let mut applied: Vec<serde_json::Value> = Vec::new();
+    let mut errors: Vec<serde_json::Value> = Vec::new();
+
+    let accept = |name: &str| -> bool { filter.as_ref().is_none_or(|f| f.contains(name)) };
+
+    for m in &report.missing {
+        if !accept(&m.name) {
+            continue;
+        }
+        match apply_suggestion(&Suggestion::Missing(m), root) {
+            Ok(()) => applied.push(json!({ "name": m.name, "kind": "missing" })),
+            Err(e) => errors.push(json!({ "name": m.name, "error": e.to_string() })),
+        }
+    }
+    for s in &report.stale {
+        if !accept(&s.name) {
+            continue;
+        }
+        match apply_suggestion(&Suggestion::Stale(s), root) {
+            Ok(()) => applied.push(json!({ "name": s.name, "kind": "stale" })),
+            Err(e) => errors.push(json!({ "name": s.name, "error": e.to_string() })),
+        }
+    }
+
+    Ok(json!({
+        "type": "text",
+        "text": serde_json::to_string_pretty(&json!({
+            "applied": applied,
+            "errors": errors,
+        })).unwrap_or_default(),
     }))
 }
