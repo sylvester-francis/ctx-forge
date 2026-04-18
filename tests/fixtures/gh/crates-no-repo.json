@@ -1,0 +1,6 @@
+{
+  "crate": {
+    "name": "custom-thing",
+    "description": "A crate with no repo field."
+  }
+}

@@ -79,8 +79,9 @@ pub fn run_detect(
                 continue;
             }
             let url = resolve::canonical_url(dep.ecosystem, &dep.name, &dep.version);
-            let description =
-                cache.and_then(|c| describe::fetch_description(c, dep.ecosystem, &dep.name));
+            let md = cache
+                .map(|c| describe::fetch_metadata(c, dep.ecosystem, &dep.name))
+                .unwrap_or_default();
             let manifest_rel = dep
                 .manifest_path
                 .strip_prefix(project_root)
@@ -92,8 +93,9 @@ pub fn run_detect(
                 ecosystem: dep.ecosystem,
                 tier,
                 url,
-                description,
+                description: md.description,
                 manifest_path: Some(manifest_rel),
+                forge: md.forge,
             });
             // Dedup by canonical URI.
             let uri = source.to_uri().to_string();

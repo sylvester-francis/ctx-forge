@@ -1,0 +1,4 @@
+{
+  "description": "The React Framework",
+  "repository": { "url": "git+https://github.com/vercel/next.js.git" }
+}

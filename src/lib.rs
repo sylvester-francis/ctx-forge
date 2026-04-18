@@ -16,6 +16,7 @@ pub mod extract;
 #[cfg(feature = "fetch")]
 pub mod fetch;
 pub mod format;
+pub mod gh;
 pub mod git;
 pub mod lang;
 #[cfg(feature = "mcp")]

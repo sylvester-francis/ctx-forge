@@ -359,6 +359,12 @@ impl AppData {
                 ));
                 None
             }
+            A::AddGh => {
+                self.pending_action = Some(crate::tui::mode::PendingAction::TextPrompt(
+                    TextPromptPurpose::AddGh,
+                ));
+                None
+            }
             A::ClearPromptOverride => {
                 self.clear_prompt_override();
                 None
@@ -606,6 +612,21 @@ impl AppData {
                     Err(e) => self.set_status(format!("url add: {e}")),
                 }
             }
+            P::AddGh => {
+                use crate::bundle::Item;
+                match Item::parse_add_argument(&trimmed) {
+                    Ok(item) if matches!(item.source, crate::source::Source::Gh(_)) => {
+                        self.bundle.add(item);
+                        let _ = self.bundle.save(&self.root);
+                        self.reload_bundle();
+                        self.set_status(format!("attached: {trimmed}"));
+                    }
+                    Ok(_) => self.set_status(
+                        "github attach: input is not a gh:// URI or github.com URL".to_string(),
+                    ),
+                    Err(e) => self.set_status(format!("github attach: {e}")),
+                }
+            }
         }
     }
 
@@ -804,6 +825,17 @@ fn handle_text_prompt(purpose: crate::tui::mode::TextPromptPurpose) {
             });
             bundle.save(&root).map_err(|e| e.to_string())?;
             Ok(format!("added url: {trimmed}"))
+        })(),
+        P::AddGh => (|| -> std::result::Result<String, String> {
+            use crate::bundle::{Bundle, Item};
+            let item = Item::parse_add_argument(&trimmed).map_err(|e| e.to_string())?;
+            if !matches!(item.source, crate::source::Source::Gh(_)) {
+                return Err("input is not a gh:// URI or github.com URL".to_string());
+            }
+            let mut bundle = Bundle::load_or_default(&root).map_err(|e| e.to_string())?;
+            bundle.add(item);
+            bundle.save(&root).map_err(|e| e.to_string())?;
+            Ok(format!("attached: {trimmed}"))
         })(),
     };
 

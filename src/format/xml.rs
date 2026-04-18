@@ -58,15 +58,42 @@ fn write_project_stack(out: &mut String, docs: &[&ResolvedItem]) {
                 .as_deref()
                 .map(|x| format!(" description=\"{}\"", escape_attr(x)))
                 .unwrap_or_default();
-            out.push_str(&format!(
-                "    <dep tier=\"{}\" ecosystem=\"{}\" name=\"{}\" version=\"{}\" url=\"{}\"{}/>\n",
-                tier_str,
-                d.ecosystem.as_str(),
-                escape_attr(&d.name),
-                escape_attr(&d.version),
-                escape_attr(&d.url),
-                desc_attr,
-            ));
+            if let Some(f) = &d.forge {
+                out.push_str(&format!(
+                    "    <dep tier=\"{}\" ecosystem=\"{}\" name=\"{}\" version=\"{}\" url=\"{}\"{}>\n",
+                    tier_str,
+                    d.ecosystem.as_str(),
+                    escape_attr(&d.name),
+                    escape_attr(&d.version),
+                    escape_attr(&d.url),
+                    desc_attr,
+                ));
+                let host = format!("{:?}", f.host).to_lowercase();
+                let releases_attr = f
+                    .releases_url()
+                    .map(|u| format!(" releases=\"{}\"", escape_attr(&u)))
+                    .unwrap_or_default();
+                let issues_attr = f
+                    .issues_url()
+                    .map(|u| format!(" issues=\"{}\"", escape_attr(&u)))
+                    .unwrap_or_default();
+                out.push_str(&format!(
+                    "      <forge host=\"{host}\" path=\"{}\" url=\"{}\"{releases_attr}{issues_attr}/>\n",
+                    escape_attr(&f.path),
+                    escape_attr(&f.raw_url),
+                ));
+                out.push_str("    </dep>\n");
+            } else {
+                out.push_str(&format!(
+                    "    <dep tier=\"{}\" ecosystem=\"{}\" name=\"{}\" version=\"{}\" url=\"{}\"{}/>\n",
+                    tier_str,
+                    d.ecosystem.as_str(),
+                    escape_attr(&d.name),
+                    escape_attr(&d.version),
+                    escape_attr(&d.url),
+                    desc_attr,
+                ));
+            }
         }
     }
     out.push_str("  </project-stack>\n");
@@ -109,6 +136,7 @@ fn write_item(out: &mut String, r: &ResolvedItem, no_provenance: bool) {
         // Docs items render in <project-stack>; this branch is unreachable
         // when called via `render` but kept for exhaustiveness.
         Source::Docs(_) => return,
+        Source::Gh(g) => g.resource.browser_url(),
     };
 
     out.push_str("  <");
@@ -147,7 +175,7 @@ fn write_item(out: &mut String, r: &ResolvedItem, no_provenance: bool) {
     }
 
     match &r.item.source {
-        Source::File(_) | Source::Url(_) | Source::Docs(_) => {}
+        Source::File(_) | Source::Url(_) | Source::Docs(_) | Source::Gh(_) => {}
         Source::Range(range) => {
             out.push_str(&format!(" lines=\"{}-{}\"", range.start, range.end));
         }

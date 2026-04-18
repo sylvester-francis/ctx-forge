@@ -38,7 +38,7 @@ pub fn resolve_one(item: &Item, project_root: &Path) -> Result<ResolvedItem> {
         Source::Func(_) | Source::Type(_) => Err(CtxforgeError::Msg(
             "function/type extraction requires `cargo install ctxforge --features=extract`".into(),
         )),
-        Source::Url(_) => Err(CtxforgeError::Msg(
+        Source::Url(_) | Source::Gh(_) => Err(CtxforgeError::Msg(
             "network sources require resolve::resolve_all_with_ctx".into(),
         )),
         Source::Docs(d) => {
@@ -187,11 +187,20 @@ pub fn resolve_one_with_ctx(item: &Item, ctx: &ResolveCtx) -> Result<ResolvedIte
 }
 
 fn resolve_network(item: &Item, ctx: &ResolveCtx) -> Result<ResolvedItem> {
-    let Source::Url(u) = &item.source else {
-        return Err(CtxforgeError::Msg(
-            "resolve_network called on non-Url source".into(),
-        ));
-    };
+    match &item.source {
+        Source::Url(u) => resolve_network_url(item, u, ctx),
+        Source::Gh(g) => resolve_network_gh(item, g, ctx),
+        _ => Err(CtxforgeError::Msg(
+            "resolve_network called on non-network source".into(),
+        )),
+    }
+}
+
+fn resolve_network_url(
+    item: &Item,
+    u: &crate::source::UrlSource,
+    ctx: &ResolveCtx,
+) -> Result<ResolvedItem> {
     let uri_str = item.source.to_uri().to_string();
     let key = item.source.cache_key();
     let ttl = item.source.default_ttl().as_secs();
@@ -266,6 +275,111 @@ fn resolve_network(item: &Item, ctx: &ResolveCtx) -> Result<ResolvedItem> {
             Err(e) => Err(CtxforgeError::Fetch(format!("{uri_str}: {e}"))),
         },
     }
+}
+
+#[cfg(feature = "fetch")]
+fn resolve_network_gh(
+    item: &Item,
+    g: &crate::source::GhSource,
+    ctx: &ResolveCtx,
+) -> Result<ResolvedItem> {
+    let uri_str = item.source.to_uri().to_string();
+    let key = item.source.cache_key();
+    let ttl = item.source.default_ttl().as_secs();
+    let cache = ctx
+        .cache
+        .ok_or_else(|| CtxforgeError::Cache("cache not initialized".into()))?;
+
+    let lookup = cache.get(&key)?;
+    let (rendered_body, meta, stale) = match lookup {
+        CacheRead::Fresh { body, meta } => {
+            let s = String::from_utf8_lossy(&body).into_owned();
+            (s, meta, false)
+        }
+        CacheRead::Stale { body, meta } if ctx.offline => {
+            ctx.warn(format!(
+                "offline; serving stale {uri_str} from {}",
+                meta.fetched_at
+            ));
+            let s = String::from_utf8_lossy(&body).into_owned();
+            (s, meta, true)
+        }
+        CacheRead::Stale { body, meta } => match crate::gh::fetch::fetch_resource(&g.resource) {
+            Ok(fetched) => {
+                let rendered = crate::gh::render::render_markdown_section(&g.resource, &fetched);
+                let meta2 = cache.put(
+                    &key,
+                    &uri_str,
+                    item.source.scheme_name(),
+                    rendered.as_bytes(),
+                    ttl,
+                    None,
+                    Some("text/markdown".into()),
+                )?;
+                (rendered, meta2, false)
+            }
+            Err(e) if !ctx.strict => {
+                ctx.warn(format!(
+                    "refresh failed for {uri_str}: {e} — serving cached from {}",
+                    meta.fetched_at,
+                ));
+                let s = String::from_utf8_lossy(&body).into_owned();
+                (s, meta, true)
+            }
+            Err(e) => return Err(CtxforgeError::Fetch(format!("{uri_str}: {e}"))),
+        },
+        CacheRead::Miss if ctx.offline => {
+            let msg = format!("offline and no cache for {uri_str}");
+            if ctx.strict || ctx.mode == ResolveMode::Mcp {
+                return Err(CtxforgeError::Fetch(msg));
+            }
+            return Ok(placeholder(item, msg));
+        }
+        CacheRead::Miss => match crate::gh::fetch::fetch_resource(&g.resource) {
+            Ok(fetched) => {
+                let rendered = crate::gh::render::render_markdown_section(&g.resource, &fetched);
+                let meta = cache.put(
+                    &key,
+                    &uri_str,
+                    item.source.scheme_name(),
+                    rendered.as_bytes(),
+                    ttl,
+                    None,
+                    Some("text/markdown".into()),
+                )?;
+                (rendered, meta, false)
+            }
+            Err(e) if !ctx.strict && ctx.mode == ResolveMode::Cli => {
+                ctx.warn(format!("{uri_str}: {e}"));
+                return Ok(placeholder(item, e.to_string()));
+            }
+            Err(e) => return Err(CtxforgeError::Fetch(format!("{uri_str}: {e}"))),
+        },
+    };
+    let provenance = Provenance::network(
+        meta.uri.clone(),
+        meta.body_sha256.clone(),
+        meta.fetched_at,
+        meta.etag.clone(),
+        stale,
+    );
+    Ok(ResolvedItem {
+        item: item.clone(),
+        content: rendered_body,
+        language: "markdown",
+        provenance,
+    })
+}
+
+#[cfg(not(feature = "fetch"))]
+fn resolve_network_gh(
+    _item: &Item,
+    _g: &crate::source::GhSource,
+    _ctx: &ResolveCtx,
+) -> Result<ResolvedItem> {
+    Err(CtxforgeError::Msg(
+        "gh:// requires ctxforge built with --features=fetch".into(),
+    ))
 }
 
 #[cfg(feature = "fetch")]
@@ -442,6 +556,27 @@ mod tests {
     }
 
     #[test]
+    fn gh_source_offline_miss_in_cli_mode_returns_placeholder() {
+        use crate::source::{GhResource, GhSource};
+        let td = TempDir::new().unwrap();
+        let cache = ContentCache::open(td.path().to_path_buf()).unwrap();
+        let item = Item {
+            source: Source::Gh(GhSource {
+                resource: GhResource::Issue {
+                    owner: "foo".into(),
+                    repo: "bar".into(),
+                    number: 1,
+                },
+            }),
+            label: None,
+        };
+        let mut ctx = ResolveCtx::cli(td.path(), Some(&cache));
+        ctx.offline = true;
+        let r = resolve_one_with_ctx(&item, &ctx).unwrap();
+        assert!(r.provenance.failed);
+    }
+
+    #[test]
     fn docs_source_resolves_to_rendered_line() {
         use crate::source::{DocsSource, DocsTier, Ecosystem};
         let item = Item {
@@ -453,6 +588,7 @@ mod tests {
                 url: "https://docs.rs/axum/0.7.5/".into(),
                 description: Some("Web framework".into()),
                 manifest_path: None,
+                forge: None,
             }),
             label: None,
         };

@@ -1,0 +1,9 @@
+{
+  "name": "v0.7.5",
+  "tag_name": "v0.7.5",
+  "draft": false,
+  "prerelease": false,
+  "author": { "login": "carol" },
+  "published_at": "2025-11-10T00:00:00Z",
+  "body": "Bug fixes and small performance wins. See CHANGELOG for full list."
+}

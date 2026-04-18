@@ -1,0 +1,7 @@
+{
+  "crate": {
+    "name": "axum",
+    "description": "Ergonomic and modular web framework.",
+    "repository": "https://github.com/tokio-rs/axum"
+  }
+}

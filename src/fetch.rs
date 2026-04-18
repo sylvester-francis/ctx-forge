@@ -24,6 +24,10 @@ pub struct FetchConfig {
     pub allow_http: bool,
     pub allow_private_net: bool,
     pub strict_charset: bool,
+    /// Bearer token sent in the Authorization header when `Some`.
+    /// Used for GitHub API calls; populated from the `GITHUB_TOKEN`
+    /// env var by `gh::fetch`.
+    pub auth_token: Option<String>,
 }
 
 impl Default for FetchConfig {
@@ -35,6 +39,7 @@ impl Default for FetchConfig {
             allow_http: false,
             allow_private_net: false,
             strict_charset: false,
+            auth_token: None,
         }
     }
 }
@@ -56,10 +61,13 @@ pub fn fetch(url: &str, cfg: &FetchConfig) -> Result<FetchResult, String> {
         resolve_host_and_check_ssrf(&host, port, cfg.allow_private_net)?;
 
         let agent = build_agent(cfg);
-        let req = agent.get(&current).header(
+        let mut req = agent.get(&current).header(
             "User-Agent",
             format!("ctxforge/{}", env!("CARGO_PKG_VERSION")),
         );
+        if let Some(token) = &cfg.auth_token {
+            req = req.header("Authorization", format!("Bearer {token}"));
+        }
         let resp = req.call().map_err(|e| format!("HTTP {current}: {e}"))?;
 
         let status = resp.status().as_u16();

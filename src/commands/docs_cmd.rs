@@ -89,6 +89,7 @@ pub fn add(root: &CtxforgeRoot, name: String, ecosystem: Option<String>) -> Resu
             url,
             description,
             manifest_path: None,
+            forge: None,
         }),
         label: None,
     });
