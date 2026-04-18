@@ -10,9 +10,7 @@ use crate::memory::Note;
 use crate::resolve::ResolvedItem;
 use crate::source::Source;
 
-pub(crate) fn partition_docs(
-    items: &[ResolvedItem],
-) -> (Vec<&ResolvedItem>, Vec<&ResolvedItem>) {
+pub(crate) fn partition_docs(items: &[ResolvedItem]) -> (Vec<&ResolvedItem>, Vec<&ResolvedItem>) {
     let mut docs = Vec::new();
     let mut other = Vec::new();
     for item in items {

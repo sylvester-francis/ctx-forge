@@ -219,7 +219,10 @@ tokio = { version = "1.38", features = ["full"] }
         let deps = parse(&manifest).unwrap();
         assert_eq!(deps.len(), 2);
         assert!(deps.iter().any(|d| d.name == "axum" && d.version == "0.7"));
-        assert!(deps.iter().any(|d| d.name == "tokio" && d.version == "1.38"));
+        assert!(
+            deps.iter()
+                .any(|d| d.name == "tokio" && d.version == "1.38")
+        );
     }
 
     #[test]
@@ -342,11 +345,7 @@ name = "worker"
 members = ["crates/*"]
 "#,
         );
-        write(
-            &td,
-            "crates/api/Cargo.toml",
-            "[package]\nname = \"api\"\n",
-        );
+        write(&td, "crates/api/Cargo.toml", "[package]\nname = \"api\"\n");
         write(
             &td,
             "crates/worker/Cargo.toml",

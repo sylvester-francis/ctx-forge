@@ -191,7 +191,10 @@ mod tests {
         );
         let deps = parse(&p).unwrap();
         assert_eq!(deps.len(), 2);
-        assert!(deps.iter().any(|d| d.name == "next" && d.version == "14.2.0"));
+        assert!(
+            deps.iter()
+                .any(|d| d.name == "next" && d.version == "14.2.0")
+        );
     }
 
     #[test]

@@ -33,6 +33,9 @@ const SKIP_DIRS: &[&str] = &[
     ".venv",
     "venv",
     ".tox",
+    ".worktrees",
+    ".claude",
+    "vendor",
 ];
 
 /// Walk upward from `start` until we find a recognized manifest.

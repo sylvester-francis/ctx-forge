@@ -97,14 +97,12 @@ impl Source {
             "docs" => {
                 // Path is /<ecosystem>/<name>@<version>
                 let trimmed = uri.path.trim_start_matches('/');
-                let (eco_str, rest) = trimmed.split_once('/').ok_or(
-                    UriParseError::BadFragment(
-                        "docs URI must be docs:///<eco>/<name>@<version>",
-                    ),
-                )?;
-                let ecosystem = Ecosystem::from_str(eco_str).ok_or(
-                    UriParseError::BadFragment("docs URI has unknown ecosystem segment"),
-                )?;
+                let (eco_str, rest) = trimmed.split_once('/').ok_or(UriParseError::BadFragment(
+                    "docs URI must be docs:///<eco>/<name>@<version>",
+                ))?;
+                let ecosystem = Ecosystem::from_str(eco_str).ok_or(UriParseError::BadFragment(
+                    "docs URI has unknown ecosystem segment",
+                ))?;
                 let (name, version) = rest
                     .rsplit_once('@')
                     .ok_or(UriParseError::BadFragment("docs URI requires @<version>"))?;

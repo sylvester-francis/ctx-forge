@@ -9,11 +9,7 @@ use crate::paths::{self, CtxforgeRoot};
 use crate::source::{Ecosystem, Source};
 use std::path::PathBuf;
 
-pub fn detect(
-    root: &CtxforgeRoot,
-    all: bool,
-    path: Option<PathBuf>,
-) -> Result<()> {
+pub fn detect(root: &CtxforgeRoot, all: bool, path: Option<PathBuf>) -> Result<()> {
     let mut bundle = Bundle::load_or_default(root)?;
     let project_root = root.project_root();
 
@@ -171,10 +167,12 @@ pub fn refresh(root: &CtxforgeRoot) -> Result<()> {
         };
         let abs = project_root.join(mp);
         let key = (abs.clone(), d.ecosystem);
-        manifest_deps.entry(key).or_insert_with(|| match d.ecosystem {
-            Ecosystem::Rust => docs::parsers::cargo::parse(&abs).unwrap_or_default(),
-            _ => Vec::new(),
-        });
+        manifest_deps
+            .entry(key)
+            .or_insert_with(|| match d.ecosystem {
+                Ecosystem::Rust => docs::parsers::cargo::parse(&abs).unwrap_or_default(),
+                _ => Vec::new(),
+            });
     }
 
     let cache = paths::global_cache_dir().and_then(|d| ContentCache::open(d).ok());

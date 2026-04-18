@@ -117,10 +117,14 @@ fn monorepo_detects_both_ecosystems() {
     };
     run_detect(&mut bundle, root.project_root(), &options, None).unwrap();
 
-    let has_rust = bundle.items.iter().any(|i| matches!(&i.source,
-        Source::Docs(d) if d.ecosystem == Ecosystem::Rust));
-    let has_js = bundle.items.iter().any(|i| matches!(&i.source,
-        Source::Docs(d) if d.ecosystem == Ecosystem::Js));
+    let has_rust = bundle.items.iter().any(|i| {
+        matches!(&i.source,
+        Source::Docs(d) if d.ecosystem == Ecosystem::Rust)
+    });
+    let has_js = bundle.items.iter().any(|i| {
+        matches!(&i.source,
+        Source::Docs(d) if d.ecosystem == Ecosystem::Js)
+    });
     assert!(has_rust, "expected Rust deps from crates/api");
     assert!(has_js, "expected JS deps from apps/web");
 }
@@ -135,8 +139,7 @@ fn token_budget_guard_rust_fixture_stays_under_300() {
     };
     run_detect(&mut bundle, root.project_root(), &options, None).unwrap();
 
-    let resolved =
-        ctxforge::resolve::resolve_all(&bundle.items, root.project_root()).unwrap();
+    let resolved = ctxforge::resolve::resolve_all(&bundle.items, root.project_root()).unwrap();
     let rendered =
         ctxforge::format::render(ctxforge::format::Format::Markdown, &resolved, &[], true);
 

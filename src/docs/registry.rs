@@ -65,7 +65,10 @@ mod tests {
         assert_eq!(r.classify(Ecosystem::Rust, "tokio"), DocsTier::AsyncRuntime);
         assert_eq!(r.classify(Ecosystem::Rust, "sqlx"), DocsTier::Database);
         assert_eq!(r.classify(Ecosystem::Js, "next"), DocsTier::Framework);
-        assert_eq!(r.classify(Ecosystem::Python, "fastapi"), DocsTier::Framework);
+        assert_eq!(
+            r.classify(Ecosystem::Python, "fastapi"),
+            DocsTier::Framework
+        );
         assert_eq!(
             r.classify(Ecosystem::Go, "github.com/gin-gonic/gin"),
             DocsTier::Framework,

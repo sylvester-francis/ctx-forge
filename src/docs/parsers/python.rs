@@ -185,7 +185,10 @@ dependencies = [
         );
         let deps = parse(&p).unwrap();
         assert!(deps.iter().any(|d| d.name == "fastapi"));
-        assert!(deps.iter().any(|d| d.name == "sqlalchemy" && d.version == "2.0.30"));
+        assert!(
+            deps.iter()
+                .any(|d| d.name == "sqlalchemy" && d.version == "2.0.30")
+        );
         assert!(deps.iter().any(|d| d.name == "httpx"));
     }
 

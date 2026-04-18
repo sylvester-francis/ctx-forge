@@ -14,11 +14,7 @@ const DESC_TTL_SECS: u64 = 7 * 86_400;
 /// Fetch and cache a one-line description. Returns None on any failure
 /// (description is optional everywhere; we never fail the overall detect
 /// pipeline because a registry API is flaky).
-pub fn fetch_description(
-    cache: &ContentCache,
-    ecosystem: Ecosystem,
-    name: &str,
-) -> Option<String> {
+pub fn fetch_description(cache: &ContentCache, ecosystem: Ecosystem, name: &str) -> Option<String> {
     let url = super::resolve::description_url(ecosystem, name)?;
     let key = cache_key(ecosystem, name);
 
@@ -59,9 +55,7 @@ pub fn fetch_description(
 }
 
 fn cache_key(ecosystem: Ecosystem, name: &str) -> String {
-    crate::cache::sha256_hex(
-        format!("description://{}/{}", ecosystem.as_str(), name).as_bytes(),
-    )
+    crate::cache::sha256_hex(format!("description://{}/{}", ecosystem.as_str(), name).as_bytes())
 }
 
 fn extract(ecosystem: Ecosystem, body: &[u8]) -> Option<String> {

@@ -151,13 +151,11 @@ fn write_project_stack(out: &mut String, docs: &[&ResolvedItem], all_items: &[Re
     for manifest in ordered_manifests {
         let deps = &by_manifest[&manifest];
         let eco = deps.first().unwrap().ecosystem;
-        out.push_str(&format!(
-            "### `{}` ({})\n\n",
-            manifest,
-            eco.display_name(),
-        ));
-        let mut tiered: Vec<&&DocsSource> =
-            deps.iter().filter(|d| d.tier != DocsTier::Library).collect();
+        out.push_str(&format!("### `{}` ({})\n\n", manifest, eco.display_name(),));
+        let mut tiered: Vec<&&DocsSource> = deps
+            .iter()
+            .filter(|d| d.tier != DocsTier::Library)
+            .collect();
         tiered.sort_by_key(|d| d.tier_order());
         for d in &tiered {
             out.push_str(&d.render_line());
@@ -396,8 +394,18 @@ mod tests {
         // 3 files under services/api, 1 file under apps/web.
         // Expect services/api subsection before apps/web.
         let items = vec![
-            docs_item("services/api/go.mod", "gin", DocsTier::Framework, Ecosystem::Go),
-            docs_item("apps/web/package.json", "next", DocsTier::Framework, Ecosystem::Js),
+            docs_item(
+                "services/api/go.mod",
+                "gin",
+                DocsTier::Framework,
+                Ecosystem::Go,
+            ),
+            docs_item(
+                "apps/web/package.json",
+                "next",
+                DocsTier::Framework,
+                Ecosystem::Js,
+            ),
             file_item("services/api/main.go"),
             file_item("services/api/handler.go"),
             file_item("services/api/db.go"),
