@@ -17,6 +17,7 @@ pub mod resume;
 pub mod rm;
 pub mod save;
 pub mod status;
+pub mod suggest;
 pub mod template;
 
 use crate::cli::{Cli, Command};
@@ -160,6 +161,16 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                 DocsAction::List => docs_cmd::list(&root),
                 DocsAction::Refresh => docs_cmd::refresh(&root),
             }
+        }
+        Some(Command::Suggest {
+            all,
+            missing_only,
+            json,
+            apply,
+            yes,
+        }) => {
+            let code = suggest::run(&root, all, missing_only, json, apply, yes)?;
+            std::process::exit(code);
         }
     }
 }
