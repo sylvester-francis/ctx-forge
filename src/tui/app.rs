@@ -1071,11 +1071,8 @@ impl AppData {
         let mut ok = 0;
         let mut fail = 0;
         for m in &report.missing {
-            if crate::suggest::apply_suggestion(
-                &crate::suggest::Suggestion::Missing(m),
-                &self.root,
-            )
-            .is_ok()
+            if crate::suggest::apply_suggestion(&crate::suggest::Suggestion::Missing(m), &self.root)
+                .is_ok()
             {
                 ok += 1;
             } else {

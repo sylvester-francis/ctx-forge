@@ -46,11 +46,7 @@ pub fn run(
 }
 
 fn exit_code(report: &suggest::SuggestReport, applied: bool) -> i32 {
-    if report.is_empty() || applied {
-        0
-    } else {
-        2
-    }
+    if report.is_empty() || applied { 0 } else { 2 }
 }
 
 fn confirm_apply(total: usize) -> bool {

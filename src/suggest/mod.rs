@@ -23,20 +23,12 @@ use std::path::{Path, PathBuf};
 
 pub use report::{MissingDep, StaleDep, StaleReason, SuggestReport};
 
+#[derive(Default)]
 pub struct SuggestOptions {
     /// Default: scan bundle items only. With --all: walk whole project.
     pub scan_all_project: bool,
     /// Skip stale check; only flag missing.
     pub missing_only: bool,
-}
-
-impl Default for SuggestOptions {
-    fn default() -> Self {
-        Self {
-            scan_all_project: false,
-            missing_only: false,
-        }
-    }
 }
 
 /// Scan, compare, produce a report. Pure function — no filesystem

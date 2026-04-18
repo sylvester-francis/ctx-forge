@@ -75,7 +75,9 @@ fn rust_mixed_stale_flagged_when_docs_exists_without_import() {
     let mut bundle = Bundle::new();
     bundle.items.push(file_item("src/main.rs"));
     bundle.items.push(file_item("src/db.rs"));
-    bundle.items.push(docs_item("unused-crate", Ecosystem::Rust));
+    bundle
+        .items
+        .push(docs_item("unused-crate", Ecosystem::Rust));
 
     let report = run_suggest(&bundle, &root, &SuggestOptions::default()).unwrap();
     let stale_names: Vec<String> = report.stale.iter().map(|s| s.name.clone()).collect();

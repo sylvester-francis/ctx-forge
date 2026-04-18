@@ -968,10 +968,8 @@ fn tool_suggest_apply(root: &CtxforgeRoot, args: &Value) -> Result<Value, String
         .get("missing_only")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let filter: Option<std::collections::HashSet<String>> = args
-        .get("names")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
+    let filter: Option<std::collections::HashSet<String>> =
+        args.get("names").and_then(|v| v.as_array()).map(|arr| {
             arr.iter()
                 .filter_map(|x| x.as_str().map(String::from))
                 .collect()

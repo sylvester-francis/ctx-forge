@@ -47,9 +47,8 @@ fn scan_rust(source: &str) -> Vec<String> {
 }
 
 fn scan_js(source: &str) -> Vec<String> {
-    static IMPORT_FROM: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r#"(?m)^\s*import\s+.+?\s+from\s+['"]([^'"]+)['"]"#).unwrap()
-    });
+    static IMPORT_FROM: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r#"(?m)^\s*import\s+.+?\s+from\s+['"]([^'"]+)['"]"#).unwrap());
     static IMPORT_BARE: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r#"(?m)^\s*import\s+['"]([^'"]+)['"]"#).unwrap());
     static REQUIRE: LazyLock<Regex> =
@@ -102,8 +101,7 @@ fn scan_go(source: &str) -> Vec<String> {
         LazyLock::new(|| Regex::new(r#"(?m)^\s*import\s+"([^"]+)""#).unwrap());
     static BLOCK: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r#"(?s)import\s*\(([^)]*)\)"#).unwrap());
-    static QUOTED: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r#""([^"]+)""#).unwrap());
+    static QUOTED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#""([^"]+)""#).unwrap());
 
     let mut out = Vec::new();
     for cap in SINGLE.captures_iter(source) {
@@ -171,7 +169,8 @@ mod tests {
 
     #[test]
     fn rust_skips_stdlib_and_scope_keywords() {
-        let src = "use std::fs;\nuse crate::foo;\nuse self::bar;\nuse super::baz;\nuse core::mem;\n";
+        let src =
+            "use std::fs;\nuse crate::foo;\nuse self::bar;\nuse super::baz;\nuse core::mem;\n";
         let imports = scan_imports(src, "rust");
         assert!(imports.is_empty());
     }
