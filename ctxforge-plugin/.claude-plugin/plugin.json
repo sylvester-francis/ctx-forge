@@ -1,6 +1,6 @@
 {
   "name": "ctxforge",
-  "description": "Context engineering for AI coding agents — assemble, compress, and export perfect context bundles with live token counting. 15 MCP tools for building context bundles, managing profiles, persistent memory, and prompt templates.",
+  "description": "Context engineering for AI coding agents — assemble, enrich, and export token-disciplined prompts. 31 MCP tools for building bundles, managing profiles / templates / cache, gathering library docs, attaching GitHub issues and PRs, and auto-suggesting missing context. Deterministic; no LLM-in-the-loop.",
   "author": {
     "name": "Sylvester Francis"
   }
