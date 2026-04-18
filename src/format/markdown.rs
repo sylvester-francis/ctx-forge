@@ -328,6 +328,7 @@ mod tests {
                 url: "https://docs.rs/axum/0.7.5/".into(),
                 description: Some("Ergonomic web framework".into()),
                 manifest_path: Some("Cargo.toml".into()),
+                forge: None,
             }),
             label: None,
         };
@@ -361,6 +362,7 @@ mod tests {
                     url: "https://example/".into(),
                     description: None,
                     manifest_path: Some(manifest.into()),
+                    forge: None,
                 }),
                 label: None,
             };

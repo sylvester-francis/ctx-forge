@@ -114,6 +114,7 @@ impl Source {
                     url: String::new(),
                     description: None,
                     manifest_path: None,
+                    forge: None,
                 }))
             }
             _ => Err(UriParseError::UnknownScheme(uri.scheme.clone())),

@@ -453,6 +453,7 @@ mod tests {
                 url: "https://docs.rs/axum/0.7.5/".into(),
                 description: Some("Web framework".into()),
                 manifest_path: None,
+                forge: None,
             }),
             label: None,
         };

@@ -4,6 +4,7 @@
 //! body. Network I/O at `docs detect` time only (to fetch the one-line
 //! description); resolve-time is purely local.
 
+use crate::gh::forge::ForgeRef;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -85,6 +86,8 @@ pub struct DocsSource {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manifest_path: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forge: Option<ForgeRef>,
 }
 
 impl DocsSource {
@@ -152,6 +155,7 @@ mod tests {
             url: "https://docs.rs/axum/0.7.5/".into(),
             description: Some("Ergonomic web framework".into()),
             manifest_path: None,
+            forge: None,
         };
         assert_eq!(
             d.render_line(),
@@ -169,7 +173,45 @@ mod tests {
             url: "https://pkg.go.dev/github.com/gin-gonic/gin@v1.10.0".into(),
             description: None,
             manifest_path: None,
+            forge: None,
         };
         assert!(d.render_line().ends_with("@v1.10.0"));
+    }
+
+    #[test]
+    fn forge_roundtrips_on_docs_source() {
+        use crate::gh::forge::{ForgeHost, ForgeRef};
+        let d = DocsSource {
+            name: "axum".into(),
+            version: "0.7.5".into(),
+            ecosystem: Ecosystem::Rust,
+            tier: DocsTier::Framework,
+            url: "https://docs.rs/axum/0.7.5/".into(),
+            description: None,
+            manifest_path: None,
+            forge: Some(ForgeRef {
+                host: ForgeHost::GitHub,
+                path: "tokio-rs/axum".into(),
+                raw_url: "https://github.com/tokio-rs/axum".into(),
+            }),
+        };
+        let json = serde_json::to_string(&d).unwrap();
+        assert!(json.contains(r#""host":"github""#));
+        let back: DocsSource = serde_json::from_str(&json).unwrap();
+        assert_eq!(d, back);
+    }
+
+    #[test]
+    fn forge_absent_deserialises_as_none() {
+        // Existing v2 bundles (pre-P3) don't have a `forge` field.
+        let raw = r#"{
+            "name": "axum",
+            "version": "0.7.5",
+            "ecosystem": "rust",
+            "tier": "framework",
+            "url": "https://docs.rs/axum/0.7.5/"
+        }"#;
+        let d: DocsSource = serde_json::from_str(raw).unwrap();
+        assert!(d.forge.is_none());
     }
 }

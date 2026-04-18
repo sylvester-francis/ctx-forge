@@ -94,6 +94,7 @@ pub fn run_detect(
                 url,
                 description,
                 manifest_path: Some(manifest_rel),
+                forge: None,
             });
             // Dedup by canonical URI.
             let uri = source.to_uri().to_string();
