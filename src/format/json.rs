@@ -84,6 +84,7 @@ pub fn render(items: &[ResolvedItem], memory: &[Note], no_provenance: bool) -> S
                     t.path.display().to_string(),
                 ),
                 Source::Url(u) => ("url", None, None, u.url.clone()),
+                Source::Docs(d) => ("docs", None, None, d.url.clone()),
             };
             JsonItem {
                 path,

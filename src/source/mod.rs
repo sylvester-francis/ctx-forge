@@ -30,6 +30,7 @@ pub enum Source {
     Func(FuncSource),
     Type(TypeSource),
     Url(UrlSource),
+    Docs(DocsSource),
 }
 
 impl Source {
@@ -93,6 +94,30 @@ impl Source {
                 }
                 Ok(Source::Url(UrlSource { url }))
             }
+            "docs" => {
+                // Path is /<ecosystem>/<name>@<version>
+                let trimmed = uri.path.trim_start_matches('/');
+                let (eco_str, rest) = trimmed.split_once('/').ok_or(
+                    UriParseError::BadFragment(
+                        "docs URI must be docs:///<eco>/<name>@<version>",
+                    ),
+                )?;
+                let ecosystem = Ecosystem::from_str(eco_str).ok_or(
+                    UriParseError::BadFragment("docs URI has unknown ecosystem segment"),
+                )?;
+                let (name, version) = rest
+                    .rsplit_once('@')
+                    .ok_or(UriParseError::BadFragment("docs URI requires @<version>"))?;
+                Ok(Source::Docs(DocsSource {
+                    name: name.to_string(),
+                    version: version.to_string(),
+                    ecosystem,
+                    tier: DocsTier::Library,
+                    url: String::new(),
+                    description: None,
+                    manifest_path: None,
+                }))
+            }
             _ => Err(UriParseError::UnknownScheme(uri.scheme.clone())),
         }
     }
@@ -128,6 +153,13 @@ impl Source {
                 fragment: Some(t.name.clone()),
             },
             Source::Url(u) => parse_url_into_uri_parts(&u.url),
+            Source::Docs(d) => Uri {
+                scheme: "docs".into(),
+                authority: None,
+                path: format!("/{}/{}@{}", d.ecosystem.as_str(), d.name, d.version),
+                query: vec![],
+                fragment: None,
+            },
         }
     }
 
@@ -138,6 +170,7 @@ impl Source {
     pub fn default_ttl(&self) -> Duration {
         match self {
             Source::Url(_) => Duration::from_secs(86_400),
+            Source::Docs(_) => Duration::from_secs(7 * 86_400),
             _ => Duration::from_secs(0),
         }
     }
@@ -158,6 +191,7 @@ impl Source {
             Source::Func(f) => Some(&f.path),
             Source::Type(t) => Some(&t.path),
             Source::Url(_) => None,
+            Source::Docs(_) => None,
         }
     }
 
@@ -168,6 +202,7 @@ impl Source {
             Source::Func(f) => format!("fn:{} ({})", f.name, f.path.display()),
             Source::Type(t) => format!("type:{} ({})", t.name, t.path.display()),
             Source::Url(u) => u.url.clone(),
+            Source::Docs(d) => format!("{}@{}", d.name, d.version),
         }
     }
 
@@ -178,6 +213,7 @@ impl Source {
             Source::Func(_) => "func",
             Source::Type(_) => "type",
             Source::Url(_) => "url",
+            Source::Docs(_) => "docs",
         }
     }
 }
@@ -274,6 +310,29 @@ mod tests {
         let s = Source::from_uri(&uri).unwrap();
         assert!(matches!(&s, Source::Func(f) if f.name == "parse_expr"));
         assert_eq!(s.to_uri().to_string(), "func:///src/p.rs#parse_expr");
+    }
+
+    #[test]
+    fn docs_source_roundtrip() {
+        let uri: Uri = "docs:///rust/axum@0.7.5".parse().unwrap();
+        let s = Source::from_uri(&uri).unwrap();
+        assert!(matches!(&s, Source::Docs(d)
+            if d.name == "axum" && d.version == "0.7.5" && d.ecosystem == Ecosystem::Rust));
+        assert_eq!(s.to_uri().to_string(), "docs:///rust/axum@0.7.5");
+    }
+
+    #[test]
+    fn docs_source_go_module_with_slashes() {
+        let uri: Uri = "docs:///go/github.com/gin-gonic/gin@v1.10.0"
+            .parse()
+            .unwrap();
+        let s = Source::from_uri(&uri).unwrap();
+        assert!(matches!(&s, Source::Docs(d)
+            if d.name == "github.com/gin-gonic/gin" && d.version == "v1.10.0"));
+        assert_eq!(
+            s.to_uri().to_string(),
+            "docs:///go/github.com/gin-gonic/gin@v1.10.0",
+        );
     }
 
     #[test]

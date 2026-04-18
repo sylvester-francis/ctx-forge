@@ -76,6 +76,7 @@ fn write_item(out: &mut String, r: &ResolvedItem, no_provenance: bool) {
         Source::Func(f) => f.path.display().to_string(),
         Source::Type(t) => t.path.display().to_string(),
         Source::Url(u) => u.url.clone(),
+        Source::Docs(d) => d.url.clone(),
     };
 
     out.push_str("  <");
@@ -114,7 +115,7 @@ fn write_item(out: &mut String, r: &ResolvedItem, no_provenance: bool) {
     }
 
     match &r.item.source {
-        Source::File(_) | Source::Url(_) => {}
+        Source::File(_) | Source::Url(_) | Source::Docs(_) => {}
         Source::Range(range) => {
             out.push_str(&format!(" lines=\"{}-{}\"", range.start, range.end));
         }

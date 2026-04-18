@@ -69,6 +69,9 @@ fn write_item(out: &mut String, r: &ResolvedItem, no_provenance: bool) {
         Source::Url(u) => {
             out.push_str(&format!("## `{}`\n\n", u.url));
         }
+        Source::Docs(d) => {
+            out.push_str(&format!("## `{}` docs\n\n", d.name));
+        }
     }
 
     out.push_str("```");

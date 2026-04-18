@@ -39,8 +39,18 @@ pub fn resolve_one(item: &Item, project_root: &Path) -> Result<ResolvedItem> {
             "function/type extraction requires `cargo install ctxforge --features=extract`".into(),
         )),
         Source::Url(_) => Err(CtxforgeError::Msg(
-            "network sources require resolve::resolve_all_with_ctx (Task 8)".into(),
+            "network sources require resolve::resolve_all_with_ctx".into(),
         )),
+        Source::Docs(d) => {
+            let content = d.render_line();
+            let sha = crate::cache::sha256_hex(content.as_bytes());
+            Ok(ResolvedItem {
+                item: item.clone(),
+                content,
+                language: "markdown",
+                provenance: Provenance::local(item.source.to_uri().to_string(), sha),
+            })
+        }
     }
 }
 
@@ -429,6 +439,28 @@ mod tests {
         ctx.offline = true;
         ctx.strict = true;
         assert!(resolve_one_with_ctx(&item, &ctx).is_err());
+    }
+
+    #[test]
+    fn docs_source_resolves_to_rendered_line() {
+        use crate::source::{DocsSource, DocsTier, Ecosystem};
+        let item = Item {
+            source: Source::Docs(DocsSource {
+                name: "axum".into(),
+                version: "0.7.5".into(),
+                ecosystem: Ecosystem::Rust,
+                tier: DocsTier::Framework,
+                url: "https://docs.rs/axum/0.7.5/".into(),
+                description: Some("Web framework".into()),
+                manifest_path: None,
+            }),
+            label: None,
+        };
+        let r = resolve_one(&item, Path::new("/tmp")).unwrap();
+        assert!(r.content.contains("axum 0.7.5"));
+        assert!(r.content.contains("https://docs.rs/axum/0.7.5/"));
+        assert_eq!(r.language, "markdown");
+        assert_eq!(r.provenance.uri, "docs:///rust/axum@0.7.5");
     }
 
     #[test]
