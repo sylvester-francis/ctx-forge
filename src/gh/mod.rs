@@ -2,3 +2,4 @@
 //! gh:// specific-resource attachment (Capability B).
 
 pub mod forge;
+pub mod parse;

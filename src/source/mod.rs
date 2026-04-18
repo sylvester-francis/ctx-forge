@@ -120,6 +120,10 @@ impl Source {
                     forge: None,
                 }))
             }
+            "gh" => {
+                let resource = crate::gh::parse::to_resource(&uri.path)?;
+                Ok(Source::Gh(GhSource { resource }))
+            }
             _ => Err(UriParseError::UnknownScheme(uri.scheme.clone())),
         }
     }
@@ -410,6 +414,27 @@ mod tests {
         assert_eq!(
             Source::Url(UrlSource { url: "".into() }).scheme_name(),
             "url"
+        );
+    }
+
+    #[test]
+    fn gh_source_roundtrip() {
+        let uri: Uri = "gh:///tokio-rs/axum/issues/1234".parse().unwrap();
+        let s = Source::from_uri(&uri).unwrap();
+        assert!(matches!(
+            &s,
+            Source::Gh(g) if matches!(&g.resource, GhResource::Issue { number: 1234, .. })
+        ));
+        assert_eq!(s.to_uri().to_string(), "gh:///tokio-rs/axum/issues/1234",);
+    }
+
+    #[test]
+    fn gh_blob_with_nested_path_roundtrip() {
+        let uri: Uri = "gh:///foo/bar/blob/main/docs/CHANGELOG.md".parse().unwrap();
+        let s = Source::from_uri(&uri).unwrap();
+        assert_eq!(
+            s.to_uri().to_string(),
+            "gh:///foo/bar/blob/main/docs/CHANGELOG.md",
         );
     }
 }
