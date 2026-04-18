@@ -5,3 +5,4 @@
 
 pub mod classify;
 pub mod registry;
+pub mod resolve;

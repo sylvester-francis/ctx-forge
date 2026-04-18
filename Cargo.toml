@@ -39,6 +39,7 @@ sha2 = "0.10"
 hmac = "0.12"
 getrandom = "0.3"
 bytes = "1"
+urlencoding = "2"
 ureq = { version = "3.3", optional = true, default-features = false, features = ["rustls"] }
 
 # Optional: tree-sitter extraction (behind --features=extract)
