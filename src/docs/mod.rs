@@ -70,8 +70,7 @@ pub fn run_detect(
             Ecosystem::Rust => cargo::parse(&m.path).unwrap_or_default(),
             Ecosystem::Js => parsers::npm::parse(&m.path).unwrap_or_default(),
             Ecosystem::Python => parsers::python::parse(&m.path).unwrap_or_default(),
-            // Go parser arrives in T15; empty for now.
-            _ => Vec::new(),
+            Ecosystem::Go => parsers::go::parse(&m.path).unwrap_or_default(),
         };
         for dep in deps {
             let tier = registry.classify(dep.ecosystem, &dep.name);

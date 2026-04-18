@@ -4,6 +4,7 @@
 //! specific version available (lock file > manifest spec).
 
 pub mod cargo;
+pub mod go;
 pub mod npm;
 pub mod python;
 
