@@ -8,6 +8,20 @@ pub mod xml;
 
 use crate::memory::Note;
 use crate::resolve::ResolvedItem;
+use crate::source::Source;
+
+pub(crate) fn partition_docs(items: &[ResolvedItem]) -> (Vec<&ResolvedItem>, Vec<&ResolvedItem>) {
+    let mut docs = Vec::new();
+    let mut other = Vec::new();
+    for item in items {
+        if matches!(item.item.source, Source::Docs(_)) {
+            docs.push(item);
+        } else {
+            other.push(item);
+        }
+    }
+    (docs, other)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Format {

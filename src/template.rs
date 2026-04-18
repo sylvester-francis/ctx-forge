@@ -8,8 +8,57 @@
 #![allow(dead_code)]
 
 use crate::error::{CtxforgeError, Result};
-use crate::paths::CtxforgeRoot;
+use crate::paths::{self, CtxforgeRoot};
 use std::path::PathBuf;
+
+/// Template names available at the project level (under `.ctxforge/templates/`).
+pub fn list_project_names(root: &CtxforgeRoot) -> Vec<String> {
+    scan_dir(&root.templates_dir())
+}
+
+/// Template names from project + global, deduped (project shadows global).
+pub fn list_all_names(root: &CtxforgeRoot) -> Vec<String> {
+    let project = scan_dir(&root.templates_dir());
+    let mut all: Vec<String> = project.clone();
+    if let Some(global) = paths::global_templates_dir() {
+        for name in scan_dir(&global) {
+            if !all.contains(&name) {
+                all.push(name);
+            }
+        }
+    }
+    all.sort();
+    all
+}
+
+/// Starter names bundled with ctxforge.
+pub fn list_starter_names() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("bugfix", "Debug a specific issue and propose a minimal fix"),
+        ("code-review", "Review code for bugs, clarity, complexity"),
+        ("explain", "Explain how code works to a skilled engineer"),
+        ("refactor", "Propose concrete refactoring changes"),
+        ("migrate", "Step-by-step migration plan"),
+    ]
+}
+
+fn scan_dir(dir: &std::path::Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = entries
+        .flatten()
+        .filter(|e| e.path().extension().and_then(|e| e.to_str()) == Some("md"))
+        .filter_map(|e| {
+            e.path()
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_string())
+        })
+        .collect();
+    out.sort();
+    out
+}
 
 /// Returns spans of every `{{name}}` placeholder in the template.
 /// Each entry is `(start_byte, end_byte, name_str)`. The end_byte is

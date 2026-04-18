@@ -21,7 +21,9 @@ pub fn run(
     let memory_notes =
         memory::collect_for_attach(root, no_memory, memory_tag.as_deref(), memory_limit)?;
 
-    let rendered = format::render(format, &resolved, &memory_notes, false);
+    // Provenance is suppressed by default — the clipboard usually feeds an
+    // LLM prompt directly, and audit-trail metadata wastes tokens there.
+    let rendered = format::render(format, &resolved, &memory_notes, true);
 
     let final_content = match template_name {
         Some(name) => crate::template::apply_template(root, name, &rendered, task.as_deref())?,

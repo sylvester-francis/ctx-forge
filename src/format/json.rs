@@ -15,6 +15,8 @@ pub struct JsonContext<'a> {
     pub schema_version: u32,
     pub items_count: usize,
     pub memory: Vec<JsonNote<'a>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub project_stack: Vec<serde_json::Value>,
     pub items: Vec<JsonItem<'a>>,
 }
 
@@ -48,6 +50,16 @@ pub struct JsonLines {
 }
 
 pub fn render(items: &[ResolvedItem], memory: &[Note], no_provenance: bool) -> String {
+    let (docs, other) = crate::format::partition_docs(items);
+
+    let project_stack: Vec<serde_json::Value> = docs
+        .iter()
+        .filter_map(|r| match &r.item.source {
+            Source::Docs(d) => serde_json::to_value(d).ok(),
+            _ => None,
+        })
+        .collect();
+
     let json_memory: Vec<JsonNote> = memory
         .iter()
         .map(|n| JsonNote {
@@ -57,7 +69,7 @@ pub fn render(items: &[ResolvedItem], memory: &[Note], no_provenance: bool) -> S
         })
         .collect();
 
-    let json_items: Vec<JsonItem> = items
+    let json_items: Vec<JsonItem> = other
         .iter()
         .map(|r| {
             let (kind_str, lines, name, path) = match &r.item.source {
@@ -84,6 +96,7 @@ pub fn render(items: &[ResolvedItem], memory: &[Note], no_provenance: bool) -> S
                     t.path.display().to_string(),
                 ),
                 Source::Url(u) => ("url", None, None, u.url.clone()),
+                Source::Docs(_) => unreachable!("partitioned out above"),
             };
             JsonItem {
                 path,
@@ -103,8 +116,9 @@ pub fn render(items: &[ResolvedItem], memory: &[Note], no_provenance: bool) -> S
 
     let ctx = JsonContext {
         schema_version: 1,
-        items_count: items.len(),
+        items_count: other.len(),
         memory: json_memory,
+        project_stack,
         items: json_items,
     };
 

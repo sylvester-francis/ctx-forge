@@ -141,6 +141,11 @@ pub fn all_models() -> &'static [ModelInfo] {
     MODELS
 }
 
+/// Model ids as a `Vec<String>` — used by TUI picker overlays.
+pub fn list_ids() -> Vec<String> {
+    MODELS.iter().map(|m| m.name.to_string()).collect()
+}
+
 /// Lookup by name. Unknown names return a fallback with 200k window and
 /// estimate tokenizer so ctxforge degrades gracefully.
 pub fn lookup(name: &str) -> ModelInfo {

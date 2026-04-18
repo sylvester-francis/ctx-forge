@@ -246,6 +246,37 @@ pub fn tool_list() -> Value {
                         "stale_only": { "type": "boolean", "description": "Only show stale items" }
                     }
                 }
+            },
+            {
+                "name": "ctxforge_docs_detect",
+                "description": "Detect deps in the project and attach canonical doc URLs to the bundle.",
+                "annotations": { "destructiveHint": false },
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "all": { "type": "boolean", "description": "Include Library-tier deps" },
+                        "path": { "type": "string", "description": "Explicit path to a project / manifest" }
+                    }
+                }
+            },
+            {
+                "name": "ctxforge_docs_add",
+                "description": "Add a specific dep's documentation by name.",
+                "annotations": { "destructiveHint": false },
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string" },
+                        "ecosystem": { "type": "string", "description": "rust | js | python | go" }
+                    },
+                    "required": ["name"]
+                }
+            },
+            {
+                "name": "ctxforge_docs_list",
+                "description": "List docs items currently attached to the bundle.",
+                "annotations": { "readOnlyHint": true },
+                "inputSchema": { "type": "object", "properties": {} }
             }
         ]
     })
@@ -271,8 +302,57 @@ pub fn call_tool(root: &CtxforgeRoot, name: &str, args: &Value) -> Result<Value,
         "ctxforge_add_url" => tool_add_url(root, args),
         "ctxforge_refresh" => tool_refresh(root, args),
         "ctxforge_list_sources" => tool_list_sources(root, args),
+        "ctxforge_docs_detect" => tool_docs_detect(root, args),
+        "ctxforge_docs_add" => tool_docs_add(root, args),
+        "ctxforge_docs_list" => tool_docs_list(root),
         _ => Err(format!("unknown tool: {name}")),
     }
+}
+
+fn tool_docs_detect(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
+    let all = args.get("all").and_then(|v| v.as_bool()).unwrap_or(false);
+    let path = args
+        .get("path")
+        .and_then(|v| v.as_str())
+        .map(std::path::PathBuf::from);
+    crate::commands::docs_cmd::detect(root, all, path).map_err(|e| e.to_string())?;
+    Ok(json!({
+        "type": "text",
+        "text": "docs detect complete"
+    }))
+}
+
+fn tool_docs_add(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
+    let name = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or("missing required 'name' argument")?
+        .to_string();
+    let ecosystem = args
+        .get("ecosystem")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    crate::commands::docs_cmd::add(root, name.clone(), ecosystem).map_err(|e| e.to_string())?;
+    Ok(json!({
+        "type": "text",
+        "text": format!("added docs: {name}")
+    }))
+}
+
+fn tool_docs_list(root: &CtxforgeRoot) -> Result<Value, String> {
+    let bundle = Bundle::load_or_default(root).map_err(|e| e.to_string())?;
+    let items: Vec<serde_json::Value> = bundle
+        .items
+        .iter()
+        .filter_map(|item| match &item.source {
+            Source::Docs(d) => serde_json::to_value(d).ok(),
+            _ => None,
+        })
+        .collect();
+    Ok(json!({
+        "type": "text",
+        "text": serde_json::to_string_pretty(&items).unwrap_or_default()
+    }))
 }
 
 fn tool_add_url(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {

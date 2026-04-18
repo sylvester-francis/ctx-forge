@@ -106,9 +106,12 @@ pub enum Command {
         #[arg(long)]
         offline: bool,
 
-        /// Strip provenance comments/attributes from output.
+        /// Include provenance comments (uri/sha/fetched_at) in output.
+        /// Default: off — provenance is audit-trail metadata, not prompt
+        /// content, and emitting it wastes ~40 tokens per item.
+        /// Opt in when debugging or when the downstream consumer needs traceability.
         #[arg(long)]
-        no_provenance: bool,
+        with_provenance: bool,
     },
 
     /// Copy the current bundle to the system clipboard.
@@ -276,6 +279,40 @@ pub enum Command {
         #[arg(long)]
         all: bool,
     },
+
+    /// Library documentation gatherer (detects deps → attaches doc links).
+    Docs {
+        #[command(subcommand)]
+        action: DocsAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum DocsAction {
+    /// Detect deps in manifest/lock files and attach docs items to the bundle.
+    Detect {
+        /// Include Library-tier deps too (default: only Framework / Database /
+        /// AsyncRuntime / LanguageCore deps are attached).
+        #[arg(long)]
+        all: bool,
+
+        /// Explicit path to a project directory or manifest file. Overrides
+        /// the default scoped-to-bundle behavior.
+        path: Option<std::path::PathBuf>,
+    },
+    /// Add a specific dep by name.
+    Add {
+        name: String,
+        /// Disambiguate when the name appears in multiple detected ecosystems.
+        #[arg(long)]
+        ecosystem: Option<String>,
+    },
+    /// Remove a docs item from the bundle by name.
+    Rm { name: String },
+    /// List docs items currently in the bundle.
+    List,
+    /// Re-read lock files and update versions on existing docs items.
+    Refresh,
 }
 
 #[derive(Subcommand, Debug)]

@@ -8,7 +8,7 @@
 use std::fmt;
 use std::str::FromStr;
 
-pub const KNOWN_SCHEMES: &[&str] = &["file", "range", "func", "type", "url"];
+pub const KNOWN_SCHEMES: &[&str] = &["file", "range", "func", "type", "url", "docs"];
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Uri {

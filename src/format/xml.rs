@@ -27,19 +27,49 @@ use crate::resolve::ResolvedItem;
 use crate::source::Source;
 
 pub fn render(items: &[ResolvedItem], memory: &[Note], no_provenance: bool) -> String {
+    let (docs, other) = crate::format::partition_docs(items);
+
     let mut out = String::new();
-    out.push_str(&format!("<context items=\"{}\">\n", items.len()));
+    out.push_str(&format!("<context items=\"{}\">\n", other.len()));
 
     if !memory.is_empty() {
         write_memory(&mut out, memory);
     }
 
-    for item in items {
+    if !docs.is_empty() {
+        write_project_stack(&mut out, &docs);
+    }
+
+    for item in &other {
         write_item(&mut out, item, no_provenance);
     }
 
     out.push_str("</context>\n");
     out
+}
+
+fn write_project_stack(out: &mut String, docs: &[&ResolvedItem]) {
+    out.push_str("  <project-stack>\n");
+    for r in docs {
+        if let Source::Docs(d) = &r.item.source {
+            let tier_str = format!("{:?}", d.tier).to_lowercase();
+            let desc_attr = d
+                .description
+                .as_deref()
+                .map(|x| format!(" description=\"{}\"", escape_attr(x)))
+                .unwrap_or_default();
+            out.push_str(&format!(
+                "    <dep tier=\"{}\" ecosystem=\"{}\" name=\"{}\" version=\"{}\" url=\"{}\"{}/>\n",
+                tier_str,
+                d.ecosystem.as_str(),
+                escape_attr(&d.name),
+                escape_attr(&d.version),
+                escape_attr(&d.url),
+                desc_attr,
+            ));
+        }
+    }
+    out.push_str("  </project-stack>\n");
 }
 
 fn write_memory(out: &mut String, memory: &[Note]) {
@@ -76,6 +106,9 @@ fn write_item(out: &mut String, r: &ResolvedItem, no_provenance: bool) {
         Source::Func(f) => f.path.display().to_string(),
         Source::Type(t) => t.path.display().to_string(),
         Source::Url(u) => u.url.clone(),
+        // Docs items render in <project-stack>; this branch is unreachable
+        // when called via `render` but kept for exhaustiveness.
+        Source::Docs(_) => return,
     };
 
     out.push_str("  <");
@@ -114,7 +147,7 @@ fn write_item(out: &mut String, r: &ResolvedItem, no_provenance: bool) {
     }
 
     match &r.item.source {
-        Source::File(_) | Source::Url(_) => {}
+        Source::File(_) | Source::Url(_) | Source::Docs(_) => {}
         Source::Range(range) => {
             out.push_str(&format!(" lines=\"{}-{}\"", range.start, range.end));
         }

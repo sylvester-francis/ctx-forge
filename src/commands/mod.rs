@@ -5,6 +5,7 @@ pub mod add;
 pub mod cache_cmd;
 pub mod clear;
 pub mod copy;
+pub mod docs_cmd;
 pub mod export;
 pub mod load;
 pub mod note;
@@ -69,7 +70,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             task,
             strict,
             offline,
-            no_provenance,
+            with_provenance,
         }) => {
             let fmt = resolve_format(format.as_deref(), xml, json)?;
             export::run(
@@ -83,7 +84,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                 task,
                 strict,
                 offline,
-                no_provenance,
+                !with_provenance,
             )
         }
         Some(Command::Copy {
@@ -150,6 +151,16 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             }
         }
         Some(Command::Refresh { uri, all }) => refresh::run(&root, uri.as_deref(), all),
+        Some(Command::Docs { action }) => {
+            use crate::cli::DocsAction;
+            match action {
+                DocsAction::Detect { all, path } => docs_cmd::detect(&root, all, path),
+                DocsAction::Add { name, ecosystem } => docs_cmd::add(&root, name, ecosystem),
+                DocsAction::Rm { name } => docs_cmd::rm(&root, name),
+                DocsAction::List => docs_cmd::list(&root),
+                DocsAction::Refresh => docs_cmd::refresh(&root),
+            }
+        }
     }
 }
 

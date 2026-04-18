@@ -21,7 +21,7 @@ pub enum CommandAction {
     ToggleViewer,
     AddSelection,
 
-    // ── CLI-backed, deferred to later phases (status message) ──
+    // ── Delivery + bundle/profile/template actions (all functional) ──
     Copy,
     CopyXml,
     CopyJson,
@@ -43,6 +43,24 @@ pub enum CommandAction {
     TemplateRm,
     TemplateStarters,
     TemplateList,
+
+    // ── P5/P1 parity: real handlers, no input required ──
+    DocsDetect,
+    DocsDetectAll,
+    DocsRefresh,
+    DocsList,
+    UrlRefresh,
+    CacheList,
+    CacheClear,
+    CacheVerify,
+
+    // ── Input-required actions (text prompt overlay) ──
+    DocsAdd,
+    DocsRm,
+    AddUrl,
+
+    // ── Prompt override management ──
+    ClearPromptOverride,
 }
 
 pub struct CommandSpec {
@@ -201,6 +219,66 @@ pub static COMMANDS: &[CommandSpec] = &[
         name: "quit",
         description: "quit ctxforge",
         action: CommandAction::Quit,
+    },
+    CommandSpec {
+        name: "docs detect",
+        description: "detect project deps and attach doc URLs",
+        action: CommandAction::DocsDetect,
+    },
+    CommandSpec {
+        name: "docs detect --all",
+        description: "detect all direct deps including Library tier",
+        action: CommandAction::DocsDetectAll,
+    },
+    CommandSpec {
+        name: "docs refresh",
+        description: "re-read lock files; update versions on existing docs items",
+        action: CommandAction::DocsRefresh,
+    },
+    CommandSpec {
+        name: "docs list",
+        description: "list docs items currently attached to the bundle",
+        action: CommandAction::DocsList,
+    },
+    CommandSpec {
+        name: "url refresh",
+        description: "force-refresh all stale cached URL sources",
+        action: CommandAction::UrlRefresh,
+    },
+    CommandSpec {
+        name: "cache list",
+        description: "list cached URL responses",
+        action: CommandAction::CacheList,
+    },
+    CommandSpec {
+        name: "cache clear",
+        description: "clear all cached URL responses",
+        action: CommandAction::CacheClear,
+    },
+    CommandSpec {
+        name: "cache verify",
+        description: "verify cache integrity (SHA + HMAC)",
+        action: CommandAction::CacheVerify,
+    },
+    CommandSpec {
+        name: "docs add",
+        description: "manually attach a dep's doc URL by name",
+        action: CommandAction::DocsAdd,
+    },
+    CommandSpec {
+        name: "docs rm",
+        description: "remove a docs item from the bundle by name",
+        action: CommandAction::DocsRm,
+    },
+    CommandSpec {
+        name: "url add",
+        description: "attach an arbitrary URL to the bundle",
+        action: CommandAction::AddUrl,
+    },
+    CommandSpec {
+        name: "clear prompt override",
+        description: "drop the hand-edited prompt and resume rendering from the bundle",
+        action: CommandAction::ClearPromptOverride,
     },
 ];
 

@@ -1,0 +1,82 @@
+# Classification registry: maps (ecosystem, name) -> DocsTier.
+# MVP set — covers the most common frameworks, databases, async runtimes,
+# and language-core libs across the four supported ecosystems. Unknown
+# deps default to `library` tier and don't render in the default emission.
+
+[rust]
+axum            = { tier = "framework" }
+actix-web       = { tier = "framework" }
+rocket          = { tier = "framework" }
+warp            = { tier = "framework" }
+poem            = { tier = "framework" }
+tide            = { tier = "framework" }
+tokio           = { tier = "async_runtime" }
+async-std       = { tier = "async_runtime" }
+smol            = { tier = "async_runtime" }
+sqlx            = { tier = "database" }
+diesel          = { tier = "database" }
+sea-orm         = { tier = "database" }
+mongodb         = { tier = "database" }
+redis           = { tier = "database" }
+rusqlite        = { tier = "database" }
+tokio-postgres  = { tier = "database" }
+serde           = { tier = "language_core" }
+serde_json      = { tier = "language_core" }
+clap            = { tier = "language_core" }
+anyhow          = { tier = "language_core" }
+thiserror       = { tier = "language_core" }
+
+[js]
+next        = { tier = "framework" }
+nuxt        = { tier = "framework" }
+express     = { tier = "framework" }
+fastify     = { tier = "framework" }
+hono        = { tier = "framework" }
+koa         = { tier = "framework" }
+"@nestjs/core" = { tier = "framework" }
+remix       = { tier = "framework" }
+svelte      = { tier = "framework" }
+"@sveltejs/kit" = { tier = "framework" }
+vue         = { tier = "framework" }
+drizzle-orm = { tier = "database" }
+prisma      = { tier = "database" }
+"@prisma/client" = { tier = "database" }
+typeorm     = { tier = "database" }
+mongoose    = { tier = "database" }
+pg          = { tier = "database" }
+redis       = { tier = "database" }
+zod         = { tier = "language_core" }
+typescript  = { tier = "language_core" }
+react       = { tier = "language_core" }
+
+[python]
+fastapi         = { tier = "framework" }
+django          = { tier = "framework" }
+flask           = { tier = "framework" }
+starlette       = { tier = "framework" }
+quart           = { tier = "framework" }
+tornado         = { tier = "framework" }
+sqlalchemy      = { tier = "database" }
+psycopg2        = { tier = "database" }
+psycopg         = { tier = "database" }
+asyncpg         = { tier = "database" }
+pymongo         = { tier = "database" }
+redis           = { tier = "database" }
+pydantic        = { tier = "language_core" }
+attrs           = { tier = "language_core" }
+
+[go]
+"github.com/gin-gonic/gin"     = { tier = "framework" }
+"github.com/labstack/echo"     = { tier = "framework" }
+"github.com/labstack/echo/v4"  = { tier = "framework" }
+"github.com/gofiber/fiber"     = { tier = "framework" }
+"github.com/gofiber/fiber/v2"  = { tier = "framework" }
+"github.com/go-chi/chi"        = { tier = "framework" }
+"github.com/go-chi/chi/v5"     = { tier = "framework" }
+"gorm.io/gorm"                 = { tier = "database" }
+"github.com/jackc/pgx"         = { tier = "database" }
+"github.com/jackc/pgx/v5"      = { tier = "database" }
+"github.com/lib/pq"            = { tier = "database" }
+"go.mongodb.org/mongo-driver"  = { tier = "database" }
+"github.com/redis/go-redis"    = { tier = "database" }
+"github.com/redis/go-redis/v9" = { tier = "database" }

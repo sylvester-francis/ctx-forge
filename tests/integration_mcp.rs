@@ -367,7 +367,7 @@ fn prompts_get_renders_prompt() {
 // ── Comprehensive tool count ───────────────────────────────────────────
 
 #[test]
-fn tools_list_contains_all_18_tools() {
+fn tools_list_contains_all_21_tools() {
     let td = TempDir::new().unwrap();
     let responses = mcp_requests(
         td.path(),
@@ -397,6 +397,9 @@ fn tools_list_contains_all_18_tools() {
         "ctxforge_add_url",
         "ctxforge_refresh",
         "ctxforge_list_sources",
+        "ctxforge_docs_detect",
+        "ctxforge_docs_add",
+        "ctxforge_docs_list",
     ];
 
     let actual: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();

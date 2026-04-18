@@ -16,6 +16,8 @@ Cargo.lock.bak
 
 # ctxforge runtime state
 .ctxforge/bundle.json
+.ctxforge/bundle.json.v1.bak
+.ctxforge/prompt-override.md
 
 # Editor / OS
 .DS_Store
