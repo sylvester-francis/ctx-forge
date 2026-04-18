@@ -279,6 +279,90 @@ pub fn tool_list() -> Value {
                 "inputSchema": { "type": "object", "properties": {} }
             },
             {
+                "name": "ctxforge_docs_rm",
+                "description": "Remove a docs item from the bundle by name.",
+                "annotations": { "destructiveHint": true },
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string", "description": "Dep name to remove" }
+                    },
+                    "required": ["name"]
+                }
+            },
+            {
+                "name": "ctxforge_docs_refresh",
+                "description": "Re-read lock files and update versions on existing docs items in the bundle.",
+                "annotations": { "destructiveHint": false },
+                "inputSchema": { "type": "object", "properties": {} }
+            },
+            {
+                "name": "ctxforge_profiles_rm",
+                "description": "Remove a saved profile by name.",
+                "annotations": { "destructiveHint": true },
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string", "description": "Profile name to delete" }
+                    },
+                    "required": ["name"]
+                }
+            },
+            {
+                "name": "ctxforge_templates_new",
+                "description": "Scaffold a new project-local prompt template. Optional `from` copies from a built-in starter.",
+                "annotations": { "destructiveHint": false },
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string", "description": "Template name (no extension)" },
+                        "from": { "type": "string", "description": "Built-in starter to copy (bugfix, code-review, explain, refactor, migrate)" }
+                    },
+                    "required": ["name"]
+                }
+            },
+            {
+                "name": "ctxforge_templates_rm",
+                "description": "Delete a project-local prompt template by name.",
+                "annotations": { "destructiveHint": true },
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string", "description": "Template name to delete" }
+                    },
+                    "required": ["name"]
+                }
+            },
+            {
+                "name": "ctxforge_cache_list",
+                "description": "List cached URL / gh:// / docs-registry entries with scheme and freshness.",
+                "annotations": { "readOnlyHint": true },
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "scheme": { "type": "string", "description": "Filter by scheme (url, gh, description)" }
+                    }
+                }
+            },
+            {
+                "name": "ctxforge_cache_clear",
+                "description": "Clear cached entries. `stale` removes only expired entries; `all` wipes everything.",
+                "annotations": { "destructiveHint": true },
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "stale": { "type": "boolean", "description": "Only clear stale entries" },
+                        "all": { "type": "boolean", "description": "Wipe the entire cache" }
+                    }
+                }
+            },
+            {
+                "name": "ctxforge_cache_verify",
+                "description": "Verify cache integrity (SHA + HMAC walk). Reports corrupted entries.",
+                "annotations": { "readOnlyHint": true },
+                "inputSchema": { "type": "object", "properties": {} }
+            },
+            {
                 "name": "ctxforge_suggest",
                 "description": "Suggest missing and stale documentation entries in the bundle. Missing = import with no DocsSource; stale = DocsSource with no import.",
                 "annotations": { "readOnlyHint": true },
@@ -334,6 +418,14 @@ pub fn call_tool(root: &CtxforgeRoot, name: &str, args: &Value) -> Result<Value,
         "ctxforge_docs_detect" => tool_docs_detect(root, args),
         "ctxforge_docs_add" => tool_docs_add(root, args),
         "ctxforge_docs_list" => tool_docs_list(root),
+        "ctxforge_docs_rm" => tool_docs_rm(root, args),
+        "ctxforge_docs_refresh" => tool_docs_refresh(root),
+        "ctxforge_profiles_rm" => tool_profiles_rm(root, args),
+        "ctxforge_templates_new" => tool_templates_new(root, args),
+        "ctxforge_templates_rm" => tool_templates_rm(root, args),
+        "ctxforge_cache_list" => tool_cache_list(args),
+        "ctxforge_cache_clear" => tool_cache_clear(args),
+        "ctxforge_cache_verify" => tool_cache_verify(),
         "ctxforge_suggest" => tool_suggest(root, args),
         "ctxforge_suggest_apply" => tool_suggest_apply(root, args),
         _ => Err(format!("unknown tool: {name}")),
@@ -1016,5 +1108,105 @@ fn tool_suggest_apply(root: &CtxforgeRoot, args: &Value) -> Result<Value, String
             "applied": applied,
             "errors": errors,
         })).unwrap_or_default(),
+    }))
+}
+
+fn tool_docs_rm(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
+    let name = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or("missing required 'name' argument")?
+        .to_string();
+    crate::commands::docs_cmd::rm(root, name.clone()).map_err(|e| e.to_string())?;
+    Ok(json!({
+        "type": "text",
+        "text": format!("removed docs: {name}")
+    }))
+}
+
+fn tool_docs_refresh(root: &CtxforgeRoot) -> Result<Value, String> {
+    crate::commands::docs_cmd::refresh(root).map_err(|e| e.to_string())?;
+    Ok(json!({
+        "type": "text",
+        "text": "docs refresh complete"
+    }))
+}
+
+fn tool_profiles_rm(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
+    use crate::cli::ProfilesAction;
+    let name = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or("missing required 'name' argument")?
+        .to_string();
+    crate::commands::profiles::run(root, Some(ProfilesAction::Rm { name: name.clone() }))
+        .map_err(|e| e.to_string())?;
+    Ok(json!({
+        "type": "text",
+        "text": format!("removed profile: {name}")
+    }))
+}
+
+fn tool_templates_new(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
+    use crate::cli::TemplatesAction;
+    let name = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or("missing required 'name' argument")?
+        .to_string();
+    let from = args.get("from").and_then(|v| v.as_str()).map(String::from);
+    crate::commands::template::run(
+        root,
+        Some(TemplatesAction::New {
+            name: name.clone(),
+            from,
+        }),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(json!({
+        "type": "text",
+        "text": format!("created template: {name}")
+    }))
+}
+
+fn tool_templates_rm(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
+    use crate::cli::TemplatesAction;
+    let name = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or("missing required 'name' argument")?
+        .to_string();
+    crate::commands::template::run(root, Some(TemplatesAction::Rm { name: name.clone() }))
+        .map_err(|e| e.to_string())?;
+    Ok(json!({
+        "type": "text",
+        "text": format!("removed template: {name}")
+    }))
+}
+
+fn tool_cache_list(args: &Value) -> Result<Value, String> {
+    let scheme = args.get("scheme").and_then(|v| v.as_str());
+    crate::commands::cache_cmd::list(scheme).map_err(|e| e.to_string())?;
+    Ok(json!({
+        "type": "text",
+        "text": "cache list complete"
+    }))
+}
+
+fn tool_cache_clear(args: &Value) -> Result<Value, String> {
+    let all = args.get("all").and_then(|v| v.as_bool()).unwrap_or(false);
+    let stale = args.get("stale").and_then(|v| v.as_bool()).unwrap_or(false);
+    crate::commands::cache_cmd::clear(all, stale).map_err(|e| e.to_string())?;
+    Ok(json!({
+        "type": "text",
+        "text": "cache clear complete"
+    }))
+}
+
+fn tool_cache_verify() -> Result<Value, String> {
+    crate::commands::cache_cmd::verify().map_err(|e| e.to_string())?;
+    Ok(json!({
+        "type": "text",
+        "text": "cache verify complete"
     }))
 }

@@ -64,6 +64,11 @@ pub enum CommandAction {
     Suggest,
     SuggestApplyAll,
 
+    // ── Bundle CRUD parity with CLI (`rm`, `clear`, `list sources`) ──
+    BundleRm,
+    BundleClear,
+    ListSources,
+
     // ── Prompt override management ──
     ClearPromptOverride,
 }
@@ -294,6 +299,21 @@ pub static COMMANDS: &[CommandSpec] = &[
         name: "suggest apply all",
         description: "apply every missing/stale suggestion without asking",
         action: CommandAction::SuggestApplyAll,
+    },
+    CommandSpec {
+        name: "rm",
+        description: "remove a bundle item by path or 1-based index",
+        action: CommandAction::BundleRm,
+    },
+    CommandSpec {
+        name: "clear",
+        description: "remove every item from the bundle",
+        action: CommandAction::BundleClear,
+    },
+    CommandSpec {
+        name: "list sources",
+        description: "inspect cached URL / gh:// entries with freshness",
+        action: CommandAction::ListSources,
     },
     CommandSpec {
         name: "clear prompt override",
