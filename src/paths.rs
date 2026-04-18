@@ -43,6 +43,14 @@ impl CtxforgeRoot {
         self.root.join("bundle.json")
     }
 
+    /// Optional hand-edited override for the next delivery. Present only
+    /// after the user saves a `ctxforge edit-prompt` session; cleared by
+    /// `ctxforge edit-prompt --clear` or by any CLI action that modifies
+    /// the bundle (since the override would be stale).
+    pub fn prompt_override_path(&self) -> PathBuf {
+        self.root.join("prompt-override.md")
+    }
+
     pub fn profiles_dir(&self) -> PathBuf {
         self.root.join("profiles")
     }

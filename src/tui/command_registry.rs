@@ -21,7 +21,7 @@ pub enum CommandAction {
     ToggleViewer,
     AddSelection,
 
-    // ── CLI-backed, deferred to later phases (status message) ──
+    // ── Delivery + bundle/profile/template actions (all functional) ──
     Copy,
     CopyXml,
     CopyJson,
@@ -58,6 +58,9 @@ pub enum CommandAction {
     DocsAdd,
     DocsRm,
     AddUrl,
+
+    // ── Prompt override management ──
+    ClearPromptOverride,
 }
 
 pub struct CommandSpec {
@@ -271,6 +274,11 @@ pub static COMMANDS: &[CommandSpec] = &[
         name: "url add",
         description: "attach an arbitrary URL to the bundle",
         action: CommandAction::AddUrl,
+    },
+    CommandSpec {
+        name: "clear prompt override",
+        description: "drop the hand-edited prompt and resume rendering from the bundle",
+        action: CommandAction::ClearPromptOverride,
     },
 ];
 

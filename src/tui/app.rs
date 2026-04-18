@@ -48,6 +48,10 @@ struct AppData {
     viewer: crate::tui::viewer::ViewerState,
     // Action that requires leaving the render loop (export / pipe / editor).
     pending_action: Option<crate::tui::mode::PendingAction>,
+    // Hand-edited prompt body saved by `edit-prompt`. When set,
+    // `render_payload` returns this verbatim instead of re-rendering.
+    // Persisted at `root/prompt-override.md` across TUI restarts.
+    prompt_override: Option<String>,
 }
 
 fn load_app_data(root: CtxforgeRoot) -> AppData {
@@ -86,6 +90,8 @@ fn load_app_data(root: CtxforgeRoot) -> AppData {
         .collect();
     let preview = build_preview(&root, &bundle, &item_tokens);
 
+    let prompt_override = std::fs::read_to_string(root.prompt_override_path()).ok();
+
     AppData {
         bundle,
         tree_entries,
@@ -102,6 +108,7 @@ fn load_app_data(root: CtxforgeRoot) -> AppData {
         status_set_at: None,
         viewer: crate::tui::viewer::ViewerState::new(),
         pending_action: None,
+        prompt_override,
     }
 }
 
@@ -350,6 +357,10 @@ impl AppData {
                 self.pending_action = Some(crate::tui::mode::PendingAction::TextPrompt(
                     TextPromptPurpose::AddUrl,
                 ));
+                None
+            }
+            A::ClearPromptOverride => {
+                self.clear_prompt_override();
                 None
             }
             A::DocsDetect => {
@@ -642,6 +653,21 @@ impl AppData {
                     Err(e) => self.set_status(format!("template rm: {e}")),
                 }
             }
+        }
+    }
+
+    fn clear_prompt_override(&mut self) {
+        let path = self.root.prompt_override_path();
+        if path.exists() {
+            match std::fs::remove_file(&path) {
+                Ok(()) => {
+                    self.prompt_override = None;
+                    self.set_status("prompt override cleared".to_string());
+                }
+                Err(e) => self.set_status(format!("clear override: {e}")),
+            }
+        } else {
+            self.set_status("no prompt override to clear".to_string());
         }
     }
 
@@ -1097,9 +1123,14 @@ impl AppData {
         ));
     }
 
-    /// Render the delivery payload for the given format. Resolves the bundle,
-    /// wraps with the scenario template if active.
+    /// Render the delivery payload for the given format. If the user has
+    /// a prompt-override saved (via `edit-prompt`), that text is returned
+    /// verbatim regardless of format — the hand-edited prompt is the
+    /// authoritative artifact.
     fn render_payload(&self, format: crate::format::Format) -> std::result::Result<String, String> {
+        if let Some(override_body) = &self.prompt_override {
+            return Ok(override_body.clone());
+        }
         let resolved = resolve::resolve_all(&self.bundle.items, &self.project_root)
             .map_err(|e| format!("resolve bundle: {e}"))?;
         let notes = crate::memory::index::read_all(&self.root).unwrap_or_default();
@@ -1417,8 +1448,20 @@ pub async fn run(root: CtxforgeRoot) -> Result<()> {
             }
             Some(crate::tui::mode::PendingAction::Editor(starting)) => {
                 match crate::editor::spawn_editor(&starting) {
-                    Ok(_updated) => {
-                        // TODO: apply the edited text as a prompt override
+                    Ok(updated) => {
+                        // Persist the edited text as a prompt override.
+                        // load_app_data will pick it up on TUI re-entry and
+                        // render_payload will return it verbatim, so delivery
+                        // uses the hand-edit rather than re-rendering.
+                        if updated.trim().is_empty() || updated == starting {
+                            // Editor closed without changes — do nothing.
+                        } else if let Some(root) = ROOT_STASH.with(|r| r.borrow().clone()) {
+                            if let Err(e) = std::fs::write(root.prompt_override_path(), &updated) {
+                                eprintln!("failed to save prompt override: {e}");
+                                eprintln!("Press any key to return...");
+                                let _ = crossterm::event::read();
+                            }
+                        }
                     }
                     Err(e) => {
                         eprintln!("editor: {e}");
