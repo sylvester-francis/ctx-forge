@@ -15,8 +15,13 @@ pub fn render(items: &[ResolvedItem], memory: &[Note], no_provenance: bool) -> S
         write_memory(&mut out, memory);
     }
 
-    for (i, item) in items.iter().enumerate() {
-        if i > 0 || !memory.is_empty() {
+    let (docs, other) = crate::format::partition_docs(items);
+    if !docs.is_empty() {
+        write_project_stack(&mut out, &docs, items);
+    }
+
+    for (i, item) in other.iter().enumerate() {
+        if i > 0 || !memory.is_empty() || !docs.is_empty() {
             out.push('\n');
         }
         write_item(&mut out, item, no_provenance);
@@ -69,8 +74,11 @@ fn write_item(out: &mut String, r: &ResolvedItem, no_provenance: bool) {
         Source::Url(u) => {
             out.push_str(&format!("## `{}`\n\n", u.url));
         }
-        Source::Docs(d) => {
-            out.push_str(&format!("## `{}` docs\n\n", d.name));
+        Source::Docs(_) => {
+            // Docs items are rendered in the Project stack section, not here.
+            // This branch is unreachable when called via `render` (which
+            // partitions them out), but kept for exhaustiveness.
+            return;
         }
     }
 
@@ -82,6 +90,96 @@ fn write_item(out: &mut String, r: &ResolvedItem, no_provenance: bool) {
         out.push('\n');
     }
     out.push_str("```\n");
+}
+
+fn write_project_stack(out: &mut String, docs: &[&ResolvedItem], all_items: &[ResolvedItem]) {
+    use crate::source::{DocsSource, DocsTier};
+    use std::collections::BTreeMap;
+    use std::collections::HashSet;
+
+    // Compute attention weight per manifest dir.
+    fn weight_for(dir: &std::path::Path, items: &[ResolvedItem]) -> usize {
+        items
+            .iter()
+            .filter(|r| !matches!(r.item.source, Source::Docs(_)))
+            .filter_map(|r| r.item.source.display_path())
+            .filter(|p| p.starts_with(dir))
+            .count()
+    }
+
+    let manifest_dirs: HashSet<(String, std::path::PathBuf)> = docs
+        .iter()
+        .filter_map(|r| match &r.item.source {
+            Source::Docs(d) => d.manifest_path.as_ref().map(|p| {
+                let parent = p.parent().map(|x| x.to_path_buf()).unwrap_or_default();
+                (p.display().to_string(), parent)
+            }),
+            _ => None,
+        })
+        .collect();
+
+    let mut by_manifest: BTreeMap<String, Vec<&DocsSource>> = BTreeMap::new();
+    let mut no_manifest: Vec<&DocsSource> = Vec::new();
+    for r in docs {
+        if let Source::Docs(d) = &r.item.source {
+            match d.manifest_path.as_ref() {
+                Some(p) => by_manifest
+                    .entry(p.display().to_string())
+                    .or_default()
+                    .push(d),
+                None => no_manifest.push(d),
+            }
+        }
+    }
+
+    let mut ordered_manifests: Vec<String> = by_manifest.keys().cloned().collect();
+    ordered_manifests.sort_by(|a, b| {
+        let wa = manifest_dirs
+            .iter()
+            .find(|(m, _)| m == a)
+            .map(|(_, dir)| weight_for(dir, all_items))
+            .unwrap_or(0);
+        let wb = manifest_dirs
+            .iter()
+            .find(|(m, _)| m == b)
+            .map(|(_, dir)| weight_for(dir, all_items))
+            .unwrap_or(0);
+        wb.cmp(&wa).then_with(|| a.cmp(b))
+    });
+
+    out.push_str("## Project stack\n\n");
+    for manifest in ordered_manifests {
+        let deps = &by_manifest[&manifest];
+        let eco = deps.first().unwrap().ecosystem;
+        out.push_str(&format!(
+            "### `{}` ({})\n\n",
+            manifest,
+            eco.display_name(),
+        ));
+        let mut tiered: Vec<&&DocsSource> =
+            deps.iter().filter(|d| d.tier != DocsTier::Library).collect();
+        tiered.sort_by_key(|d| d.tier_order());
+        for d in &tiered {
+            out.push_str(&d.render_line());
+            out.push('\n');
+        }
+        let library_count = deps.iter().filter(|d| d.tier == DocsTier::Library).count();
+        if library_count > 0 {
+            out.push_str(&format!(
+                "\n_{library_count} other direct dep(s) — `ctxforge docs add <name>` to include._\n"
+            ));
+        }
+        out.push('\n');
+    }
+
+    if !no_manifest.is_empty() {
+        out.push_str("### Added manually\n\n");
+        for d in &no_manifest {
+            out.push_str(&d.render_line());
+            out.push('\n');
+        }
+        out.push('\n');
+    }
 }
 
 fn write_provenance_comment(out: &mut String, r: &ResolvedItem) {
