@@ -5,5 +5,6 @@
 
 pub mod classify;
 pub mod describe;
+pub mod parsers;
 pub mod registry;
 pub mod resolve;
