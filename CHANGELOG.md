@@ -1,5 +1,97 @@
 # Changelog
 
+## [2.0.0](https://github.com/sylvester-francis/ctx-forge/compare/v1.3.0...v2.0.0) - 2026-04-18
+
+### Added
+
+- *(tui)* /rm + /clear + /list-sources palette entries for CLI parity
+- *(mcp)* add 8 tools for full CLI parity; tool count 23 → 31
+- *(tui)* suggest + suggest-apply-all palette + multi-select picker
+- *(mcp)* suggest + suggest_apply tools; tool count 21 → 23
+- *(cli)* ctxforge suggest subcommand with --all/--apply/--json/--yes
+- *(suggest)* apply_suggestion wraps docs_cmd add/rm
+- *(suggest)* run_suggest orchestration + comparison logic
+- *(suggest)* report types + human/JSON renderers
+- *(suggest)* name canonicalisation — hyphen/underscore + case
+- *(suggest)* go import scanner handling single + block forms
+- *(suggest)* python import scanner + dotted path + relative-skip
+- *(suggest)* JS/TS import scanner + scoped/deep normalisation
+- *(suggest)* rust import scanner + tests
+- *(suggest)* per-ecosystem stdlib blocklists
+- *(suggest)* module skeleton + regex dep
+- *(tui)* github attach palette entry + AddGh text prompt
+- *(cli+mcp)* accept gh:// URIs in add pipeline
+- *(format/json+xml)* forge sub-object/element; Source::Gh path rendering
+- *(format/md)* Project stack emits forge URLs per dep; Source::Gh renders verbatim
+- *(resolve)* dispatch Source::Gh through gh::fetch + cache
+- *(gh)* markdown section renderer with utf8-safe body cap
+- *(gh)* GitHub REST + raw content fetcher with GITHUB_TOKEN auth
+- *(fetch)* FetchConfig::auth_token; Authorization: Bearer header when set
+- *(bundle)* canonicalise pasted github.com URLs to gh:/// form
+- *(gh)* gh:// URI parser + Source::from_uri dispatch
+- *(source)* Source::Gh variant with 4 resource types + per-variant TTLs
+- *(docs)* run_detect stores forge info on DocsSource items
+- *(docs)* extract repository URL alongside description — no extra HTTP
+- *(source)* DocsSource gains optional forge field (additive)
+- *(gh)* ForgeHost + ForgeRef types + registry-URL parser
+- *(tui)* persist edit-prompt output as delivery override; wipe all remaining TODOs
+- *(tui)* full CLI/MCP parity via suspend-and-prompt pattern
+- *(tui)* command palette entries for docs, url refresh, cache ops
+- *(mcp)* ctxforge_docs_{detect,add,list} tools
+- *(docs)* workspace-aware full-scan + attention-weight subsection ordering
+- *(docs)* Go parser — go.mod direct deps + go.work workspace
+- *(docs)* Python parser — pyproject.toml + uv/poetry/requirements.txt
+- *(docs)* JS/TS parser — package.json + package-lock / pnpm lock support
+- *(format)* Project stack section in markdown/json/xml
+- *(cli)* ctxforge docs {detect,add,rm,list,refresh} subcommands
+- *(docs)* run_detect orchestrator ties parsers/classifier/URL/cache + fix docs scheme
+- *(docs)* detection modes (scoped/full-scan/explicit) + walk-up
+- *(docs)* Cargo.toml + Cargo.lock parser with workspace inheritance
+- *(docs)* registry description fetcher with truncate + cache
+- *(docs)* canonical URL templates for Rust/JS/Python/Go
+- *(docs)* classification registry with ~80 MVP entries across 4 ecosystems
+- *(source)* Source::Docs variant with docs:/// URI + resolve arm
+- *(source)* DocsSource + Ecosystem + DocsTier types
+- *(tui)* freshness dots on bundle summary for cacheable sources
+- *(mcp)* add_url, refresh, list_sources tools; URI-aware add_files
+- *(cli)* ctxforge cache list/clear/verify and ctxforge refresh
+- *(cli)* --strict/--offline/--no-provenance and --allow-http/--allow-private-net
+- *(format)* render Provenance in md/json/xml with --no-provenance strip
+- *(resolve)* ResolveCtx with mode-aware fetch pipeline and cache integration
+- *(source)* URL validation with literal+resolved-IP SSRF guard and content-type allowlist
+- *(source)* Provenance type for local + network audit trail
+- *(cache)* content-addressable cache with sidecar HMAC and OS entropy
+- *(source)* Source enum with File/Range/Func/Type/Url variants and URI conversion
+- *(source)* Uri parser with RFC 3986 subset and security hardening
+
+### Fixed
+
+- *(gh)* use ? operator for scheme strip (clippy::question_mark)
+- *(bundle)* accept bare gh:// URIs in parse_add_argument (CLI + MCP smoke gap)
+- *(bundle)* migrate v1-shape items even when version header says 2
+- *(clippy)* satisfy Rust 1.95 cmp_owned and unnecessary_sort_by lints
+
+### Other
+
+- *(plugin)* plugin.json tool count 15 → 31
+- *(plugin)* refresh plugin.json + skill ref table for 31 tools
+- rewrite README covering P5/P1/P3/P4 + iocraft TUI rewrite
+- P4 fmt polish + derive Default on SuggestOptions
+- *(suggest)* integration across rust/js/python/go fixtures
+- *(suggest)* fixture projects across all four ecosystems
+- cargo fmt polish
+- *(gh)* canned API fixtures + integration coverage + token-budget guard
+- *(docs)* skip .worktrees/.claude/vendor in full_scan walk
+- *(docs)* fixture projects + integration coverage + token-budget guard
+- gitignore .ctxforge/bundle.json.v1.bak
+- provenance off by default; mark HMAC + fetch pipeline as P5-scoped
+- cargo fmt (wrap long matches! in assert! macros)
+- cargo fmt
+- security and migration regression suites
+- migrate Bundle to v2 Source model across all consumers
+- *(deps)* add ureq, hmac, getrandom, bytes for source abstraction
+- gitignore spikes/ directory
+
 ## 1.3.0 — iocraft TUI rewrite
 
 Complete TUI rewrite from ratatui (immediate-mode) to **iocraft** — a React-like reactive framework with taffy flexbox layout. The ratatui v1 TUI has been removed; iocraft is now the sole rendering engine. Every surface has been rebuilt with a distinctive design language, fluid interactions, and responsive layouts.
