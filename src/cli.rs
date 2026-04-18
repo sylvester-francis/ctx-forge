@@ -285,6 +285,33 @@ pub enum Command {
         #[command(subcommand)]
         action: DocsAction,
     },
+
+    /// Suggest missing / stale documentation entries in the Project stack.
+    ///
+    /// Scans bundle (or whole project with `--all`) source-file imports
+    /// and compares against existing DocsSource entries. Prints a list
+    /// of missing + stale deps with fix commands. `--apply` runs them.
+    Suggest {
+        /// Scan whole project source tree, not just bundle items.
+        #[arg(long)]
+        all: bool,
+
+        /// Skip stale-check; only flag missing.
+        #[arg(long = "missing-only")]
+        missing_only: bool,
+
+        /// Emit machine-readable JSON instead of human text.
+        #[arg(long)]
+        json: bool,
+
+        /// Apply all suggestions (confirm prompt unless `--yes`).
+        #[arg(long)]
+        apply: bool,
+
+        /// Skip confirm prompt when combined with `--apply`.
+        #[arg(long, requires = "apply")]
+        yes: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
