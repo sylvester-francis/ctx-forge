@@ -97,6 +97,7 @@ pub fn render(items: &[ResolvedItem], memory: &[Note], no_provenance: bool) -> S
                 ),
                 Source::Url(u) => ("url", None, None, u.url.clone()),
                 Source::Docs(_) => unreachable!("partitioned out above"),
+                Source::Gh(g) => ("gh", None, None, g.resource.browser_url()),
             };
             JsonItem {
                 path,

@@ -80,6 +80,9 @@ fn write_item(out: &mut String, r: &ResolvedItem, no_provenance: bool) {
             // partitions them out), but kept for exhaustiveness.
             return;
         }
+        Source::Gh(g) => {
+            out.push_str(&format!("## `{}`\n\n", g.resource.browser_url()));
+        }
     }
 
     out.push_str("```");

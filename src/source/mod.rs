@@ -3,6 +3,7 @@
 pub mod docs;
 pub mod file;
 pub mod func;
+pub mod gh;
 pub mod provenance;
 pub mod range;
 pub mod type_;
@@ -12,6 +13,7 @@ pub mod url;
 pub use docs::{DocsSource, DocsTier, Ecosystem};
 pub use file::FileSource;
 pub use func::FuncSource;
+pub use gh::{GhResource, GhSource};
 pub use provenance::Provenance;
 pub use range::RangeSource;
 pub use type_::TypeSource;
@@ -31,6 +33,7 @@ pub enum Source {
     Type(TypeSource),
     Url(UrlSource),
     Docs(DocsSource),
+    Gh(GhSource),
 }
 
 impl Source {
@@ -159,17 +162,25 @@ impl Source {
                 query: vec![],
                 fragment: None,
             },
+            Source::Gh(g) => Uri {
+                scheme: "gh".into(),
+                authority: None,
+                path: g.resource.canonical_path(),
+                query: vec![],
+                fragment: None,
+            },
         }
     }
 
     pub fn is_cacheable(&self) -> bool {
-        matches!(self, Source::Url(_))
+        matches!(self, Source::Url(_) | Source::Gh(_))
     }
 
     pub fn default_ttl(&self) -> Duration {
         match self {
             Source::Url(_) => Duration::from_secs(86_400),
             Source::Docs(_) => Duration::from_secs(7 * 86_400),
+            Source::Gh(g) => Duration::from_secs(g.resource.default_ttl_secs()),
             _ => Duration::from_secs(0),
         }
     }
@@ -191,6 +202,7 @@ impl Source {
             Source::Type(t) => Some(&t.path),
             Source::Url(_) => None,
             Source::Docs(_) => None,
+            Source::Gh(_) => None,
         }
     }
 
@@ -202,6 +214,7 @@ impl Source {
             Source::Type(t) => format!("type:{} ({})", t.name, t.path.display()),
             Source::Url(u) => u.url.clone(),
             Source::Docs(d) => format!("{}@{}", d.name, d.version),
+            Source::Gh(g) => g.resource.browser_url(),
         }
     }
 
@@ -213,6 +226,7 @@ impl Source {
             Source::Type(_) => "type",
             Source::Url(_) => "url",
             Source::Docs(_) => "docs",
+            Source::Gh(_) => "gh",
         }
     }
 }

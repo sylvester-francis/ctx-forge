@@ -38,7 +38,7 @@ pub fn resolve_one(item: &Item, project_root: &Path) -> Result<ResolvedItem> {
         Source::Func(_) | Source::Type(_) => Err(CtxforgeError::Msg(
             "function/type extraction requires `cargo install ctxforge --features=extract`".into(),
         )),
-        Source::Url(_) => Err(CtxforgeError::Msg(
+        Source::Url(_) | Source::Gh(_) => Err(CtxforgeError::Msg(
             "network sources require resolve::resolve_all_with_ctx".into(),
         )),
         Source::Docs(d) => {

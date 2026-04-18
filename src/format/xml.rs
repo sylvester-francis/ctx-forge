@@ -109,6 +109,7 @@ fn write_item(out: &mut String, r: &ResolvedItem, no_provenance: bool) {
         // Docs items render in <project-stack>; this branch is unreachable
         // when called via `render` but kept for exhaustiveness.
         Source::Docs(_) => return,
+        Source::Gh(g) => g.resource.browser_url(),
     };
 
     out.push_str("  <");
@@ -147,7 +148,7 @@ fn write_item(out: &mut String, r: &ResolvedItem, no_provenance: bool) {
     }
 
     match &r.item.source {
-        Source::File(_) | Source::Url(_) | Source::Docs(_) => {}
+        Source::File(_) | Source::Url(_) | Source::Docs(_) | Source::Gh(_) => {}
         Source::Range(range) => {
             out.push_str(&format!(" lines=\"{}-{}\"", range.start, range.end));
         }
