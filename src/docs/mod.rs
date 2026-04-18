@@ -4,5 +4,6 @@
 //! to the bundle.
 
 pub mod classify;
+pub mod describe;
 pub mod registry;
 pub mod resolve;
