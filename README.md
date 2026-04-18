@@ -437,15 +437,55 @@ No telemetry. No analytics. No API keys required (`GITHUB_TOKEN` is optional). T
 
 ## Project status
 
-ctxforge has shipped the full P-series roadmap (P1 through P5):
+<details>
+<summary>Full version history</summary>
 
-- **P5** — Context source abstraction (URI, HMAC cache, fetcher, provenance)
-- **P1** — Library docs gatherer (`ctxforge docs detect/add/rm/list/refresh`)
-- **P3** — GitHub enrichment (forge URLs + `gh://` source variant)
-- **P4** — Auto-suggest (`ctxforge suggest [--apply]`)
-- **Parity** — CLI / MCP (31 tools) / TUI (48 palette entries) / Claude plugin all in sync
+Every shipped release, newest first. See [CHANGELOG.md](CHANGELOG.md) for the full notes.
 
-See [CHANGELOG.md](CHANGELOG.md) for the full version history.
+### v1.3+ (current) — P-series roadmap + parity
+
+- **Parity audit** — MCP filled in to 31 tools (docs_rm, docs_refresh, profiles_rm, templates_new/rm, cache_list/clear/verify). TUI palette now 48 unique entries (`/rm`, `/clear`, `/list sources` added). Claude plugin `skills/ctxforge.md` rewritten with a 31-tool reference and an 8-step workflow covering docs_detect → gh:// attach → suggest.
+- **P4 — Auto-suggest** — `ctxforge suggest` scans bundle imports (Rust `use`, JS/TS `import`, Python `from`/`import`, Go `import`) against the Project stack and flags missing + stale entries. `--apply` bulk-runs fixes. Zero prompt leakage — `ctxforge export` output is byte-identical with or without suggest loaded.
+- **P3 — GitHub enrichment** — Project stack renders per-dep releases + open-issues URLs from the registry-API `repository` field (forge-agnostic: GitHub / GitLab / Codeberg). New `gh:///owner/repo/<resource>` source variant inlines a specific issue / PR / release / file body via REST + raw.githubusercontent.com, authenticated by `GITHUB_TOKEN`, cached with per-resource TTLs (issue/PR 24h, release 7d, SHA blob 30d, branch blob 24h).
+- **P1 — Library docs gatherer** — `ctxforge docs detect/add/rm/list/refresh`. Scans Cargo.toml / package.json / pyproject.toml / go.mod (monorepo-aware), classifies each dep via the built-in registry, resolves canonical doc URLs, and fetches one-line descriptions from crates.io / npm / PyPI. Framework tier by default; `--all` includes library tier.
+- **P5 — Context source abstraction** — `Source` enum with `File` / `Range` / `Func` / `Type` / `Url` / `Docs` / `Gh` variants. URI-keyed `ContentCache` with HMAC sidecar integrity (OS entropy via `getrandom`). Provenance records (uri, sha256, fetched_at, etag, stale, failed). SSRF resolver checks on every fetch.
+
+### v1.3 (2026-04-15) — iocraft TUI rewrite
+
+Complete TUI rebuild from ratatui (immediate-mode) to **iocraft 0.8** with taffy flexbox layout. ratatui dependency deleted entirely. Scenario-aware prompt engineer foregrounded (scenarios on launch, live prompt preview, delivery picker, `@` file picker, `Ctrl-Enter` to deliver, `Ctrl-E` to edit in `$EDITOR`). Welcome splash on launch. Reactive components with `use_state` / `use_future` / `use_animated` hooks. Distinctive design language (`▍` section markers, `●/○` status dots, block-letter wordmark, gradient token gauge). Width-adaptive layout (three-column on ≥140 cols with viewer on, single-panel on <100 cols).
+
+### v1.2 (2026-04-14) — fluid TUI + code viewer
+
+Typed animation layer (`Animated<T>` + `Fade` / `Gauge` / `Highlight` / `Slide`), event-driven render loop that idles at 0% CPU and ticks at 16ms only when animating. Modal cross-fade with backdrop dim. Smooth token gauge, status message fade, animated focus border. `NO_ANIMATIONS=1` and non-truecolor-auto-disable escape hatches. Code viewer pane (`v` toggles syntect-highlighted preview; drag-select lines + `a` appends as `Range` item). Three-way Tab cycle (tree → viewer → bundle). Mouse capture scoped to viewer-on so normal terminal text-select still works otherwise.
+
+### v1.1 series (2026-04-12)
+
+- **v1.1.6** — Fixed: TUI file tree + bundle list now scroll (was rendering stateless, cursor scrolled off-screen on large projects). Added: `PgDn` / `PgUp` full-viewport scroll, `Ctrl-D` / `Ctrl-U` half-page, `E` / `C` expand-all / collapse-all.
+- **v1.1.4** — Rustfmt CI compliance; README / CHANGELOG now bundled in crates.io publish.
+- **v1.1.3** — MCP server: 15 tools (up from 4). MCP resources (`ctxforge://bundle`, `ctxforge://memory/{tag}`) + 5 prompts (bugfix, code-review, explain, refactor, migrate). Safety annotations on every tool. Protocol updated to `2025-03-26`. Claude Code plugin published.
+- **v1.1.1** — TUI: `/template-new` / `/template-rm` / `/template-starters` palette entries. Model registry refresh for 2026 (Claude 4.6 / Haiku 4.5 / GPT-4.1 / o3 / o4-mini / Gemini 2.5).
+- **v1.1.0** — TUI: slash command palette (`/`) fuzzy-matched with 13+ commands. Responsive layout (40/60 horizontal on ≥120 cols, vertical stack narrower). Help overlay (`?`). CLI polish: `owo-colors`, `comfy-table` status table, `indicatif` spinners, `dialoguer` interactive prompts, `strsim` "did you mean" suggestions. Prompt templates (`{{bundle}}` / `{{task}}`) with 5 built-in starters. `--template` / `--task` flags on `copy` / `export` / `pipe`.
+
+### v1.0 series (2026-04-10 → 2026-04-11)
+
+- **v1.0.3** — Fixed: `ctxforge add <dir>` no longer drags in `.git/` / `.ctxforge/` / other dotfiles (walker now `hidden(true)`). Non-UTF-8 files no longer zero out the token gauge (placeholder rendered instead).
+- **v1.0.2** — README-only release to sync crates.io README with GitHub.
+- **v1.0.1** — Fixed: project root is now strictly rooted at cwd (never walks up to an ancestor `.ctxforge/`).
+- **v1.0.0** — Full TUI: collapsible file tree, fuzzy search, narrow to range, save/load profiles, pipe-to-agent submenu, XML export, model switch, memory panel, inline note creation, function/type/diff pickers with `λ`/`τ` icons, hotspot warning panel. Feature flags (`tui` / `mcp` / `extract` / `minimal`) for conditional compilation.
+
+### v0.x series (2026-04-09 → 2026-04-10)
+
+- **v0.7** — Tree-sitter function/type extraction (`--fn`, `--type` behind `--features=extract`). Rust / Go / Python / TypeScript / JavaScript supported.
+- **v0.6.1** — MCP protocol version bump; `claude mcp add --transport stdio` convention.
+- **v0.6** — **MCP server shipped.** 4 tools: `ctxforge_recall`, `ctxforge_note`, `ctxforge_load_bundle`, `ctxforge_status`. Hand-written stdio JSON-RPC (~300 lines). README rewritten.
+- **v0.5** — **Interactive TUI shipped** (ratatui). Two-panel layout, live token gauge, hotspot highlighting, vim-style keybindings, `.gitignore`-aware tree, TTY auto-detection.
+- **v0.4** — `ctxforge pipe <target>`. Known targets auto-select format (claude → XML, rest → markdown). No HTTP calls; target CLI holds its own credentials.
+- **v0.3** — XML + JSON export formats. Claude-optimized `<context>` / `<source>` / `<documentation>` / `<memory>` tags with CDATA-wrapped code. `--format` / `--xml` / `--json` flags on `export` and `copy`.
+- **v0.2** — **Cross-session memory.** `ctxforge note` / `recall` / `resume`. Append-only JSONL index + per-tag `.md` files (committable). Auto-attach to exports. Edition bumped to 2024 (MSRV 1.85). Dependency refresh for 2026.
+- **v0.1.1** — Relicensed MIT → AGPL-3.0-or-later. Added CLA + CONTRIBUTING + NOTICE.
+- **v0.1.0** — **Initial release.** `add` / `rm` / `clear` / `status` / `export` / `copy` / `save` / `load` / `profiles`. Token counting (tiktoken for OpenAI, `chars/4` estimate elsewhere). `.gitignore`-aware walker.
+
+</details>
 
 ---
 
