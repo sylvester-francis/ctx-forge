@@ -1,9 +1,5 @@
-//! Prompt input renderer — multi-line text with inline cursor.
-//!
-//! Cursor rendering: since iocraft doesn't expose a terminal cursor API,
-//! we render a visible `▏` glyph at the cursor position by splitting the
-//! text there and using MixedText spans. The cursor only appears when the
-//! input has focus.
+//! Prompt input renderer — multi-line text with an inline `▏` glyph as
+//! cursor (iocraft doesn't expose a terminal cursor API).
 
 use crate::prompt_input::PromptInput;
 use crate::tui::theme::Theme;
@@ -24,7 +20,7 @@ pub fn render_prompt_input(
 
     let bc = if focused { border_color } else { theme.border };
 
-    // Auto-grow 4..=10 rows: 2 borders + 1 title + N content lines.
+    // 2 borders + 1 title + N content lines, clamped 4..=10.
     let content_lines = input.line_count().max(1);
     let height = (3 + content_lines as u32).clamp(4, 10);
 

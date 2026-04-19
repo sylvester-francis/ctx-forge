@@ -1,6 +1,5 @@
-//! Python parser — reads pyproject.toml deps (PEP 621 `[project]` or
-//! Poetry `[tool.poetry.dependencies]`), plus uv.lock / poetry.lock /
-//! Pipfile.lock / requirements.txt for resolved versions.
+//! Python parser: pyproject.toml (PEP 621 or Poetry) plus uv.lock /
+//! poetry.lock / requirements.txt for resolved versions.
 
 use super::DetectedDep;
 use crate::error::{CtxforgeError, Result};

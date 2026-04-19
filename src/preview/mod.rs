@@ -1,7 +1,4 @@
-//! Live prompt preview — the artifact the user is crafting.
-//!
-//! Data structures for the structured preview sections. Rendering is
-//! handled by the TUI components (v2: `src/tui2/components/prompt_preview.rs`).
+//! Live prompt preview — structured data for the TUI's prompt panel.
 
 pub mod render;
 
@@ -42,7 +39,7 @@ fn format_tokens(n: usize) -> String {
 }
 
 impl PromptPreview {
-    /// Plain-text rendering (used by tests and fallback paths).
+    /// Plain-text rendering (tests + fallback).
     pub fn to_text(&self) -> String {
         let mut out = String::new();
         for s in &self.sections {

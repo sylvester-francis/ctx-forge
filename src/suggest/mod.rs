@@ -1,12 +1,9 @@
-//! Auto-suggest context — deterministic detector for missing and stale
-//! documentation entries in the bundle's Project stack.
+//! Deterministic detector for missing and stale documentation entries in
+//! the bundle's Project stack.
 //!
-//! "Missing" = a bundle (or project) file imports a package with no
-//! matching `DocsSource` entry. "Stale" = a `DocsSource` entry exists
-//! but no bundle/project file imports the package.
-//!
-//! Output is for the user, not the LLM — suggestions never leak into
-//! `ctxforge export` rendered output.
+//! Missing: a file imports a package with no matching `DocsSource`.
+//! Stale: a `DocsSource` exists but no file imports it.
+//! Output is user-facing only — never rendered into `ctxforge export`.
 
 pub mod detect;
 pub mod match_;
@@ -27,12 +24,10 @@ pub use report::{MissingDep, StaleDep, StaleReason, SuggestReport};
 pub struct SuggestOptions {
     /// Default: scan bundle items only. With --all: walk whole project.
     pub scan_all_project: bool,
-    /// Skip stale check; only flag missing.
     pub missing_only: bool,
 }
 
-/// Scan, compare, produce a report. Pure function — no filesystem
-/// mutation, no network I/O, no cache writes.
+/// Scan, compare, produce a report. No filesystem or network side effects.
 pub fn run_suggest(
     bundle: &Bundle,
     project_root: &Path,
@@ -173,16 +168,12 @@ fn compute_stale(
     out
 }
 
-/// A single suggestion the user can act on via `apply_suggestion`.
 pub enum Suggestion<'a> {
     Missing(&'a MissingDep),
     Stale(&'a StaleDep),
 }
 
-/// Apply one suggestion. For a `Missing` dep, delegates to
-/// `docs_cmd::add` (network round-trip for description / forge). For a
-/// `Stale` dep, delegates to `docs_cmd::rm`. Caller is responsible for
-/// reloading the bundle afterwards.
+/// Apply one suggestion. Caller must reload the bundle afterwards.
 pub fn apply_suggestion(
     suggestion: &Suggestion<'_>,
     root: &crate::paths::CtxforgeRoot,

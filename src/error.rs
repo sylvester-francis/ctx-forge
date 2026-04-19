@@ -1,4 +1,3 @@
-//! Crate-wide error type.
 #![allow(dead_code)]
 
 use thiserror::Error;

@@ -77,7 +77,6 @@ impl CtxforgeRoot {
         self.memory_dir().join(filename)
     }
 
-    /// Resolves project root = parent of `.ctxforge`.
     pub fn project_root(&self) -> &Path {
         self.root.parent().unwrap_or(&self.root)
     }
@@ -192,8 +191,6 @@ mod tests {
 
     #[test]
     fn find_or_create_does_not_walk_up_to_ancestor() {
-        // Ensure find_or_create creates a NEW .ctxforge at the nested
-        // location instead of reusing the ancestor's.
         let td = TempDir::new().unwrap();
         std::fs::create_dir_all(td.path().join(".ctxforge")).unwrap();
         let nested = td.path().join("a/b/c");

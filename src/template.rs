@@ -96,7 +96,6 @@ pub fn parse_placeholders(template: &str) -> Vec<(usize, usize, &str)> {
 pub fn substitute(template_name: &str, template: &str, bundle: &str, task: &str) -> Result<String> {
     let placeholders = parse_placeholders(template);
 
-    // Phase 1: validate all placeholders are known.
     for (_, _, name) in &placeholders {
         if !matches!(*name, "bundle" | "task") {
             return Err(CtxforgeError::Msg(format!(
@@ -105,7 +104,6 @@ pub fn substitute(template_name: &str, template: &str, bundle: &str, task: &str)
         }
     }
 
-    // Phase 2: substitute in a single pass.
     let mut out = String::with_capacity(template.len() + bundle.len() + task.len());
     let mut last_end = 0;
     for (start, end, name) in placeholders {
@@ -145,16 +143,13 @@ pub fn resolve_template_path_with_global(
         )));
     }
 
-    // Strip optional `.md` extension to normalize.
     let stem = name.strip_suffix(".md").unwrap_or(name);
 
-    // 1. Project-local
     let project = root.template_path(stem);
     if project.is_file() {
         return Ok(project);
     }
 
-    // 2. Global
     if let Some(g) = global_dir {
         let global_path = g.join(format!("{stem}.md"));
         if global_path.is_file() {
@@ -223,7 +218,6 @@ mod tests {
 
     #[test]
     fn parse_placeholders_ignores_malformed() {
-        // Empty {{}}, uppercase, hyphens — none of these are valid placeholder names.
         let t = "x {{}} y {{Foo}} z {{bun-dle}} w";
         let p = parse_placeholders(t);
         assert!(p.is_empty(), "expected empty, got {p:?}");
@@ -353,7 +347,6 @@ mod tests {
         std::fs::write(project_templates.join("bugfix.md"), "X").unwrap();
 
         let root = crate::paths::CtxforgeRoot::find_or_create(&root_dir).unwrap();
-        // Pass "bugfix" without .md extension.
         let resolved = resolve_template_path_with_global(&root, "bugfix", None);
         assert!(resolved.is_ok());
     }

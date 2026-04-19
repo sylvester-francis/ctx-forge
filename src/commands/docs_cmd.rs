@@ -66,8 +66,6 @@ pub fn add(root: &CtxforgeRoot, name: String, ecosystem: Option<String>) -> Resu
     let registry = docs::registry::Registry::builtin();
     let tier = registry.classify(eco, &name);
 
-    // MVP for manual add: no version resolution from manifest — use "latest"
-    // Rust / Python; skip JS / Go (no reliable "latest" URL).
     let version = match eco {
         Ecosystem::Rust | Ecosystem::Python => "latest".to_string(),
         Ecosystem::Js | Ecosystem::Go => {
@@ -153,7 +151,6 @@ pub fn refresh(root: &CtxforgeRoot) -> Result<()> {
     let registry = docs::registry::Registry::builtin();
     let mut updated = 0;
 
-    // Re-parse each unique manifest referenced by a docs item.
     let mut manifest_deps: std::collections::HashMap<
         (PathBuf, Ecosystem),
         Vec<crate::docs::parsers::DetectedDep>,

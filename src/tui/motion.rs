@@ -2,8 +2,7 @@
 //!
 //! `use_animated<T>` tweens a value toward a target over a duration using the
 //! provided easing function. Backed by `use_state` + `use_future` with a 16ms
-//! frame timer. Idle wake-up uses an `Arc<AtomicBool>` + 50ms poll; this can
-//! be replaced with `event-listener` for zero-cost idle in a later cleanup.
+//! frame timer; idle wake-up uses an `Arc<AtomicBool>` + 50ms poll.
 
 use crate::motion_core::{EasingFn, Lerp};
 use iocraft::Hooks;

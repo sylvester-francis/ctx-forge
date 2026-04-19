@@ -28,8 +28,6 @@ pub enum Source {
 /// into the CLI command implementations).
 const BUILT_IN: &[&str] = &["bugfix", "code-review", "explain", "refactor", "migrate"];
 
-/// Template bodies for built-in starters, embedded at compile time.
-/// Same source files `src/commands/template.rs` pulls in.
 const BUILT_IN_BODIES: &[(&str, &str)] = &[
     ("bugfix", include_str!("../templates/starters/bugfix.md")),
     (
@@ -49,11 +47,9 @@ const BUILT_IN_BODIES: &[(&str, &str)] = &[
 /// Returns an error if the name is not recognised or the file cannot be
 /// read.
 pub fn load_body(root: &CtxforgeRoot, name: &str) -> Result<String, String> {
-    // Built-in?
     if let Some((_, body)) = BUILT_IN_BODIES.iter().find(|(n, _)| *n == name) {
         return Ok((*body).to_string());
     }
-    // File-backed (project or global)?
     let path = crate::template::resolve_template_path(root, name)
         .map_err(|e| format!("resolve template: {e}"))?;
     std::fs::read_to_string(&path).map_err(|e| format!("read {}: {}", path.display(), e))
@@ -72,7 +68,6 @@ pub fn available(root: &CtxforgeRoot) -> Vec<Scenario> {
         })
         .collect();
 
-    // Project-local templates.
     let project_dir = root.templates_dir();
     let mut project: Vec<Scenario> = Vec::new();
     if project_dir.is_dir() {
@@ -100,7 +95,6 @@ pub fn available(root: &CtxforgeRoot) -> Vec<Scenario> {
     project.sort_by(|a, b| a.name.cmp(&b.name));
     out.extend(project);
 
-    // User-global templates (skipped if overridden by project).
     if let Some(global_dir) = paths::global_templates_dir() {
         if global_dir.is_dir() {
             let mut global: Vec<Scenario> = Vec::new();

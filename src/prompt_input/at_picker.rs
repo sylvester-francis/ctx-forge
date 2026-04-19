@@ -1,10 +1,4 @@
 //! `@` popover: fuzzy file mentions inside the prompt input.
-//!
-//! When the user types `@` while focused on the prompt, we walk the
-//! project for files (respecting `.gitignore`), cache the list, and
-//! fuzzy-rank against whatever is typed after the `@`. A selection
-//! inserts the path at the cursor and auto-adds the file to the
-//! bundle (Task 21).
 
 #![allow(dead_code)]
 
@@ -13,19 +7,14 @@ use fuzzy_matcher::skim::SkimMatcherV2;
 use ignore::WalkBuilder;
 use std::path::{Path, PathBuf};
 
-/// Cap on ranked results. Fuzzy scoring a 100k-file monorepo on every
-/// keystroke stays responsive with this ceiling in place; the user
-/// essentially never scrolls past the first handful of hits.
+/// Cap on ranked results — keeps fuzzy scoring responsive on large monorepos.
 pub const RESULT_LIMIT: usize = 50;
 
-/// Walk the project respecting `.gitignore`, returning every file as a
-/// project-relative path. Called once when the popover opens; results
-/// are cached on the Mode variant for the lifetime of the picker.
+/// Walk the project respecting `.gitignore`; returns project-relative paths.
 pub fn walk_files(root: &Path) -> Vec<PathBuf> {
     WalkBuilder::new(root)
         .git_ignore(true)
-        // Don't hide dotfiles — `.gitignore` / `.github/workflows/*` are
-        // legitimate picks a user might want to mention.
+        // Dotfiles (`.gitignore`, `.github/workflows/*`) are legitimate picks.
         .hidden(false)
         .build()
         .filter_map(|e| e.ok())
@@ -39,8 +28,7 @@ pub fn walk_files(root: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Return the top-N fuzzy matches for `query` ranked against `all`. An
-/// empty query returns the first N in their on-disk order.
+/// Top-N fuzzy matches for `query`; empty query returns the first N in order.
 pub fn rank(all: &[PathBuf], query: &str, limit: usize) -> Vec<PathBuf> {
     if query.is_empty() {
         return all.iter().take(limit).cloned().collect();

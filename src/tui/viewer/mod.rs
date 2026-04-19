@@ -17,19 +17,13 @@ pub struct ViewerState {
     pub error: Option<ViewerError>,
     pub truncated: bool,
     pub highlighter: Highlighter,
-    /// True while a background file load is in flight. Viewer shows a
-    /// "loading…" hint during this window so the UI doesn't feel frozen.
     pub loading: bool,
-    /// Monotonic counter incremented on each new load request. The bg task
-    /// carries its generation; results with a stale generation are dropped
-    /// when the render body drains the result slot. Prevents slow loads
-    /// from clobbering faster subsequent loads.
+    /// Monotonic counter bumped per load. The bg task carries its
+    /// generation so stale results get dropped.
     pub load_generation: u64,
-    /// Active drag selection, 0-based inclusive line indices, normalized
-    /// so `start <= end`. `None` = no selection.
+    /// 0-based inclusive line indices, normalized so `start <= end`.
     pub selection: Option<(usize, usize)>,
-    /// Anchor line set on MouseDown, cleared on MouseUp. Drives selection
-    /// range extension during drag.
+    /// Anchor set on MouseDown, cleared on MouseUp.
     pub drag_anchor: Option<usize>,
 }
 
@@ -50,18 +44,15 @@ impl ViewerState {
         }
     }
 
-    /// Begin a new load. Bumps the generation counter and returns the new
-    /// value so the caller can tag the bg task; when the result comes back
-    /// we compare against `load_generation` to ignore stale loads.
+    /// Bump the generation counter and return the new value for the
+    /// caller to tag the bg task.
     pub fn begin_load(&mut self) -> u64 {
         self.load_generation = self.load_generation.wrapping_add(1);
         self.loading = true;
         self.load_generation
     }
 
-    /// Apply a result from a background load. Called from the render body
-    /// when the bg task completes. Ignores the result if its generation is
-    /// stale (user moved on to another file).
+    /// Apply a background load result. Stale generations are ignored.
     pub fn apply_bg_load(&mut self, generation: u64, path: PathBuf, load: ViewerLoad) {
         if generation != self.load_generation {
             return;
@@ -175,14 +166,11 @@ mod tests {
     fn apply_bg_load_drops_stale_generation() {
         let mut v = ViewerState::new();
         let old_gen = v.begin_load();
-        // User navigated away — a new load starts, bumping generation.
         let _new_gen = v.begin_load();
 
         // Late-arriving result from the OLD load — must be ignored.
         v.apply_bg_load(old_gen, PathBuf::from("/old.rs"), fake_load(3));
 
-        // loading is still true (the new load hasn't finished yet), and
-        // the stale content did NOT land in lines.
         assert!(v.loading);
         assert!(v.lines.is_empty());
         assert!(v.cached_path.is_none());

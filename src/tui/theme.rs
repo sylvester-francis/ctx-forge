@@ -1,13 +1,9 @@
 //! Bridge: expose ctxforge's `AppTheme` (crossterm colors) as an iocraft-
-//! compatible `Theme` struct.
-//!
-//! Since iocraft re-exports crossterm's Color type directly
-//! (`iocraft::Color == crossterm::style::Color`), this is just a Copy
-//! of the AppTheme fields into a struct with the same types.
+//! compatible `Theme` struct. `iocraft::Color == crossterm::style::Color`,
+//! so this is a field-for-field copy.
 
 use crate::theme::AppTheme;
 
-/// Convenience alias — iocraft::Color is crossterm::style::Color.
 pub type Color = crossterm::style::Color;
 
 #[derive(Clone, Copy)]

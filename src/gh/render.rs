@@ -22,7 +22,6 @@ pub fn render_markdown_section(resource: &GhResource, body: &GhBody) -> String {
     let mut body_text = body.body.clone();
     truncate_body_in_place(&mut body_text, cap);
 
-    // canonical_path() starts with `/`, so gh:// + /foo/... = gh:///foo/...
     let heading = format!(
         "## `gh://{}` — {}\n\n",
         resource.canonical_path(),

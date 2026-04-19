@@ -1,7 +1,5 @@
-//! Library docs gatherer. Scans manifest + lock files in the project root
-//! (or recursively in monorepo mode), classifies deps via the built-in
-//! registry, resolves canonical doc URLs, and attaches DocsSource items
-//! to the bundle.
+//! Library docs gatherer: scans manifest + lock files, classifies deps,
+//! resolves canonical doc URLs, and attaches DocsSource items to the bundle.
 
 pub mod classify;
 pub mod describe;
@@ -20,11 +18,8 @@ use crate::source::{DocsSource, Ecosystem, Source};
 use std::path::Path;
 
 pub enum DetectMode {
-    /// Walk up from each bundle item's file path; union the manifests.
     Scoped,
-    /// Enumerate workspace members or shallow-walk cwd.
     All,
-    /// User specified a single path.
     Explicit(std::path::PathBuf),
 }
 
@@ -42,9 +37,8 @@ pub struct DetectReport {
     pub warnings: Vec<String>,
 }
 
-/// Entry point: scan, classify, resolve URLs + descriptions, attach
-/// DocsSource items to the bundle (deduped by canonical URI).
-/// Does NOT save the bundle — the caller decides when to persist.
+/// Scan, classify, resolve URLs + descriptions, attach DocsSource items
+/// to the bundle (deduped by canonical URI). Does not persist the bundle.
 pub fn run_detect(
     bundle: &mut Bundle,
     project_root: &Path,
@@ -97,7 +91,6 @@ pub fn run_detect(
                 manifest_path: Some(manifest_rel),
                 forge: md.forge,
             });
-            // Dedup by canonical URI.
             let uri = source.to_uri().to_string();
             let duplicate = bundle
                 .items

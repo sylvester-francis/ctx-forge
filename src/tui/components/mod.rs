@@ -8,9 +8,8 @@ pub mod tree;
 pub mod viewer;
 pub mod welcome;
 
-/// Shrink a path to fit `max` chars while keeping it readable.
-/// Strategy: full path if it fits, else `…/<filename>`, else truncate the
-/// filename stem but preserve the extension.
+/// Shrink a path to fit `max` chars. Full path → `…/<filename>` →
+/// stem-truncated while preserving the extension.
 pub fn smart_truncate_path(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_string();

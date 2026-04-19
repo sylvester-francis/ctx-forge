@@ -3,7 +3,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-/// A single memory note. Immutable after creation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Note {
     pub timestamp: DateTime<Utc>,
@@ -13,7 +12,6 @@ pub struct Note {
 }
 
 impl Note {
-    /// Construct a note with `timestamp = Utc::now()`.
     pub fn new(body: impl Into<String>, tag: Option<String>) -> Self {
         Note {
             timestamp: Utc::now(),
@@ -22,26 +20,14 @@ impl Note {
         }
     }
 
-    /// Format a note as a JSONL line (no trailing newline).
     pub fn to_jsonl(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string(self)
     }
 
-    /// Parse a JSONL line back into a `Note`.
     pub fn from_jsonl(line: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(line)
     }
 
-    /// Format a note as a markdown block for the per-tag file.
-    ///
-    /// Format:
-    /// ```text
-    /// ## 2026-04-09 03:42 UTC — tag
-    ///
-    /// body text here
-    ///
-    /// ---
-    /// ```
     pub fn to_markdown_block(&self) -> String {
         let ts = self.timestamp.format("%Y-%m-%d %H:%M UTC");
         let heading = match &self.tag {

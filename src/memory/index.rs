@@ -1,8 +1,4 @@
-//! `_index.jsonl` append-only store.
-//!
-//! One `Note` per line, serialized as JSON. Append-only for trivial
-//! concurrency and corruption-resistance. Read is sequential and cheap
-//! for the expected scale (hundreds of notes).
+//! `_index.jsonl` append-only store — one `Note` per line as JSON.
 
 #![allow(dead_code)]
 
@@ -12,8 +8,6 @@ use crate::paths::CtxforgeRoot;
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Write};
 
-/// Append a note to the index. Creates the memory directory and index file
-/// if they do not exist.
 pub fn append(root: &CtxforgeRoot, note: &Note) -> Result<()> {
     std::fs::create_dir_all(root.memory_dir())?;
     let mut file = OpenOptions::new()
@@ -25,8 +19,7 @@ pub fn append(root: &CtxforgeRoot, note: &Note) -> Result<()> {
     Ok(())
 }
 
-/// Read all notes from the index, in insertion order.
-/// Returns an empty Vec if the index does not exist.
+/// Read notes in insertion order. Returns empty if the index does not exist.
 pub fn read_all(root: &CtxforgeRoot) -> Result<Vec<Note>> {
     let path = root.memory_index_path();
     if !path.exists() {

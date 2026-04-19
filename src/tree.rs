@@ -26,7 +26,6 @@ pub struct TreeEntry {
 
 /// Build the tree entries from a project root directory.
 pub fn build(project_root: &Path) -> Vec<TreeEntry> {
-    // Collect all file paths, then build a tree from them.
     let mut files: Vec<PathBuf> = Vec::new();
     for entry in WalkBuilder::new(project_root)
         .hidden(true)
@@ -41,13 +40,10 @@ pub fn build(project_root: &Path) -> Vec<TreeEntry> {
     }
     files.sort();
 
-    // Build nested map: dir -> [entries].
-    // We use BTreeMap so dirs are sorted.
     let mut entries: Vec<TreeEntry> = Vec::new();
     let mut seen_dirs: BTreeMap<PathBuf, bool> = BTreeMap::new();
 
     for file in &files {
-        // Ensure all parent directories are emitted.
         let mut ancestors: Vec<PathBuf> = Vec::new();
         let mut current = file.parent();
         while let Some(p) = current {
@@ -79,7 +75,6 @@ pub fn build(project_root: &Path) -> Vec<TreeEntry> {
             }
         }
 
-        // Emit the file.
         let depth = file.components().count() - 1;
         let name = file
             .file_name()
@@ -123,18 +118,15 @@ pub fn visible_indices(entries: &[TreeEntry]) -> Vec<usize> {
     let mut collapsed_depth: Option<usize> = None;
 
     for (i, entry) in entries.iter().enumerate() {
-        // If we're inside a collapsed subtree, skip until we exit it.
         if let Some(cd) = collapsed_depth {
             if entry.depth > cd {
                 continue;
             }
-            // We've exited the collapsed subtree.
             collapsed_depth = None;
         }
 
         result.push(i);
 
-        // If this is a collapsed directory, mark its depth so children are hidden.
         if entry.is_dir && !entry.expanded {
             collapsed_depth = Some(entry.depth);
         }
@@ -164,7 +156,6 @@ mod tests {
 
         let entries = build(td.path());
 
-        // Should have: README.md, src/, src/lib.rs, src/main.rs
         let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
         assert!(names.contains(&"README.md"));
         assert!(names.contains(&"src/"));
@@ -228,7 +219,6 @@ mod tests {
             },
         ];
         let vis = visible_indices(&entries);
-        // src/ is visible but collapsed, so main.rs and lib.rs are hidden. README.md is visible.
         assert_eq!(vis, vec![0, 3]);
     }
 
@@ -297,7 +287,6 @@ mod tests {
         assert!(entries[0].expanded);
         assert!(entries[1].expanded);
         assert!(entries[2].expanded);
-        // Files are not directories — their `expanded` flag is ignored and untouched.
         assert!(!entries[3].expanded);
     }
 
@@ -365,7 +354,6 @@ mod tests {
             },
         ];
         let vis = visible_indices(&entries);
-        // src/ expanded, hub/ visible but collapsed (hides server.go), main.rs visible
         assert_eq!(vis, vec![0, 1, 3]);
     }
 }

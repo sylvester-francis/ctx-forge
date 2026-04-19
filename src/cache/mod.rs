@@ -1,12 +1,4 @@
 //! Content-addressable cache for network-fetched sources.
-//!
-//! **Review note (2026-04-17):** HMAC metadata integrity (sidecar `meta.hmac`
-//! signed by a per-install key) is defensive posture against local filesystem
-//! tampering. For a cache of public docs pages this is arguably over-engineered
-//! vs. plain sha256 content-addressing — the threat model ("another process
-//! can write to `~/.cache/ctxforge/` but not read the key") is narrow. Left
-//! in for now because it's not in the way; revisit if the complexity becomes
-//! load-bearing during P1–P4 or if we simplify the cache contract.
 
 pub mod policy;
 pub mod store;
@@ -17,7 +9,6 @@ use std::path::{Path, PathBuf};
 
 pub use store::{Meta, cache_key_for_uri, object_dir, sha256_hex};
 
-/// Outcome of a cache read.
 pub enum CacheRead {
     Fresh { body: Vec<u8>, meta: Meta },
     Stale { body: Vec<u8>, meta: Meta },

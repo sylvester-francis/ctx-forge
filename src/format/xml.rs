@@ -133,8 +133,6 @@ fn write_item(out: &mut String, r: &ResolvedItem, no_provenance: bool) {
         Source::Func(f) => f.path.display().to_string(),
         Source::Type(t) => t.path.display().to_string(),
         Source::Url(u) => u.url.clone(),
-        // Docs items render in <project-stack>; this branch is unreachable
-        // when called via `render` but kept for exhaustiveness.
         Source::Docs(_) => return,
         Source::Gh(g) => g.resource.browser_url(),
     };
@@ -194,7 +192,6 @@ fn write_item(out: &mut String, r: &ResolvedItem, no_provenance: bool) {
     out.push_str(">\n");
 }
 
-/// Escape the five XML attribute characters. CDATA handles everything else.
 fn escape_attr(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -203,7 +200,6 @@ fn escape_attr(s: &str) -> String {
         .replace('\'', "&apos;")
 }
 
-/// Escape XML text content (not inside CDATA). Used for memory note bodies.
 fn escape_text(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")

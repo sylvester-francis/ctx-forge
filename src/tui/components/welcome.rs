@@ -1,5 +1,4 @@
-//! Full-screen welcome splash — first thing users see on launch.
-//! Dismissed by any keypress, transitions to the main TUI.
+//! Full-screen welcome splash. Dismissed by any keypress.
 
 use crate::tui::theme::Theme;
 use iocraft::prelude::*;
@@ -10,8 +9,6 @@ pub fn render_splash(
     term_w: u16,
     term_h: u16,
 ) -> Vec<AnyElement<'static>> {
-    // Card fills most of the terminal — 90% width, 90% height on small
-    // screens; slightly less on large ones so it doesn't feel stretched.
     let card_w = if term_w < 100 {
         ((term_w as u32) * 92 / 100).max(40)
     } else {
@@ -28,13 +25,11 @@ pub fn render_splash(
 
     let mut body: Vec<AnyElement<'static>> = Vec::new();
 
-    // ─── Wordmark ──────────────────────────────────────────────
     if !compact {
         body.push(element! { Text(content: "") }.into_any());
     }
 
-    // Block-letter wordmark — 3 rows tall, OpenCode-style pixel font.
-    // "ctx" in muted, "forge" in accent for visual contrast.
+    // 3-row block-letter wordmark; "ctx" muted, "forge" accent.
     let logo_row1_ctx = " ▄▀▀  ▀█▀  █ █";
     let logo_row2_ctx = " █     █   ▀▄▀";
     let logo_row3_ctx = " ▀▄▄   █   █ █";
@@ -89,8 +84,7 @@ pub fn render_splash(
         ("d", "deliver — copy · pipe · export"),
     ];
 
-    // Fixed-width block: each line is the same length so center-align
-    // shifts the whole block as a unit — columns stay straight.
+    // Fixed-width lines so center-align shifts the block as a unit.
     let max_action = steps.iter().map(|(_, a)| a.len()).max().unwrap_or(0);
     for (i, (key, action)) in steps.iter().enumerate() {
         body.push(
@@ -130,7 +124,6 @@ pub fn render_splash(
         .into_any(),
     );
 
-    // Wrap body in a positioned card
     vec![
         element! {
             View(

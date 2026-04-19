@@ -53,9 +53,8 @@ impl Default for Highlighter {
     }
 }
 
-/// Shared global instance. First call pays ~200ms of SyntaxSet deserialization;
-/// subsequent calls return instantly. Warm this during app startup so the first
-/// viewer toggle doesn't stall the UI.
+/// First call pays ~200ms of SyntaxSet deserialization; warm at startup
+/// so the first viewer toggle doesn't stall the UI.
 pub fn shared() -> &'static Highlighter {
     static INSTANCE: std::sync::LazyLock<Highlighter> = std::sync::LazyLock::new(Highlighter::new);
     &INSTANCE

@@ -63,7 +63,6 @@ mod tests {
         let td = TempDir::new().unwrap();
         let p = td.path();
 
-        // Init a fresh repo and commit a file on main.
         run(p, &["git", "init", "-q", "-b", "main"]);
         run(p, &["git", "config", "user.email", "t@t"]);
         run(p, &["git", "config", "user.name", "t"]);
@@ -71,13 +70,11 @@ mod tests {
         run(p, &["git", "add", "a.rs"]);
         run(p, &["git", "commit", "-q", "-m", "initial"]);
 
-        // Create a feature branch and add a file.
         run(p, &["git", "checkout", "-q", "-b", "feature"]);
         std::fs::write(p.join("b.rs"), "fn b() {}\n").unwrap();
         run(p, &["git", "add", "b.rs"]);
         run(p, &["git", "commit", "-q", "-m", "add b"]);
 
-        // Diff feature vs main: should show b.rs (changed from main to HEAD=feature).
         let changed = changed_files(p, "main").unwrap();
         assert_eq!(changed, vec![PathBuf::from("b.rs")]);
     }

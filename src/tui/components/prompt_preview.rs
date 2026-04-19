@@ -1,11 +1,4 @@
-//! Prompt preview — distinctive section markers and aligned rows.
-//!
-//! Design language:
-//! - `▶ SCENARIO`, `≡ TASK`, `◆ CONTEXT` section headers (uppercase)
-//! - Subtle dividers `─────` between sections
-//! - Indexed badges for context items
-//! - Right-aligned token counts
-//! - Danger color for template errors with warning icon ⚠
+//! Prompt preview — section markers, aligned rows, right-aligned tokens.
 
 use crate::preview::{PromptPreview, Section};
 use crate::tui::theme::Theme;

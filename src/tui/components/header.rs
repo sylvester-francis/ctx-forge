@@ -1,6 +1,4 @@
 //! Header bar — token gauge, scenario badge, model name.
-//!
-//! Uses `use_animated` to smoothly fill the gauge when token totals change.
 
 use crate::motion_core::{constants, ease_out_quad};
 use crate::tui::motion::use_animated;

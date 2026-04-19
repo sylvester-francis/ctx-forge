@@ -16,7 +16,6 @@ use crate::resolve;
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-/// Auto-select the best export format for a known target.
 fn default_format_for(target: &str) -> Format {
     match target {
         "claude" => Format::Xml,
@@ -36,7 +35,6 @@ pub fn run(
     task: Option<String>,
     extra_args: &[String],
 ) -> Result<()> {
-    // Resolve format.
     let fmt = match format_override {
         Some(name) => Format::parse(name).ok_or_else(|| {
             CtxforgeError::Msg(format!(
@@ -46,7 +44,6 @@ pub fn run(
         None => default_format_for(target),
     };
 
-    // Render the bundle.
     let bundle = Bundle::load_or_default(root)?;
     let resolved = resolve::resolve_all(&bundle.items, root.project_root())?;
     let memory_notes =
@@ -59,7 +56,6 @@ pub fn run(
         None => rendered,
     };
 
-    // Spawn the target CLI.
     let mut child = Command::new(target)
         .args(extra_args)
         .stdin(Stdio::piped())
@@ -71,14 +67,12 @@ pub fn run(
             ))
         })?;
 
-    // Write to stdin.
     if let Some(mut stdin) = child.stdin.take() {
         stdin
             .write_all(rendered.as_bytes())
             .map_err(|e| CtxforgeError::Msg(format!("failed to write to `{target}` stdin: {e}")))?;
     }
 
-    // Wait for exit.
     let status = child.wait()?;
 
     let note_info = if memory_notes.is_empty() {

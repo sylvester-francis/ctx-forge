@@ -1,9 +1,4 @@
 //! Root component and entry point for the v2 TUI.
-//!
-//! Loads bundle, tree, and theme at startup, computes token counts, and
-//! renders the full three-column layout with keyboard navigation (Tab
-//! cycles focus, j/k move the tree cursor, q quits) and animated focus
-//! borders via `use_animated`.
 
 use crate::bundle::Bundle;
 use crate::error::Result;
@@ -26,8 +21,6 @@ use iocraft::prelude::*;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-// ─── App state (mutable, held in use_state) ───────────────────────────
-
 struct AppData {
     bundle: Bundle,
     tree_entries: Vec<TreeEntry>,
@@ -38,19 +31,16 @@ struct AppData {
     theme: Theme,
     preview: PromptPreview,
     bundled_paths: HashSet<PathBuf>,
-    // Needed so mutations can persist to disk and recompute tokens.
     root: CtxforgeRoot,
     project_root: PathBuf,
-    // Transient status message shown in the footer. Auto-clears after 3s.
+    // Auto-clears after 3s.
     status: String,
     status_set_at: Option<std::time::Instant>,
-    // Code viewer pane state.
     viewer: crate::tui::viewer::ViewerState,
-    // Action that requires leaving the render loop (export / pipe / editor).
     pending_action: Option<crate::tui::mode::PendingAction>,
     // Hand-edited prompt body saved by `edit-prompt`. When set,
-    // `render_payload` returns this verbatim instead of re-rendering.
-    // Persisted at `root/prompt-override.md` across TUI restarts.
+    // `render_payload` returns this verbatim. Persisted at
+    // `root/prompt-override.md` across TUI restarts.
     prompt_override: Option<String>,
 }
 
@@ -113,16 +103,12 @@ fn load_app_data(root: CtxforgeRoot) -> AppData {
 }
 
 impl AppData {
-    /// Toggle file at `rel_path` in/out of the bundle. No-op on directories.
-    /// Only the affected item is resolved + tokenized — existing items keep
-    /// their cached token counts.
+    /// Toggle file at `rel_path` in/out of the bundle. Only the affected
+    /// item is resolved + tokenized — existing items keep cached counts.
     fn toggle_bundle(&mut self, rel_path: &std::path::Path) {
         use crate::bundle::Item;
         use crate::source::{FileSource, Source};
         if self.bundled_paths.contains(rel_path) {
-            // Remove path: drop the matching token entry too. Bundle stores
-            // items ordered; find the first File-kind item matching the path
-            // and remove its parallel token entry.
             if let Some(idx) = self
                 .bundle
                 .items
@@ -135,8 +121,7 @@ impl AppData {
                     self.total_tokens = self.total_tokens.saturating_sub(removed);
                 }
             } else {
-                // Fallback: path exists but not a File-kind entry. Use the
-                // existing helper which scans for any path match, and recount.
+                // Fallback: path exists but not a File-kind entry.
                 self.bundle.remove_by_path(rel_path);
                 self.recompute_tokens();
             }
@@ -166,8 +151,6 @@ impl AppData {
         let _ = self.bundle.save(&self.root);
     }
 
-    /// Toggle expanded state of the directory at `tree_idx` (absolute index
-    /// into `tree_entries`). No-op on files.
     fn toggle_expanded(&mut self, tree_idx: usize) {
         if let Some(entry) = self.tree_entries.get_mut(tree_idx) {
             if entry.is_dir {
@@ -190,7 +173,7 @@ impl AppData {
     }
 
     /// Dispatch a command action. Returns the new Mode to enter, or None
-    /// for actions that only set status / quit / stay in Normal mode.
+    /// for actions that stay in Normal mode.
     fn dispatch_command(
         &mut self,
         action: crate::tui::command_registry::CommandAction,
@@ -514,10 +497,8 @@ impl AppData {
         self.set_status(format!("starters: {names}"));
     }
 
-    /// Submit a text-prompt value. Called by the key handler when the user
-    /// presses Enter inside `Mode::TextPrompt` (reserved for future in-TUI
-    /// overlay; current flow uses `PendingAction::TextPrompt` +
-    /// `handle_text_prompt`).
+    /// Submit a text-prompt value (reserved for future in-TUI overlay;
+    /// current flow suspends via `PendingAction::TextPrompt`).
     #[allow(dead_code)]
     pub(crate) fn submit_text_prompt(
         &mut self,
@@ -535,32 +516,28 @@ impl AppData {
                 Ok(()) => self.set_status(format!("saved profile `{trimmed}`")),
                 Err(e) => self.set_status(format!("save profile: {e}")),
             },
-            P::Narrow => {
-                // format: path:start-end
-                match parse_narrow(&trimmed) {
-                    Ok((path, start, end)) => {
-                        use crate::source::{RangeSource, Source};
-                        match RangeSource::new(path.into(), start, end) {
-                            Ok(rs) => {
-                                self.bundle.add(crate::bundle::Item {
-                                    source: Source::Range(rs),
-                                    label: None,
-                                });
-                                let _ = self.bundle.save(&self.root);
-                                self.recompute_tokens();
-                                self.preview =
-                                    build_preview(&self.root, &self.bundle, &self.item_tokens);
-                                self.set_status(format!("narrowed {trimmed}"));
-                            }
-                            Err(e) => self.set_status(format!("narrow: {e}")),
+            P::Narrow => match parse_narrow(&trimmed) {
+                Ok((path, start, end)) => {
+                    use crate::source::{RangeSource, Source};
+                    match RangeSource::new(path.into(), start, end) {
+                        Ok(rs) => {
+                            self.bundle.add(crate::bundle::Item {
+                                source: Source::Range(rs),
+                                label: None,
+                            });
+                            let _ = self.bundle.save(&self.root);
+                            self.recompute_tokens();
+                            self.preview =
+                                build_preview(&self.root, &self.bundle, &self.item_tokens);
+                            self.set_status(format!("narrowed {trimmed}"));
                         }
+                        Err(e) => self.set_status(format!("narrow: {e}")),
                     }
-                    Err(e) => self.set_status(format!("narrow: {e}")),
                 }
-            }
+                Err(e) => self.set_status(format!("narrow: {e}")),
+            },
             P::Note => {
-                // Input is body; tag is ignored for MVP (the CLI supports a
-                // separate --tag flag; the TUI wraps it in body for now).
+                // Tag is ignored for MVP; CLI exposes --tag separately.
                 use crate::memory::{self, Note};
                 let note = Note::new(trimmed.clone(), None);
                 match memory::index::append(&self.root, &note) {
@@ -689,9 +666,8 @@ impl AppData {
         }
     }
 
-    /// Submit a picker selection from `Mode::PickerList` (reserved for
-    /// future in-TUI overlay; current flow uses `PendingAction::PickerList`
-    /// + `handle_picker`).
+    /// Submit a picker selection (reserved for future in-TUI overlay;
+    /// current flow suspends via `PendingAction::PickerList`).
     #[allow(dead_code)]
     pub(crate) fn submit_picker(
         &mut self,
@@ -735,8 +711,7 @@ impl AppData {
             }
             P::Suggest => {
                 // Suggest uses the suspend/resume multi-select flow in
-                // handle_suggest_picker; this native-overlay variant is
-                // reserved for a future in-TUI multi-select widget.
+                // handle_suggest_picker.
                 self.set_status("suggest: use palette, not native overlay".to_string());
             }
         }
@@ -770,8 +745,7 @@ impl AppData {
     }
 }
 
-/// Suspended-TUI handler for `PendingAction::TextPrompt`. Reads the root
-/// via the thread-local `ROOT_STASH` so it doesn't need `AppData`.
+/// Suspended-TUI handler for `PendingAction::TextPrompt`.
 fn handle_text_prompt(purpose: crate::tui::mode::TextPromptPurpose) {
     use crate::tui::mode::TextPromptPurpose as P;
     let Some(root) = ROOT_STASH.with(|r| r.borrow().clone()) else {
@@ -951,9 +925,8 @@ fn handle_picker(purpose: crate::tui::mode::PickerPurpose, items: Vec<String>) {
             .map_err(|e| e.to_string()),
         P::Suggest => unreachable!("routed to handle_suggest_picker above"),
         P::Model => {
-            // Model picker only stashes the choice; persistence happens
-            // via the config file, which the TUI reads on restart. For
-            // one-session use, the user will re-pick next launch.
+            // Persistence happens via the config file, which the TUI
+            // reads on restart.
             let path = crate::paths::config_file_path();
             if let Some(p) = path {
                 let existing = crate::theme::config::load_from(&p).unwrap_or_default();
@@ -993,8 +966,8 @@ fn handle_picker(purpose: crate::tui::mode::PickerPurpose, items: Vec<String>) {
     }
 }
 
+/// Parses `path:start-end`.
 fn parse_narrow(input: &str) -> std::result::Result<(String, usize, usize), String> {
-    // Format: path:start-end
     let (path, range) = input.rsplit_once(':').ok_or("expected path:start-end")?;
     let (start_s, end_s) = range.split_once('-').ok_or("expected start-end")?;
     let start: usize = start_s.parse().map_err(|_| "start not numeric")?;
@@ -1005,25 +978,21 @@ fn parse_narrow(input: &str) -> std::result::Result<(String, usize, usize), Stri
 impl AppData {
     fn run_docs_detect(&mut self, all: bool) {
         match crate::commands::docs_cmd::detect(&self.root, all, None) {
-            Ok(()) => {
-                // Reload bundle so the freshly-attached docs items show up in
-                // the preview + status line without restarting the TUI.
-                match crate::bundle::Bundle::load_or_default(&self.root) {
-                    Ok(b) => {
-                        self.bundle = b;
-                        self.recompute_tokens();
-                        self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
-                        let docs_count = self
-                            .bundle
-                            .items
-                            .iter()
-                            .filter(|i| matches!(&i.source, crate::source::Source::Docs(_)))
-                            .count();
-                        self.set_status(format!("docs detected ({docs_count} attached)"));
-                    }
-                    Err(e) => self.set_status(format!("docs detect reload: {e}")),
+            Ok(()) => match crate::bundle::Bundle::load_or_default(&self.root) {
+                Ok(b) => {
+                    self.bundle = b;
+                    self.recompute_tokens();
+                    self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
+                    let docs_count = self
+                        .bundle
+                        .items
+                        .iter()
+                        .filter(|i| matches!(&i.source, crate::source::Source::Docs(_)))
+                        .count();
+                    self.set_status(format!("docs detected ({docs_count} attached)"));
                 }
-            }
+                Err(e) => self.set_status(format!("docs detect reload: {e}")),
+            },
             Err(e) => self.set_status(format!("docs detect: {e}")),
         }
     }
@@ -1128,7 +1097,6 @@ impl AppData {
 
     fn run_list_sources(&mut self) {
         use crate::source::Source;
-        // Summarise by scheme with freshness: url / gh / docs / local.
         let mut by_scheme: std::collections::BTreeMap<&str, usize> = Default::default();
         let mut cached = 0usize;
         let mut stale = 0usize;
@@ -1137,9 +1105,8 @@ impl AppData {
             if item.source.is_cacheable() {
                 cached += 1;
                 if matches!(&item.source, Source::Url(_) | Source::Gh(_)) {
-                    // Cache freshness check requires cache I/O; surface coarse
-                    // count here and point users at `ctxforge refresh --all`
-                    // for fine-grained state.
+                    // Per-entry freshness requires cache I/O; point users at
+                    // `ctxforge refresh --all` for fine-grained state.
                     stale += 0;
                 }
             }
@@ -1223,9 +1190,7 @@ impl AppData {
         }
     }
 
-    /// Apply a theme by name. Swaps the active theme, rebuilds the preview
-    /// (so any theme-dependent colors re-render), and persists the selection
-    /// to `~/.config/ctxforge/config.toml`.
+    /// Apply a theme by name and persist the selection.
     fn apply_theme(&mut self, name: &str) -> std::result::Result<(), String> {
         let raw = crate::theme::registry::by_name(name)
             .ok_or_else(|| format!("unknown theme '{name}'"))?;
@@ -1245,9 +1210,7 @@ impl AppData {
     }
 
     /// Add the viewer's current selection to the bundle as a Range item.
-    /// Only the NEW item is resolved and tokenized — existing bundle items
-    /// keep their cached token counts. Noticeably faster than a full
-    /// `recompute_tokens()` call for large bundles.
+    /// Only the new item is resolved and tokenized.
     fn add_viewer_selection_to_bundle(&mut self) {
         use crate::bundle::Item;
         use crate::source::{RangeSource, Source};
@@ -1281,7 +1244,7 @@ impl AppData {
             label: None,
         };
 
-        // Tokenize ONLY the new item — resolve_all is O(items × file size).
+        // Tokenize only the new item — resolve_all is O(items × file size).
         let model = models::lookup(&self.model_name);
         let new_tokens: usize =
             resolve::resolve_all(std::slice::from_ref(&item), &self.project_root)
@@ -1308,10 +1271,8 @@ impl AppData {
         ));
     }
 
-    /// Render the delivery payload for the given format. If the user has
-    /// a prompt-override saved (via `edit-prompt`), that text is returned
-    /// verbatim regardless of format — the hand-edited prompt is the
-    /// authoritative artifact.
+    /// Render the delivery payload. A saved prompt-override (from
+    /// `edit-prompt`) is returned verbatim regardless of format.
     fn render_payload(&self, format: crate::format::Format) -> std::result::Result<String, String> {
         if let Some(override_body) = &self.prompt_override {
             return Ok(override_body.clone());
@@ -1331,8 +1292,8 @@ impl AppData {
         }
     }
 
-    /// Execute a delivery choice. Copy goes to clipboard (no suspend needed).
-    /// Pipe/Export stash a PendingAction for the outer run() loop.
+    /// Execute a delivery choice. Copy is immediate; pipe/export stash a
+    /// PendingAction for the outer run() loop.
     fn run_delivery(&mut self, choice: crate::deliver::DeliverChoice) {
         use crate::deliver::DeliverChoice as DC;
         use crate::tui::mode::PendingAction;
@@ -1394,21 +1355,18 @@ impl AppData {
         }
     }
 
-    /// Set the active scenario and rebuild the preview. Persists to disk.
     fn set_scenario(&mut self, name: Option<String>) {
         self.bundle.scenario = name;
         self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
         let _ = self.bundle.save(&self.root);
     }
 
-    /// Write task_text into the bundle and rebuild the preview. Persists to disk.
     fn sync_task_text(&mut self, text: String) {
         self.bundle.task_text = text;
         self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
         let _ = self.bundle.save(&self.root);
     }
 
-    /// Recompute `item_tokens` and `total_tokens` from the current bundle.
     fn recompute_tokens(&mut self) {
         let model = models::lookup(&self.model_name);
         self.model_window = model.window;
@@ -1423,22 +1381,13 @@ impl AppData {
 }
 
 /// Payload written by a completed background viewer load. The generation
-/// tag lets `apply_bg_load` drop stale results (from files the user has
-/// since navigated past while the load was in flight).
+/// tag lets `apply_bg_load` drop stale results.
 type ViewerBgResult = (u64, PathBuf, crate::tui::viewer::ViewerLoad);
 type ViewerBgSlot = State<Option<ViewerBgResult>>;
 
-/// Fire a background file load and return immediately. The task runs on
-/// smol's global executor; the blocking read+highlight runs on
-/// `blocking`'s dedicated thread pool via `smol::unblock`, so neither
-/// the render thread nor smol's worker thread blocks while the file is
-/// read and syntect-highlighted. Uses the shared LazyLock highlighter so
-/// the SyntaxSet deserialization is paid once across the app lifetime.
-///
-/// Multiple in-flight loads are safe because each task tags its result
-/// with its own generation; `apply_bg_load` drops stale ones. The task
-/// is detached so we don't hold the `Task` handle (dropping it would
-/// cancel the work before the result landed).
+/// Fire a background file load and return immediately. Blocking
+/// read+highlight runs on the `blocking` thread pool via `smol::unblock`;
+/// the task is detached so dropping a Task handle doesn't cancel it.
 fn spawn_viewer_load(path: PathBuf, generation: u64, mut result_slot: ViewerBgSlot) {
     smol::spawn(async move {
         let path_for_task = path.clone();
@@ -1449,22 +1398,16 @@ fn spawn_viewer_load(path: PathBuf, generation: u64, mut result_slot: ViewerBgSl
             )
         })
         .await;
-        // Single `set()`, no retry: `State::set` uses `try_write` and
-        // silently drops on contention, which would lose this result.
-        // In practice the slot is virtually never contended (only during
-        // the render's drain, which is a few microseconds), and the
-        // user can retrigger by moving the cursor if a load does get
-        // lost. An earlier retry-loop version hung startup on some
-        // terminals.
+        // Single `set()`, no retry: a retry-loop hung startup on some
+        // terminals. If the slot is contended during the render's drain
+        // the user can retrigger by moving the cursor.
         result_slot.set(Some((generation, path, load)));
     })
     .detach();
 }
 
 /// Reload the viewer for the file at `new_cursor` in the visible tree.
-/// No-op on directories, on the cursor's current file, or when the viewer
-/// is disabled. Dispatches the load to a background task so the event
-/// thread stays responsive.
+/// Dispatches the load to a background task.
 fn reload_viewer(data: &mut AppData, new_cursor: usize, slot: ViewerBgSlot) {
     if !data.viewer.enabled {
         return;
@@ -1533,8 +1476,6 @@ fn build_preview(root: &CtxforgeRoot, bundle: &Bundle, item_tokens: &[usize]) ->
     PromptPreview { sections }
 }
 
-// ─── Focus ────────────────────────────────────────────────────────────
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Focus {
     FileTree,
@@ -1576,8 +1517,6 @@ fn gauge_color(pct: f64, theme: &Theme) -> Color {
     }
 }
 
-// ─── Entry point ──────────────────────────────────────────────────────
-
 thread_local! {
     static STARTUP: std::cell::RefCell<Option<AppData>> = const { std::cell::RefCell::new(None) };
     static PENDING: std::cell::RefCell<Option<crate::tui::mode::PendingAction>> = const { std::cell::RefCell::new(None) };
@@ -1594,7 +1533,6 @@ pub async fn run(root: CtxforgeRoot) -> Result<()> {
     loop {
         let result = element!(App).render_loop().fullscreen().await;
 
-        // Clean terminal state after render loop exits.
         let _ = crossterm::execute!(
             std::io::stdout(),
             DisableMouseCapture,
@@ -1603,10 +1541,9 @@ pub async fn run(root: CtxforgeRoot) -> Result<()> {
 
         result?;
 
-        // Check if the render loop exited because of a PendingAction.
         let action = PENDING.with(|p| p.borrow_mut().take());
         match action {
-            None => return Ok(()), // Normal quit — no action, exit app.
+            None => return Ok(()),
             Some(crate::tui::mode::PendingAction::Export(content)) => {
                 println!("{content}");
                 eprintln!("\nPress any key to return to ctxforge...");
@@ -1634,12 +1571,9 @@ pub async fn run(root: CtxforgeRoot) -> Result<()> {
             Some(crate::tui::mode::PendingAction::Editor(starting)) => {
                 match crate::editor::spawn_editor(&starting) {
                     Ok(updated) => {
-                        // Persist the edited text as a prompt override.
-                        // load_app_data will pick it up on TUI re-entry and
-                        // render_payload will return it verbatim, so delivery
-                        // uses the hand-edit rather than re-rendering.
+                        // Persist edited text as the prompt override so
+                        // delivery uses the hand-edit on TUI re-entry.
                         if updated.trim().is_empty() || updated == starting {
-                            // Editor closed without changes — do nothing.
                         } else if let Some(root) = ROOT_STASH.with(|r| r.borrow().clone()) {
                             if let Err(e) = std::fs::write(root.prompt_override_path(), &updated) {
                                 eprintln!("failed to save prompt override: {e}");
@@ -1667,8 +1601,7 @@ pub async fn run(root: CtxforgeRoot) -> Result<()> {
             }
         }
 
-        // Reload AppData from disk so the next render-loop iteration
-        // picks up any changes the external action made (e.g. editor).
+        // Reload AppData so the next iteration picks up external changes.
         let root = ROOT_STASH
             .with(|r| r.borrow().clone())
             .expect("ROOT_STASH should be set");
@@ -1676,15 +1609,12 @@ pub async fn run(root: CtxforgeRoot) -> Result<()> {
     }
 }
 
-// Max tree rows rendered per frame. Phase 1 does no scrolling; we clip to
-// a reasonable viewport so the layout doesn't overflow. Phase 2 adds
-// proper viewport tracking + scrolling.
 // Chrome rows: header (3) + prompt input min (4) + footer (2) = 9.
 const CHROME_ROWS: usize = 9;
 
-/// Height available for the tree panel's scrollable content.
-/// Tree panel is 60% of the left column's main-row height; subtract the
-/// panel's own 4 rows of chrome (2 borders + title + blank).
+/// Height available for the tree panel's scrollable content. Tree panel
+/// is 60% of the left column's main-row height; subtract the panel's own
+/// 4 rows of chrome (2 borders + title + blank).
 fn tree_viewport(term_h: u16) -> usize {
     ((term_h as usize).saturating_sub(CHROME_ROWS) * 60 / 100)
         .saturating_sub(4)
@@ -1692,15 +1622,12 @@ fn tree_viewport(term_h: u16) -> usize {
 }
 
 /// Height available for the viewer panel's scrollable content.
-/// Viewer takes the full main-row height when enabled.
 fn viewer_viewport(term_h: u16) -> usize {
     (term_h as usize)
         .saturating_sub(CHROME_ROWS)
         .saturating_sub(4)
         .max(6)
 }
-
-// ─── App component ───────────────────────────────────────────────────
 
 #[component]
 fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
@@ -1721,8 +1648,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     let viewer_events: State<Vec<crate::tui::components::viewer::ViewerMouseEvent>> =
         hooks.use_state(Vec::new);
 
-    // Auto-clear status message after 3 seconds. The future polls the
-    // status_set_at timestamp; when 3s have elapsed, it clears the message.
+    // Auto-clear status message after 3 seconds.
     {
         let mut app_data_for_timer = app_data;
         hooks.use_future(async move {
@@ -1744,16 +1670,13 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
             }
         });
     }
-    // Background file-load result slot. `spawn_viewer_load` writes a
-    // (generation, path, ViewerLoad) tuple here when done; the render
-    // body below reads it and applies only if the generation still
-    // matches the current viewer load (so an old slow load can't clobber
-    // a newer one).
+    // Background file-load result slot. The render body applies results
+    // only if the generation matches the current viewer load, so an old
+    // slow load can't clobber a newer one.
     let viewer_bg_result: ViewerBgSlot = hooks.use_state(|| None);
 
-    // Startup fade: animate opacity 0→1 over 260ms. On first render the
-    // flag is false → target 0 → invisible. Flag flips to true on first
-    // render → target 1 → tween fires on the second render.
+    // Startup fade: animate opacity 0→1. Flag flips to true on first
+    // render so the tween fires on the second render.
     let mut startup_flag = hooks.use_state(|| false);
     if !startup_flag.get() {
         startup_flag.set(true);
@@ -1767,11 +1690,9 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     );
 
     let (raw_term_w, raw_term_h) = hooks.use_terminal_size();
-    // Fall back to a live `terminal::size()` query only when iocraft
-    // still reports zero, which happens on some terminals for one frame
-    // at startup. If that also fails we leave raw as-is (never synthesize
-    // dimensions that might mismatch the real terminal and paint into
-    // a corner).
+    // Fall back to a live `terminal::size()` only when iocraft reports
+    // zero (some terminals do this for one frame at startup). Never
+    // synthesize dimensions that could mismatch the real terminal.
     let (term_w, term_h) = if raw_term_w == 0 || raw_term_h == 0 {
         crossterm::terminal::size()
             .ok()
@@ -1782,7 +1703,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     };
 
     let data = app_data.read();
-    // Only show entries that aren't inside a collapsed directory
     let visible_indices = tree::visible_indices(&data.tree_entries);
     let visible_count = visible_indices.len();
     let max_cursor = visible_count.saturating_sub(1);
@@ -1793,7 +1713,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 if k.kind != KeyEventKind::Press {
                     return;
                 }
-                // ── Welcome splash: q quits, any other key enters the app ──
+                // Welcome splash: q quits, any other key enters the app.
                 if matches!(*mode.read(), crate::tui::mode::Mode::Welcome) {
                     if matches!(k.code, KeyCode::Char('q')) {
                         *should_quit.write() = true;
@@ -1803,7 +1723,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     return;
                 }
 
-                // ── Search mode: accumulate chars, Esc cancels, Enter confirms ──
                 if matches!(*mode.read(), crate::tui::mode::Mode::Search { .. }) {
                     match k.code {
                         KeyCode::Esc | KeyCode::Enter => {
@@ -1826,7 +1745,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     }
                 }
 
-                // ── Help overlay ────────────────────────────────
                 if matches!(*mode.read(), crate::tui::mode::Mode::Help) {
                     match k.code {
                         KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
@@ -1837,7 +1755,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     return;
                 }
 
-                // ── Scenario picker overlay ─────────────────────
                 if matches!(*mode.read(), crate::tui::mode::Mode::ScenarioPicker { .. }) {
                     let scenarios =
                         crate::tui::overlays::scenario_picker::load(&app_data.read().root);
@@ -1880,7 +1797,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     return;
                 }
 
-                // ── Theme picker overlay ────────────────────────
                 if matches!(*mode.read(), crate::tui::mode::Mode::ThemePicker { .. }) {
                     let themes = crate::tui::overlays::theme_picker::all();
                     let count = themes.len();
@@ -1922,11 +1838,10 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     return;
                 }
 
-                // ── @ file picker ──────────────────────────────
                 if matches!(*mode.read(), crate::tui::mode::Mode::AtPicker { .. }) {
                     match k.code {
                         KeyCode::Esc => {
-                            // Cancel — remove the '@' we inserted
+                            // Cancel — remove the '@' we inserted.
                             prompt_input.write().backspace();
                             let text = prompt_input.read().text().to_string();
                             app_data.write().sync_task_text(text);
@@ -2000,15 +1915,13 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                 }
                             };
                             if let Some(path) = picked {
-                                // Replace the @query with @full_path
+                                // Replace "@<query>" before the cursor with "@<full_path>".
                                 let cursor_pos = prompt_input.read().cursor();
                                 let text = prompt_input.read().text().to_string();
                                 let query_len = match &*mode.read() {
                                     crate::tui::mode::Mode::AtPicker { query, .. } => query.len(),
                                     _ => 0,
                                 };
-                                // The prompt text has "@<query>" before the cursor.
-                                // Replace the query portion with the full path.
                                 let at_start = cursor_pos.saturating_sub(query_len);
                                 let path_str = path.display().to_string();
                                 let mut new_text = text;
@@ -2019,7 +1932,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                 app_data
                                     .write()
                                     .sync_task_text(prompt_input.read().text().to_string());
-                                // Add to bundle if not already there
                                 if !app_data.read().bundled_paths.contains(&path) {
                                     app_data.write().toggle_bundle(&path);
                                 }
@@ -2042,7 +1954,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     return;
                 }
 
-                // ── Full prompt preview overlay ─────────────────
                 if matches!(
                     *mode.read(),
                     crate::tui::mode::Mode::FullPromptPreview { .. }
@@ -2085,7 +1996,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     return;
                 }
 
-                // ── Delivery picker overlay ─────────────────────
                 if matches!(*mode.read(), crate::tui::mode::Mode::DeliveryPicker { .. }) {
                     let count = crate::deliver::DeliverChoice::all().len();
                     match k.code {
@@ -2118,8 +2028,8 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             let choices = crate::deliver::DeliverChoice::all();
                             if let Some(&choice) = choices.get(cur) {
                                 app_data.write().run_delivery(choice);
-                                // If a pending action was set (pipe/export), need
-                                // to exit the render loop. The outer run() handles it.
+                                // Pipe/export require exiting the render loop;
+                                // outer run() drains the pending action.
                                 if app_data.read().pending_action.is_some() {
                                     *should_quit.write() = true;
                                 }
@@ -2131,7 +2041,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     return;
                 }
 
-                // ── Command palette overlay ────────────────────
                 if matches!(*mode.read(), crate::tui::mode::Mode::CommandPalette { .. }) {
                     match k.code {
                         KeyCode::Esc => {
@@ -2211,7 +2120,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     return;
                 }
 
-                // ── Prompt focus: route text keys into PromptInput ──
+                // Prompt focus: route text keys into PromptInput.
                 if *focus.read() == Focus::Prompt {
                     let mut handled = true;
                     match k.code {
@@ -2233,7 +2142,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         }
                         KeyCode::Char('@') => {
                             prompt_input.write().insert_char('@');
-                            // Open the @ file picker
                             let files = crate::prompt_input::at_picker::walk_files(
                                 &app_data.read().project_root,
                             );
@@ -2255,7 +2163,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         app_data.write().sync_task_text(text);
                         return;
                     }
-                    // Fall through: Tab, BackTab, etc. bubble to normal dispatch below
+                    // Fall through: Tab, BackTab, etc. bubble to normal dispatch.
                 }
 
                 match k.code {
@@ -2278,7 +2186,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     KeyCode::Char('d') if !k.modifiers.contains(KeyModifiers::CONTROL) => {
                         *mode.write() = crate::tui::mode::Mode::DeliveryPicker { cursor: 0 };
                     }
-                    // x = export to stdout (shortcut for /deliver → export)
                     KeyCode::Char('x') => {
                         app_data
                             .write()
@@ -2302,11 +2209,8 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         *focus.write() = Focus::Prompt;
                     }
                     KeyCode::Char('v') => {
-                        // Toggle viewer and kick off a background file load
-                        // if the cursor's file isn't already cached. The
-                        // toggle itself is instant — the load runs on smol's
-                        // blocking pool via `spawn_viewer_load` and wakes
-                        // the render loop when done (see the bg-drain below).
+                        // Toggle viewer and kick off a background load if
+                        // the cursor's file isn't already cached.
                         let (now_enabled, load_target) = {
                             let mut d = app_data.write();
                             d.viewer.toggle();
@@ -2406,7 +2310,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             }
                         }
                     },
-                    // Space: toggle bundle (on file) or expand/collapse (on dir).
                     KeyCode::Char(' ') if *focus.read() == Focus::FileTree => {
                         let (actual_idx, is_dir, rel_path) = {
                             let d = app_data.read();
@@ -2426,7 +2329,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                             d.toggle_bundle(&rel_path);
                         }
                     }
-                    // Enter: expand/collapse directory only.
                     KeyCode::Enter if *focus.read() == Focus::FileTree => {
                         let (actual_idx, is_dir) = {
                             let d = app_data.read();
@@ -2451,7 +2353,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     KeyCode::Char('C') if *focus.read() == Focus::FileTree => {
                         app_data.write().collapse_all();
                     }
-                    // Viewer: a adds selection, Esc clears selection.
                     KeyCode::Char('a') if *focus.read() == Focus::Viewer => {
                         app_data.write().add_viewer_selection_to_bundle();
                     }
@@ -2461,7 +2362,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     {
                         app_data.write().viewer.clear_selection();
                     }
-                    // Navigation: g/G top/bottom, Ctrl-U/D half-page
                     KeyCode::Char('g') if *focus.read() == Focus::FileTree => {
                         cursor.set(0);
                         reload_viewer(&mut app_data.write(), 0, viewer_bg_result);
@@ -2532,14 +2432,11 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         }
     });
 
-    // Re-read app_data after the event handler may have mutated it, and
-    // clamp the cursor so it stays within the (possibly shrunken) visible
-    // range — relevant after collapse-all.
+    // Clamp the cursor to the visible range (relevant after collapse-all).
     drop(data);
 
     if *should_quit.read() {
-        // Stash pending action into thread_local so the outer run() loop
-        // can drain it after the render loop exits.
+        // Stash pending action for the outer run() loop.
         {
             let mut d = app_data.write();
             let pending = d.pending_action.take();
@@ -2554,13 +2451,11 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     }
 
     // Drain a completed background file load (if any). Peek via
-    // `try_read` first: if the slot is empty (the common case, every
-    // frame with no load in flight) we don't touch it. This matters
-    // because a `StateMutRef::DerefMut` flips `did_change` on drop,
-    // which wakes the render loop again — unconditionally touching
-    // the slot each frame produces an infinite self-wake loop that
-    // starves terminal-event polling (seen as "app stuck at startup").
-    // We only grab `try_write` when there's real work to apply.
+    // `try_read` first: a `StateMutRef::DerefMut` flips `did_change`
+    // on drop, and unconditionally touching the slot each frame
+    // produces an infinite self-wake loop that starves terminal-event
+    // polling (seen as "app stuck at startup"). Only grab `try_write`
+    // when there's real work to apply.
     let has_load = viewer_bg_result
         .try_read()
         .map(|g| g.is_some())
@@ -2578,14 +2473,12 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         }
     }
 
-    // Drain viewer mouse events batched since last render (wheel, drag,
-    // click). Peek via `try_read` first — `DerefMut` on an empty queue
-    // still flips `did_change=true` and keeps `root.wait()` Ready,
-    // producing an infinite render loop that starves terminal-event
-    // polling (sample trace shows 100% CPU pinned in taffy). We only
-    // take `try_write` when there's real work to do, and `std::mem::take`
-    // leaves the state as the default Vec so the next frame's peek
-    // sees empty again.
+    // Drain viewer mouse events batched since last render. Peek via
+    // `try_read` first — `DerefMut` on an empty queue still flips
+    // `did_change=true` and keeps `root.wait()` Ready, producing an
+    // infinite render loop that starves terminal-event polling (sample
+    // trace: 100% CPU pinned in taffy). Only take `try_write` when
+    // there's real work.
     let has_mouse = viewer_events
         .try_read()
         .map(|g| !g.is_empty())
@@ -2626,15 +2519,12 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     let cur = *cursor.read();
     let theme = data.theme;
 
-    // Search query — cloned to &'static String so we can use it in both the
-    // search bar and the tree branch selection.
     let search_query: Option<String> = match &*mode.read() {
         crate::tui::mode::Mode::Search { query } => Some(query.clone()),
         _ => None,
     };
     let search_active = search_query.as_ref().is_some_and(|q| !q.is_empty());
 
-    // Animated focus-border RGB
     let (tr, tg, tb) = focus_color_rgb(cur_focus, &theme);
     let anim_r = use_animated(hooks, tr, constants::FOCUS_BORDER, ease_out_cubic);
     let anim_g = use_animated(hooks, tg, constants::FOCUS_BORDER, ease_out_cubic);
@@ -2645,7 +2535,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         b: anim_b,
     };
 
-    // Clip visible entries to viewport centered around the cursor
+    // Clip visible entries to viewport centered on the cursor.
     let start = cur.saturating_sub(tree_viewport(term_h) / 2);
     let end = (start + tree_viewport(term_h)).min(visible_count);
     let visible: Vec<(usize, TreeEntry)> = visible_indices
@@ -2656,8 +2546,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         .filter_map(|(vi, &idx)| data.tree_entries.get(idx).map(|e| (vi, e.clone())))
         .collect();
 
-    // Focus-aware border colors. Content rendering is done per-branch below
-    // so `AnyElement` vectors (which aren't Clone) don't need to be duplicated.
     let tree_border = if cur_focus == Focus::FileTree {
         focus_color
     } else {
@@ -2684,7 +2572,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         theme.border
     };
 
-    // Compute the bundle title once — it's cheap and Clone.
     let bundle_title = {
         let total: usize = data.item_tokens.iter().sum();
         if data.bundle.is_empty() {
@@ -2699,7 +2586,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         }
     };
 
-    // Header content — wordmark + scenario + model + animated gradient gauge
     let pct = if data.model_window == 0 {
         0.0
     } else {
@@ -2714,7 +2600,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
     );
     let scenario = data.bundle.scenario.clone().unwrap_or_default();
 
-    // Gradient gauge using ░▒▓█ — 4-step fill for finer visual granularity
+    // ░▒▓█ 4-step fill for finer visual granularity.
     let bar_width = 24u32;
     let bar_color = gauge_color(pct, &theme);
     let raw_fill = animated_ratio * bar_width as f32 * 4.0;
@@ -2734,7 +2620,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         "░".repeat(empty)
     );
 
-    // Header pieces — wordmark, separator, meta, gauge
     let scenario_chip = if scenario.is_empty() {
         " · ".to_string()
     } else {
@@ -2748,23 +2633,17 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
         pct,
     );
 
-    // Section-marker titles — left bar + uppercase label for consistent hierarchy
     let tree_title_styled = format!("FILES  {}", visible_count);
     let preview_title_styled = "PREVIEW".to_string();
 
-    // Width-adaptive layout breakpoints.
-    // Phase 1 does not ship the code viewer, so two-column is the default.
-    // Three-column layout (with viewer) will come in Phase 2 when opt-in via `v`.
-    let wide = term_w >= 100; // two-column for anything ≥ 100
-    let _narrow = term_w < 100; // handled by the else branch below
+    let wide = term_w >= 100;
+    let _narrow = term_w < 100;
 
-    // Use explicit terminal dimensions instead of 100pct so the root View
-    // actually fills the whole terminal. iocraft's fullscreen mode doesn't
-    // force the root to match terminal size — we have to pin it ourselves.
+    // Pin the root View to explicit terminal dimensions — iocraft's
+    // fullscreen mode doesn't force the root to match terminal size.
     let w = term_w as u32;
     let h = term_h as u32;
 
-    // ─── Welcome splash: full-screen, dismisses on any key ──
     if matches!(&*mode.read(), crate::tui::mode::Mode::Welcome) {
         return element! {
             View(
@@ -2790,7 +2669,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
             width: w,
             height: h,
         ) {
-            // ─── HEADER (height: 3) ──────────────────────────────
             View(
                 border_style: BorderStyle::Round,
                 border_color: theme.border,
@@ -2809,7 +2687,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 ])
             }
 
-            // ─── MAIN CONTENT ROW ────────────────────────────────
             // Two-column by default; three-column when viewer is enabled.
             #(if wide {
                 let viewer_on = data.viewer.enabled;
@@ -2831,7 +2708,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         width: 100pct,
                         flex_grow: 1.0,
                     ) {
-                        // Left: tree + bundle
                         View(
                             flex_direction: FlexDirection::Column,
                             width: left_w,
@@ -2886,7 +2762,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                                 #(render_bundle_rows(&data.bundle, &data.item_tokens, &theme).1)
                             }
                         }
-                        // Center: viewer (only when enabled)
                         #(if viewer_on {
                             Some(element! {
                                 View(
@@ -2915,7 +2790,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         } else {
                             None
                         })
-                        // Right: preview
                         View(
                             flex_direction: FlexDirection::Column,
                             border_style: BorderStyle::Round,
@@ -2937,7 +2811,7 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                     }
                 }.into_any()
             } else {
-                // Narrow: single-column focus-based — show just the focused panel
+                // Narrow: single-column — show just the focused panel.
                 let (panel_label, panel_border, panel_body): (String, Color, Vec<AnyElement<'static>>) =
                     match cur_focus {
                         Focus::BundleList => (
@@ -3005,7 +2879,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 }.into_any()
             })
 
-            // ─── PROMPT INPUT (auto-grow 4..=10 rows) ──
             #(crate::tui::components::prompt_input::render_prompt_input(
                 &prompt_input.read(),
                 cur_focus == Focus::Prompt,
@@ -3014,7 +2887,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 &theme,
             ))
 
-            // ─── FOOTER (height: 2) ──
             View(
                 flex_direction: FlexDirection::Column,
                 background_color: theme.bg,
@@ -3056,7 +2928,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         ])
                     }
                 } else if cur_focus == Focus::Prompt {
-                    // Prompt focus: text-editing hints
                     element! {
                         MixedText(contents: vec![
                             MixedTextContent::new("type").color(theme.accent).weight(Weight::Bold),
@@ -3072,7 +2943,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         ])
                     }
                 } else if matches!(*mode.read(), crate::tui::mode::Mode::Search { .. }) {
-                    // Search mode: typing into query
                     element! {
                         MixedText(contents: vec![
                             MixedTextContent::new("type").color(theme.accent).weight(Weight::Bold),
@@ -3084,7 +2954,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                         ])
                     }
                 } else if term_w < 100 {
-                    // Narrow mode: show only essential bindings
                     element! {
                         MixedText(contents: vec![
                             MixedTextContent::new("tab").color(theme.accent).weight(Weight::Bold),
@@ -3123,7 +2992,6 @@ fn App(hooks: &mut Hooks) -> impl Into<AnyElement<'static>> {
                 })
             }
 
-            // ─── OVERLAY LAYER (rendered above main layout) ──
             #(match &*mode.read() {
                 crate::tui::mode::Mode::Help => Some(
                     crate::tui::overlays::card::render_card(

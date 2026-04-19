@@ -70,7 +70,6 @@ impl Provenance {
         }
     }
 
-    /// Pretty-printed fetched_at (RFC3339 without fractional seconds).
     pub fn fetched_at_str(&self) -> Option<String> {
         self.fetched_at
             .map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string())

@@ -1,8 +1,5 @@
-//! Scan an entire project for function and type names.
-//!
-//! Powers the TUI's `f` and `t` pickers: walks every file the project's
-//! gitignore-aware walker exposes, runs the relevant tree-sitter query,
-//! and collects every captured `@name` along with its file path.
+//! Scan an entire project for function and type names. Powers the TUI's
+//! `f` and `t` pickers.
 
 use crate::lang;
 use crate::walk;
@@ -12,12 +9,10 @@ use tree_sitter::{Language, Parser, Query, QueryCursor, StreamingIterator};
 /// A discovered symbol: name + file path (relative to project root).
 pub type Symbol = (String, PathBuf);
 
-/// Scan all files in the project for function definitions.
 pub fn scan_functions(project_root: &Path) -> Vec<Symbol> {
     scan_symbols(project_root, super::resolve_function_query)
 }
 
-/// Scan all files in the project for type definitions.
 pub fn scan_types(project_root: &Path) -> Vec<Symbol> {
     scan_symbols(project_root, super::resolve_type_query)
 }
@@ -26,7 +21,6 @@ fn scan_symbols(
     project_root: &Path,
     resolver: fn(&str) -> Result<(Language, &'static str), String>,
 ) -> Vec<Symbol> {
-    // Use the project's existing gitignore-aware walker.
     let files = walk::expand("**/*", project_root, &[]).unwrap_or_default();
     let mut results = Vec::new();
 

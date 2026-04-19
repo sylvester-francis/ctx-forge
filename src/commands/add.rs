@@ -25,7 +25,6 @@ pub fn run(
     let mut bundle = Bundle::load_or_default(root)?;
     let mut added_count: usize = 0;
 
-    // --fn <name>: requires exactly one file path in patterns.
     if !functions.is_empty() {
         let file_path = require_single_file(&patterns, "--fn")?;
         let pb = output::spinner(&format!("scanning {file_path} for functions..."));
@@ -51,7 +50,6 @@ pub fn run(
         pb.finish_and_clear();
     }
 
-    // --type <name>: requires exactly one file path in patterns.
     if !types.is_empty() {
         let file_path = require_single_file(&patterns, "--type")?;
         let pb = output::spinner(&format!("scanning {file_path} for types..."));
@@ -77,7 +75,6 @@ pub fn run(
         pb.finish_and_clear();
     }
 
-    // If --fn or --type were used, we're done with patterns (they served as the file path).
     if !functions.is_empty() || !types.is_empty() {
         bundle.save(root)?;
         output::success(&format!(
@@ -87,7 +84,6 @@ pub fn run(
         return Ok(());
     }
 
-    // --diff mode: fetch changed files from git and queue them as whole-file items.
     if let Some(branch) = diff {
         let changed = crate::git::changed_files(&project_root, &branch)?;
         for p in changed {
@@ -103,9 +99,7 @@ pub fn run(
         }
     }
 
-    // Expand each explicit pattern.
     for pat in &patterns {
-        // URI-ish patterns go through parse_add_argument directly.
         if is_uri_pattern(pat) {
             let item = Item::parse_add_argument(pat)?;
             if let Source::Url(u) = &item.source {
@@ -117,7 +111,6 @@ pub fn run(
             continue;
         }
 
-        // Ranged paths (contain `:`) parse directly as a single item.
         if looks_like_ranged_path(pat) {
             let item = Item::parse_add_argument(pat)?;
             if item_matches_exclude(&item, &exclude)? {
@@ -128,7 +121,6 @@ pub fn run(
             continue;
         }
 
-        // Otherwise expand via the walker (handles literal files, dirs, globs).
         let paths = walk::expand(pat, &project_root, &exclude)?;
         if paths.is_empty() {
             if !pat.contains('*') && !pat.contains('?') && !pat.contains('[') && !pat.contains('{')

@@ -98,7 +98,6 @@ impl Source {
                 Ok(Source::Url(UrlSource { url }))
             }
             "docs" => {
-                // Path is /<ecosystem>/<name>@<version>
                 let trimmed = uri.path.trim_start_matches('/');
                 let (eco_str, rest) = trimmed.split_once('/').ok_or(UriParseError::BadFragment(
                     "docs URI must be docs:///<eco>/<name>@<version>",

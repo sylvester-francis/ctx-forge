@@ -1,4 +1,4 @@
-//! Compiled-in classification registry: maps (ecosystem, name) -> DocsTier.
+//! Compiled-in classification registry: (ecosystem, name) -> DocsTier.
 
 use crate::source::{DocsTier, Ecosystem};
 use std::collections::HashMap;
@@ -25,7 +25,6 @@ struct Entry {
 }
 
 impl Registry {
-    /// Parse the embedded registry.toml at startup.
     pub fn builtin() -> Self {
         let raw = include_str!("registry.toml");
         let parsed: RegistryFile =

@@ -1,17 +1,12 @@
-//! Regex-based import scanner per language.
-//!
-//! Each `scan_*` function returns a `Vec<String>` of raw import names
-//! (not canonicalised — that's match_'s job). Duplicate names within
-//! a single file are deduped.
+//! Regex-based import scanner per language. Canonicalisation lives in
+//! `match_`; this module returns raw names with stdlib filtered out.
 
 use crate::source::Ecosystem;
 use crate::suggest::stdlib;
 use regex::Regex;
 use std::sync::LazyLock;
 
-/// Scan a source file for imports; return list of (raw_name, ecosystem)
-/// pairs with stdlib and pseudo-crate references already filtered out.
-/// Non-matching languages return empty.
+/// Return (raw_name, ecosystem) pairs with stdlib and pseudo-crates filtered out.
 pub fn scan_imports(source: &str, language: &str) -> Vec<(String, Ecosystem)> {
     let (raws, eco) = match language {
         "rust" => (scan_rust(source), Ecosystem::Rust),
@@ -65,13 +60,6 @@ fn scan_js(source: &str) -> Vec<String> {
     out
 }
 
-/// JS package normalisation:
-/// - relative / absolute paths (start with `.` or `/`) → None
-/// - URL imports (`http://`, `https://`) → None
-/// - scoped package (`@scope/name`) → keep as `@scope/name`
-/// - deep scoped (`@scope/name/sub`) → `@scope/name`
-/// - deep unscoped (`lodash/debounce`) → `lodash`
-/// - bare name (`react`) → `react`
 fn scan_python(source: &str) -> Vec<String> {
     static IMPORT_RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?m)^\s*import\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)")

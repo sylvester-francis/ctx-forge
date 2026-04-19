@@ -9,7 +9,6 @@ pub fn run(root: &CtxforgeRoot, memory_limit: usize) -> Result<()> {
     let bundle = Bundle::load_or_default(root)?;
     let notes = memory::collect_for_attach(root, false, None, memory_limit)?;
 
-    // Bundle summary — mirrors `status` but terser.
     if bundle.is_empty() {
         crate::output::warn("Bundle: (empty — use `ctxforge add` to start)");
     } else {
@@ -19,7 +18,6 @@ pub fn run(root: &CtxforgeRoot, memory_limit: usize) -> Result<()> {
         }
     }
 
-    // Recent notes summary.
     if notes.is_empty() {
         crate::output::warn("no notes yet — use `ctxforge note` to capture decisions");
     } else {

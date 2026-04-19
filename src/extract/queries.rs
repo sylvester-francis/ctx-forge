@@ -1,12 +1,8 @@
 //! Tree-sitter query patterns for function and type extraction per language.
 //!
-//! Each query uses two captures:
-//!   @name — the identifier of the function/type
-//!   @definition — the full node (whose text is extracted)
-//!
-//! We use sequential patterns (one per line) instead of `[...]` alternation
-//! because alternation + outer `@definition` capture has inconsistent
-//! behavior across tree-sitter grammar versions.
+//! Each query uses `@name` (identifier) and `@definition` (full node) captures.
+//! Sequential patterns are used instead of `[...]` alternation — alternation
+//! with an outer `@definition` capture is inconsistent across grammar versions.
 
 pub const RUST_FUNCTIONS: &str = r#"
 (function_item

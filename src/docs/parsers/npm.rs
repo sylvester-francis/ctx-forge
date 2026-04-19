@@ -1,7 +1,5 @@
-//! npm / pnpm / yarn parser.
-//!
-//! Reads direct deps from package.json. Version precedence:
-//!   package-lock.json > pnpm-lock.yaml > yarn.lock > manifest spec.
+//! npm / pnpm / yarn parser. Version precedence:
+//! package-lock.json > pnpm-lock.yaml > yarn.lock > manifest spec.
 
 use super::DetectedDep;
 use crate::error::{CtxforgeError, Result};
@@ -75,7 +73,6 @@ pub fn parse(manifest_path: &Path) -> Result<Vec<DetectedDep>> {
     Ok(deps)
 }
 
-/// Enumerate workspace member manifests from a root package.json.
 pub fn workspace_members(manifest_path: &Path) -> Option<Vec<PathBuf>> {
     let raw = std::fs::read_to_string(manifest_path).ok()?;
     let parsed: PackageJson = serde_json::from_str(&raw).ok()?;
@@ -114,7 +111,6 @@ fn expand_workspace_pattern(root: &Path, pat: &str, out: &mut Vec<PathBuf>) {
 
 fn load_lock_versions(dir: &Path) -> HashMap<String, String> {
     let mut out = HashMap::new();
-    // package-lock.json — packages["node_modules/<name>"].version
     if let Ok(raw) = std::fs::read_to_string(dir.join("package-lock.json")) {
         if let Ok(lock) = serde_json::from_str::<PackageLock>(&raw) {
             for (k, v) in lock.packages {
@@ -127,7 +123,6 @@ fn load_lock_versions(dir: &Path) -> HashMap<String, String> {
             return out;
         }
     }
-    // pnpm-lock.yaml — importers["."].dependencies[<name>].version
     if let Ok(raw) = std::fs::read_to_string(dir.join("pnpm-lock.yaml")) {
         if let Ok(value) = serde_yaml::from_str::<serde_yaml::Value>(&raw) {
             if let Some(importer) = value.get("importers").and_then(|i| i.get(".")) {
@@ -144,7 +139,6 @@ fn load_lock_versions(dir: &Path) -> HashMap<String, String> {
             return out;
         }
     }
-    // yarn.lock — skip for MVP (format is non-trivial).
     out
 }
 

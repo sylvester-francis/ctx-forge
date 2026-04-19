@@ -1,7 +1,3 @@
-//! Library entry point. Exposes internal modules for integration tests and
-//! external consumers. The `ctxforge` binary (see `src/main.rs`) wires these
-//! into a CLI.
-
 pub mod bundle;
 pub mod cache;
 pub mod cli;

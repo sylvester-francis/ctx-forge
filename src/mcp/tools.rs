@@ -15,11 +15,9 @@ use crate::tokens;
 use crate::walk;
 use serde_json::{Value, json};
 
-/// List of tools this server exposes.
 pub fn tool_list() -> Value {
     json!({
         "tools": [
-            // ── Memory ─────────────────────────────────────────────
             {
                 "name": "ctxforge_recall",
                 "description": "Search memory notes by tag, keyword, or recency.",
@@ -46,7 +44,6 @@ pub fn tool_list() -> Value {
                     "required": ["body"]
                 }
             },
-            // ── Profiles ───────────────────────────────────────────
             {
                 "name": "ctxforge_load_bundle",
                 "description": "Load a saved profile's bundle by name.",
@@ -80,7 +77,6 @@ pub fn tool_list() -> Value {
                     "properties": {}
                 }
             },
-            // ── Status / inspection ────────────────────────────────
             {
                 "name": "ctxforge_status",
                 "description": "Check the current bundle's token budget against the model window.",
@@ -99,7 +95,6 @@ pub fn tool_list() -> Value {
                     "properties": {}
                 }
             },
-            // ── Context assembly ───────────────────────────────────
             {
                 "name": "ctxforge_add_files",
                 "description": "Add files, globs, or line ranges to the current context bundle.",
@@ -167,7 +162,6 @@ pub fn tool_list() -> Value {
                     "properties": {}
                 }
             },
-            // ── Export ─────────────────────────────────────────────
             {
                 "name": "ctxforge_export",
                 "description": "Export the current bundle content in the specified format.",
@@ -187,7 +181,6 @@ pub fn tool_list() -> Value {
                     }
                 }
             },
-            // ── Templates ──────────────────────────────────────────
             {
                 "name": "ctxforge_list_templates",
                 "description": "List available prompt templates (built-in and custom).",
@@ -210,7 +203,6 @@ pub fn tool_list() -> Value {
                     "required": ["template"]
                 }
             },
-            // ── Network sources ────────────────────────────────────
             {
                 "name": "ctxforge_add_url",
                 "description": "Add a URL as a context source. Content is fetched and cached with provenance tracking.",
@@ -553,8 +545,6 @@ fn tool_list_sources(root: &CtxforgeRoot, args: &Value) -> Result<Value, String>
     }))
 }
 
-// ── Memory ─────────────────────────────────────────────────────────────
-
 fn tool_recall(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
     let all = memory::index::read_all(root).map_err(|e| e.to_string())?;
     let filter = memory::RecallFilter {
@@ -599,8 +589,6 @@ fn tool_note(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
         "text": format!("Noted: [{ts}] {}", note.body)
     }))
 }
-
-// ── Profiles ───────────────────────────────────────────────────────────
 
 fn tool_load_bundle(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
     let name = args
@@ -648,8 +636,6 @@ fn tool_list_profiles(root: &CtxforgeRoot) -> Result<Value, String> {
         "text": serde_json::to_string_pretty(&items).unwrap_or_default()
     }))
 }
-
-// ── Status / inspection ────────────────────────────────────────────────
 
 fn tool_status(root: &CtxforgeRoot) -> Result<Value, String> {
     let bundle = Bundle::load_or_default(root).map_err(|e| e.to_string())?;
@@ -716,8 +702,6 @@ fn tool_list_items(root: &CtxforgeRoot) -> Result<Value, String> {
     }))
 }
 
-// ── Context assembly ───────────────────────────────────────────────────
-
 fn is_uri_pattern(pat: &str) -> bool {
     pat.starts_with("https://")
         || pat.starts_with("http://")
@@ -755,7 +739,6 @@ fn tool_add_files(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
             continue;
         }
 
-        // Check for range syntax (path:start-end)
         if let Some((_path_part, range_part)) = pat.rsplit_once(':') {
             if range_part.contains('-')
                 && range_part.chars().all(|c| c.is_ascii_digit() || c == '-')
@@ -767,7 +750,6 @@ fn tool_add_files(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
             }
         }
 
-        // Expand via walker (handles literal files, dirs, globs)
         let paths = walk::expand(pat, &project_root, &[]).map_err(|e| e.to_string())?;
         for p in paths {
             bundle.add(Item {
@@ -876,7 +858,6 @@ fn tool_remove(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
     for target_val in targets {
         let target = target_val.as_str().ok_or("each target must be a string")?;
 
-        // Try index first
         if let Ok(idx) = target.parse::<usize>() {
             if bundle.remove_by_index(idx).is_ok() {
                 removed_count += 1;
@@ -884,7 +865,6 @@ fn tool_remove(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
             }
         }
 
-        // Otherwise path-based removal
         let count = bundle.remove_by_path(std::path::Path::new(target));
         removed_count += count;
     }
@@ -908,8 +888,6 @@ fn tool_clear(root: &CtxforgeRoot) -> Result<Value, String> {
         "text": format!("Cleared {} item(s); bundle is now empty", n)
     }))
 }
-
-// ── Export ──────────────────────────────────────────────────────────────
 
 fn tool_export(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
     let bundle = Bundle::load_or_default(root).map_err(|e| e.to_string())?;
@@ -947,15 +925,12 @@ fn tool_export(root: &CtxforgeRoot, args: &Value) -> Result<Value, String> {
     }))
 }
 
-// ── Templates ──────────────────────────────────────────────────────────
-
 fn tool_list_templates(root: &CtxforgeRoot) -> Result<Value, String> {
     let project_dir = root.templates_dir();
     let global_dir = paths::global_templates_dir();
 
     let mut templates: Vec<Value> = Vec::new();
 
-    // Scan project-local templates
     if project_dir.is_dir() {
         if let Ok(entries) = std::fs::read_dir(&project_dir) {
             for entry in entries.flatten() {
@@ -968,7 +943,6 @@ fn tool_list_templates(root: &CtxforgeRoot) -> Result<Value, String> {
         }
     }
 
-    // Scan global templates
     if let Some(ref g) = global_dir {
         if g.is_dir() {
             if let Ok(entries) = std::fs::read_dir(g) {

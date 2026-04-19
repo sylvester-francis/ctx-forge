@@ -47,7 +47,6 @@ static PROMPTS: &[PromptDef] = &[
     },
 ];
 
-/// List available prompts.
 pub fn prompt_list() -> Value {
     let prompts: Vec<Value> = PROMPTS
         .iter()
@@ -67,7 +66,6 @@ pub fn prompt_list() -> Value {
     json!({ "prompts": prompts })
 }
 
-/// Get a rendered prompt by name.
 pub fn get_prompt(root: &CtxforgeRoot, name: &str, args: &Value) -> Result<Value, String> {
     let prompt_def = PROMPTS
         .iter()
@@ -83,7 +81,6 @@ pub fn get_prompt(root: &CtxforgeRoot, name: &str, args: &Value) -> Result<Value
         ));
     }
 
-    // Render the bundle
     let bundle = Bundle::load_or_default(root).map_err(|e| e.to_string())?;
     let resolved =
         resolve::resolve_all(&bundle.items, root.project_root()).map_err(|e| e.to_string())?;
@@ -91,8 +88,6 @@ pub fn get_prompt(root: &CtxforgeRoot, name: &str, args: &Value) -> Result<Value
         memory::collect_for_attach(root, false, None, 20).map_err(|e| e.to_string())?;
     let bundle_rendered = format::render(Format::Markdown, &resolved, &memory_notes, false);
 
-    // Try to apply the template; if the template file doesn't exist, use a
-    // simple fallback that still includes the bundle and task.
     let content = match crate::template::apply_template(
         root,
         prompt_def.template_name,

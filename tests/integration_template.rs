@@ -118,8 +118,6 @@ fn templates_new_rejects_path_separators() {
     assert!(!output.status.success());
 }
 
-// --- Task 12: --template/--task flags on copy/export/pipe ---
-
 fn create_test_template(td: &TempDir, name: &str, body: &str) {
     let dir = td.path().join(".ctxforge").join("templates");
     std::fs::create_dir_all(&dir).unwrap();
@@ -206,8 +204,6 @@ fn export_with_unknown_template_errors() {
     assert!(stderr.contains("not found"));
 }
 
-// --- Task 11: Starter library tests ---
-
 #[test]
 fn templates_starters_lists_all_five() {
     let td = TempDir::new().unwrap();
@@ -247,7 +243,6 @@ fn templates_new_from_starter_copies_content() {
         .join("my-bugfix.md");
     assert!(template_path.exists());
     let content = std::fs::read_to_string(&template_path).unwrap();
-    // Starter-specific phrase
     assert!(content.contains("debugging a specific issue"));
     assert!(content.contains("{{task}}"));
     assert!(content.contains("{{bundle}}"));

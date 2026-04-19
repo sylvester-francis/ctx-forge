@@ -2,7 +2,6 @@
 
 use crate::source::Ecosystem;
 
-/// Build the canonical documentation URL for a (ecosystem, name, version).
 /// Go module paths may contain slashes — pkg.go.dev handles them unencoded.
 pub fn canonical_url(eco: Ecosystem, name: &str, version: &str) -> String {
     match eco {
@@ -16,8 +15,7 @@ pub fn canonical_url(eco: Ecosystem, name: &str, version: &str) -> String {
     }
 }
 
-/// The registry API URL for one-line description lookup.
-/// Go returns None — descriptions deferred for MVP.
+/// Registry API URL for description lookup. Go returns None.
 pub fn description_url(eco: Ecosystem, name: &str) -> Option<String> {
     match eco {
         Ecosystem::Rust => Some(format!("https://crates.io/api/v1/crates/{name}")),

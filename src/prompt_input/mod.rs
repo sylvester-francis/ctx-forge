@@ -1,11 +1,8 @@
 //! Multi-line text input widget for the task prompt.
 //!
-//! The source of truth is a single `String` plus a byte-offset cursor.
-//! Cursor movement respects Unicode grapheme boundaries (char-level; we
-//! don't pull in unicode-segmentation for combining-mark handling yet).
-//!
-//! All mutating methods keep `cursor <= text.len()` and `cursor` on a
-//! valid char boundary.
+//! Source of truth: a `String` plus byte-offset cursor. Cursor movement is
+//! char-level (no combining-mark handling). Mutators keep the cursor on a
+//! valid char boundary and within `text.len()`.
 
 #![allow(dead_code)]
 
@@ -40,7 +37,6 @@ impl PromptInput {
     }
 
     pub fn line_count(&self) -> usize {
-        // At least one line, even if the buffer is empty.
         self.text.split('\n').count()
     }
 
@@ -89,18 +85,13 @@ impl PromptInput {
         self.cursor = prev;
     }
 
-    /// Delete from the cursor back to the start of the previous word.
-    /// Treats whitespace as a word separator; trailing whitespace is
-    /// collapsed into the delete so Ctrl-W on "foo   " removes both the
-    /// space run and "foo".
+    /// Delete back to the start of the previous word. Trailing whitespace
+    /// is collapsed in, so Ctrl-W on "foo   " removes both the spaces and "foo".
     pub fn delete_word_back(&mut self) {
         if self.cursor == 0 {
             return;
         }
         let before = &self.text[..self.cursor];
-        // Strip trailing whitespace first — the char indices we compute
-        // after must still land on a valid boundary, so operate on
-        // `before` consistently.
         let trimmed = before.trim_end_matches(char::is_whitespace);
         let word_start = trimmed
             .char_indices()
@@ -131,21 +122,18 @@ impl PromptInput {
         self.cursor += next.len_utf8();
     }
 
-    /// Move cursor to the start of the current line.
     pub fn move_home(&mut self) {
         let before = &self.text[..self.cursor];
         self.cursor = before.rfind('\n').map(|i| i + 1).unwrap_or(0);
     }
 
-    /// Move cursor to the end of the current line.
     pub fn move_end(&mut self) {
         let after = &self.text[self.cursor..];
         self.cursor += after.find('\n').unwrap_or(after.len());
     }
 
-    /// Column offset of the cursor within its line (byte-based; callers
-    /// converting to grid columns should use `UnicodeWidthStr` if
-    /// non-ASCII width matters).
+    /// Byte-based column within the current line. Callers needing grid
+    /// columns should apply `UnicodeWidthStr` for non-ASCII.
     pub fn cursor_line_column(&self) -> (u16, u16) {
         let before = &self.text[..self.cursor];
         let line_no = before.bytes().filter(|&b| b == b'\n').count() as u16;

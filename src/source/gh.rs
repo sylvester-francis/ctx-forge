@@ -106,8 +106,6 @@ impl GhResource {
     }
 }
 
-/// Is this Git reference a 40-char hex SHA? Used to pick the stricter
-/// TTL on Blob resources.
 fn is_sha_like(reference: &str) -> bool {
     reference.len() == 40 && reference.chars().all(|c| c.is_ascii_hexdigit())
 }
@@ -175,6 +173,6 @@ mod tests {
     fn is_sha_like_matches_40_hex() {
         assert!(is_sha_like("0123456789abcdef0123456789abcdef01234567"));
         assert!(!is_sha_like("main"));
-        assert!(!is_sha_like("0123456789abcdef0123456789abcdef0123456")); // 39 chars
+        assert!(!is_sha_like("0123456789abcdef0123456789abcdef0123456"));
     }
 }
