@@ -9,7 +9,6 @@ use crate::resolve;
 use crate::tokens;
 use serde_json::{Value, json};
 
-/// List available resources and resource templates.
 pub fn resource_list() -> Value {
     json!({
         "resources": [
@@ -43,7 +42,6 @@ pub fn resource_list() -> Value {
     })
 }
 
-/// Read a specific resource by URI.
 pub fn read_resource(root: &CtxforgeRoot, uri: &str) -> Result<Value, String> {
     match uri {
         "ctxforge://bundle" => read_bundle(root),

@@ -41,7 +41,6 @@ pub fn run(root: CtxforgeRoot) -> Result<()> {
             }
         };
 
-        // Notifications (no id) don't get responses.
         let is_notification = request.id.is_none();
 
         let response = handle_request(&root, &request);
@@ -74,7 +73,6 @@ fn handle_request(root: &CtxforgeRoot, req: &Request) -> Option<Response> {
             }),
         )),
 
-        // Notification — no response.
         "notifications/initialized" => None,
 
         "tools/list" => Some(Response::success(req.id.clone(), tools::tool_list())),
@@ -132,7 +130,6 @@ fn handle_request(root: &CtxforgeRoot, req: &Request) -> Option<Response> {
             }
         }
 
-        // Unknown method.
         _ => Some(Response::error(
             req.id.clone(),
             -32601,

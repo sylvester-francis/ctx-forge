@@ -2,7 +2,6 @@ use std::io::Write;
 use std::process::Stdio;
 use tempfile::TempDir;
 
-/// Helper: send a JSON-RPC request string to the MCP server and return raw stdout.
 fn mcp_request(dir: &std::path::Path, request: &str) -> String {
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_ctxforge"))
         .arg("mcp")
@@ -21,7 +20,6 @@ fn mcp_request(dir: &std::path::Path, request: &str) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 
-/// Helper: send multiple JSON-RPC requests and return all parsed responses.
 fn mcp_requests(dir: &std::path::Path, requests: &[&str]) -> Vec<serde_json::Value> {
     let combined = requests.join("\n");
     let raw = mcp_request(dir, &combined);
@@ -30,8 +28,6 @@ fn mcp_requests(dir: &std::path::Path, requests: &[&str]) -> Vec<serde_json::Val
         .map(|l| serde_json::from_str(l).expect("invalid JSON"))
         .collect()
 }
-
-// ── Protocol ───────────────────────────────────────────────────────────
 
 #[test]
 fn initialize_returns_updated_protocol_and_capabilities() {
@@ -47,8 +43,6 @@ fn initialize_returns_updated_protocol_and_capabilities() {
     assert!(result["capabilities"]["prompts"].is_object());
     assert_eq!(result["serverInfo"]["name"], "ctxforge");
 }
-
-// ── Safety annotations ─────────────────────────────────────────────────
 
 #[test]
 fn tools_list_includes_annotations() {
@@ -83,8 +77,6 @@ fn tools_list_includes_annotations() {
         .unwrap();
     assert_eq!(status["annotations"]["readOnlyHint"], true);
 }
-
-// ── Context assembly tools ─────────────────────────────────────────────
 
 #[test]
 fn tool_add_files_adds_to_bundle() {
@@ -146,8 +138,6 @@ fn tool_clear_empties_bundle() {
     assert!(text.contains("Cleared"), "got: {text}");
 }
 
-// ── Export and list_items ──────────────────────────────────────────────
-
 #[test]
 fn tool_export_returns_bundle_content() {
     let td = TempDir::new().unwrap();
@@ -192,8 +182,6 @@ fn tool_list_items_returns_item_info() {
     );
 }
 
-// ── Profile tools ──────────────────────────────────────────────────────
-
 #[test]
 fn tool_save_and_list_profiles() {
     let td = TempDir::new().unwrap();
@@ -218,8 +206,6 @@ fn tool_save_and_list_profiles() {
         .unwrap();
     assert!(list_text.contains("my-profile"), "got: {list_text}");
 }
-
-// ── Template tools ─────────────────────────────────────────────────────
 
 #[test]
 fn tool_list_templates_shows_available() {
@@ -278,8 +264,6 @@ fn tool_apply_template_renders_content() {
     );
 }
 
-// ── Resources ──────────────────────────────────────────────────────────
-
 #[test]
 fn resources_list_returns_resources() {
     let td = TempDir::new().unwrap();
@@ -315,8 +299,6 @@ fn resources_read_bundle_returns_content() {
         .unwrap();
     assert!(text.contains("fn a()"), "got: {text}");
 }
-
-// ── Prompts ────────────────────────────────────────────────────────────
 
 #[test]
 fn prompts_list_returns_builtin_prompts() {
@@ -363,8 +345,6 @@ fn prompts_get_renders_prompt() {
     assert!(content.contains("null pointer"), "got: {content}");
     assert!(content.contains("fn broken()"), "got: {content}");
 }
-
-// ── Comprehensive tool count ───────────────────────────────────────────
 
 #[test]
 fn tools_list_contains_all_31_tools() {
@@ -426,7 +406,6 @@ fn tools_list_contains_all_31_tools() {
         "unexpected tool count: {actual:?}"
     );
 
-    // Verify every tool has annotations
     for tool in tools {
         let name = tool["name"].as_str().unwrap();
         assert!(
