@@ -1,27 +1,21 @@
-//! v2 command registry. Mirrors v1's `crate::tui::commands::COMMANDS` at
-//! the discovery layer (all 29 commands appear in the palette with the
-//! same names + descriptions) but dispatches through a v2-native enum so
-//! action implementations live on `AppData` instead of v1's `App`.
+//! v2 command registry — discovery + dispatch for palette commands.
 
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandAction {
-    // ── Already implemented in v2 ──
     Help,
     Scenario,
     Quit,
     Find,
 
-    // ── Phase 2c-3 overlays (status message until then) ──
     Theme,
     Deliver,
     EditPrompt,
     ToggleViewer,
     AddSelection,
 
-    // ── Delivery + bundle/profile/template actions (all functional) ──
     Copy,
     CopyXml,
     CopyJson,
@@ -44,7 +38,6 @@ pub enum CommandAction {
     TemplateStarters,
     TemplateList,
 
-    // ── P5/P1 parity: real handlers, no input required ──
     DocsDetect,
     DocsDetectAll,
     DocsRefresh,
@@ -54,22 +47,18 @@ pub enum CommandAction {
     CacheClear,
     CacheVerify,
 
-    // ── Input-required actions (text prompt overlay) ──
     DocsAdd,
     DocsRm,
     AddUrl,
     AddGh,
 
-    // ── P4: auto-suggest ──
     Suggest,
     SuggestApplyAll,
 
-    // ── Bundle CRUD parity with CLI (`rm`, `clear`, `list sources`) ──
     BundleRm,
     BundleClear,
     ListSources,
 
-    // ── Prompt override management ──
     ClearPromptOverride,
 }
 
@@ -322,8 +311,7 @@ pub static COMMANDS: &[CommandSpec] = &[
     },
 ];
 
-/// Fuzzy-filter commands by query. Empty query returns all commands in
-/// declaration order. Non-empty query ranks by SkimMatcherV2 score.
+/// Fuzzy-filter commands by query. Empty query returns declaration order.
 pub fn filter(query: &str) -> Vec<&'static CommandSpec> {
     if query.is_empty() {
         return COMMANDS.iter().collect();

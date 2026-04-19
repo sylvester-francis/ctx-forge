@@ -10,9 +10,6 @@ pub fn render_card(
     term_w: u16,
     term_h: u16,
 ) -> AnyElement<'static> {
-    // Scale with terminal: aim for 90% × 85% with sensible min/max. On narrow
-    // terminals this uses most of the screen; on very wide terminals it's
-    // capped so the card stays visually centered without stretching.
     let card_w = ((term_w as u32 * 90) / 100).clamp(30, 140);
     let card_h = ((term_h as u32 * 85) / 100).clamp(8, 50);
     let offset_left = (term_w as u32).saturating_sub(card_w) / 2;

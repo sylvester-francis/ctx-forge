@@ -1,7 +1,6 @@
 //! Bundle list — indexed badges, truncated paths, right-aligned tokens.
-//!
-//! Network sources (URL) render with a freshness dot (●/◐/◌) reflecting
-//! their cache state: fresh / stale / uncached.
+//! Network sources render with a freshness dot (●/◐/◌) reflecting cache
+//! state: fresh / stale / uncached.
 
 use crate::bundle::{Bundle, Item};
 use crate::cache::{CacheRead, ContentCache};
@@ -89,8 +88,6 @@ pub fn render_bundle_rows(
     (title, rows)
 }
 
-/// Freshness dot for a bundle item. Local sources always render as fresh;
-/// cacheable sources reflect cache state.
 fn freshness_dot(item: &Item, cache: Option<&ContentCache>) -> &'static str {
     if !item.source.is_cacheable() {
         return "●";

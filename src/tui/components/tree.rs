@@ -1,11 +1,4 @@
-//! File tree — distinctive indented rendering with status dots and nesting rails.
-//!
-//! Design language:
-//! - `│  ` rails for nesting (visual hierarchy)
-//! - `▾`/`▸` expanded/collapsed dir markers
-//! - `●` bundled file (accent), `○` available file (dim)
-//! - `▶` cursor indicator (left gutter) when focused
-//! - Selected row: inverted colors with leading `▶`
+//! File tree — indented rendering with status dots and nesting rails.
 
 use crate::tree::TreeEntry;
 use crate::tui::theme::Theme;
@@ -102,8 +95,8 @@ pub fn render_tree_rows(
         .collect()
 }
 
-/// Render fuzzy-ranked search results across all files (no directories).
-/// Each row shows the full relative path instead of the leaf name.
+/// Render fuzzy-ranked search results across all files. Each row shows
+/// the full relative path instead of the leaf name.
 pub fn render_search_rows(
     entries: &[TreeEntry],
     query: &str,
