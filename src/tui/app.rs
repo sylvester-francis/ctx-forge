@@ -516,28 +516,26 @@ impl AppData {
                 Ok(()) => self.set_status(format!("saved profile `{trimmed}`")),
                 Err(e) => self.set_status(format!("save profile: {e}")),
             },
-            P::Narrow => {
-                match parse_narrow(&trimmed) {
-                    Ok((path, start, end)) => {
-                        use crate::source::{RangeSource, Source};
-                        match RangeSource::new(path.into(), start, end) {
-                            Ok(rs) => {
-                                self.bundle.add(crate::bundle::Item {
-                                    source: Source::Range(rs),
-                                    label: None,
-                                });
-                                let _ = self.bundle.save(&self.root);
-                                self.recompute_tokens();
-                                self.preview =
-                                    build_preview(&self.root, &self.bundle, &self.item_tokens);
-                                self.set_status(format!("narrowed {trimmed}"));
-                            }
-                            Err(e) => self.set_status(format!("narrow: {e}")),
+            P::Narrow => match parse_narrow(&trimmed) {
+                Ok((path, start, end)) => {
+                    use crate::source::{RangeSource, Source};
+                    match RangeSource::new(path.into(), start, end) {
+                        Ok(rs) => {
+                            self.bundle.add(crate::bundle::Item {
+                                source: Source::Range(rs),
+                                label: None,
+                            });
+                            let _ = self.bundle.save(&self.root);
+                            self.recompute_tokens();
+                            self.preview =
+                                build_preview(&self.root, &self.bundle, &self.item_tokens);
+                            self.set_status(format!("narrowed {trimmed}"));
                         }
+                        Err(e) => self.set_status(format!("narrow: {e}")),
                     }
-                    Err(e) => self.set_status(format!("narrow: {e}")),
                 }
-            }
+                Err(e) => self.set_status(format!("narrow: {e}")),
+            },
             P::Note => {
                 // Tag is ignored for MVP; CLI exposes --tag separately.
                 use crate::memory::{self, Note};
@@ -980,23 +978,21 @@ fn parse_narrow(input: &str) -> std::result::Result<(String, usize, usize), Stri
 impl AppData {
     fn run_docs_detect(&mut self, all: bool) {
         match crate::commands::docs_cmd::detect(&self.root, all, None) {
-            Ok(()) => {
-                match crate::bundle::Bundle::load_or_default(&self.root) {
-                    Ok(b) => {
-                        self.bundle = b;
-                        self.recompute_tokens();
-                        self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
-                        let docs_count = self
-                            .bundle
-                            .items
-                            .iter()
-                            .filter(|i| matches!(&i.source, crate::source::Source::Docs(_)))
-                            .count();
-                        self.set_status(format!("docs detected ({docs_count} attached)"));
-                    }
-                    Err(e) => self.set_status(format!("docs detect reload: {e}")),
+            Ok(()) => match crate::bundle::Bundle::load_or_default(&self.root) {
+                Ok(b) => {
+                    self.bundle = b;
+                    self.recompute_tokens();
+                    self.preview = build_preview(&self.root, &self.bundle, &self.item_tokens);
+                    let docs_count = self
+                        .bundle
+                        .items
+                        .iter()
+                        .filter(|i| matches!(&i.source, crate::source::Source::Docs(_)))
+                        .count();
+                    self.set_status(format!("docs detected ({docs_count} attached)"));
                 }
-            }
+                Err(e) => self.set_status(format!("docs detect reload: {e}")),
+            },
             Err(e) => self.set_status(format!("docs detect: {e}")),
         }
     }

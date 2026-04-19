@@ -126,7 +126,10 @@ impl Mode {
 #[derive(Debug, Clone)]
 pub enum PendingAction {
     Export(String),
-    Pipe { target: String, content: String },
+    Pipe {
+        target: String,
+        content: String,
+    },
     Editor(String),
     TextPrompt(TextPromptPurpose),
     PickerList {

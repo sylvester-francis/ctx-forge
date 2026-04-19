@@ -7,8 +7,8 @@
 
 use crate::tui::theme::Theme;
 use crate::tui::viewer::ViewerState;
-use iocraft::prelude::*;
 use iocraft::hooks::{UseComponentRect, UseTerminalEvents};
+use iocraft::prelude::*;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ViewerMouseEvent {
