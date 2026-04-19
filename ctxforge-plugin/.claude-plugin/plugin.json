@@ -1,5 +1,6 @@
 {
   "name": "ctxforge",
+  "version": "2.0.0",
   "description": "Deterministic prompt engineer for AI coding agents. 25 slash commands covering the full CLI surface — scenarios (bugfix/refactor/explain/code-review/migrate), bundle editing, per-dep docs detection with gap analysis, gh:// GitHub resources, saved profiles, cross-session memory, and cache verification. 31 MCP tools. Never calls an LLM — the agent does.",
   "author": {
     "name": "Sylvester Francis"
