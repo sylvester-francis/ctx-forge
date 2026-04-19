@@ -29,7 +29,7 @@ claude --plugin-dir ./ctxforge-plugin
 ```
 You: /ctxforge:bugfix "null deref in auth middleware"
 Claude: [calls ctxforge_status — bundle is empty]
-        Your bundle is empty. Run /ctxforge (guided workflow) or /ctxforge:add <paths> first.
+        Your bundle is empty. Run /ctxforge:ctxforge (guided workflow) or /ctxforge:add <paths> first.
 
 You: /ctxforge:add src/middleware/auth.rs src/middleware/session.rs
 Claude: [calls ctxforge_add_files]
@@ -46,7 +46,7 @@ Claude: [calls MCP prompt ctxforge_bugfix]
 
 | Slash | Description |
 |-------|-------------|
-| `/ctxforge` | Guided bundle-building workflow (status → recall → ask → build → report). |
+| `/ctxforge:ctxforge` | Guided bundle-building workflow (status → recall → ask → build → report). Also auto-activates when the user says "build context" / "assemble a bundle". |
 
 ### Bundle editing
 

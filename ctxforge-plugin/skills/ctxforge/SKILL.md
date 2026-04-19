@@ -1,6 +1,6 @@
 ---
 name: ctxforge
-description: Use when the user invokes /ctxforge or any /ctxforge:* slash command, or asks to build, manage, or export a context bundle for AI coding. On-demand only.
+description: Use when the user invokes /ctxforge:ctxforge or any /ctxforge:* slash command, or asks to build, manage, or export a context bundle for AI coding. On-demand only.
 ---
 
 # ctxforge — Context Engineering Skill
@@ -11,7 +11,7 @@ You have access to 31 ctxforge MCP tools for assembling token-disciplined prompt
 
 ## When to Use
 
-- User invokes `/ctxforge` (guided workflow) or any `/ctxforge:*` slash command.
+- User invokes `/ctxforge:ctxforge` (guided workflow) or any `/ctxforge:*` slash command.
 - User says one of: "build context", "assemble a bundle", "add files to context", "attach docs for this dep", "inline this GitHub issue", "check token budget", "save this as a profile", "recall my notes on X", "render a bugfix prompt".
 
 **Do NOT use proactively.** Only when the user asks.
@@ -64,6 +64,22 @@ You have access to 31 ctxforge MCP tools for assembling token-disciplined prompt
 
 ## Workflow recipes
 
+### Fresh start (guided build)
+
+When the user invokes `/ctxforge:ctxforge` without a specific intent, or says "build me a bundle" / "let's assemble context", run this 5-step workflow:
+
+1. Call `ctxforge_status` to check the current bundle state.
+2. Call `ctxforge_recall` to retrieve recent memory notes.
+3. Ask the user what they're working on (if not already clear from the conversation).
+4. Build the bundle based on the user's answer:
+   - Add source files via `ctxforge_add_files` / `ctxforge_add_function` / `ctxforge_add_type`.
+   - Run `ctxforge_docs_detect` so the prompt includes per-dep doc URLs, releases, and open-issues links from the project's manifest.
+   - If the task references a specific GitHub issue or PR, attach it via `ctxforge_add_files` with a `gh:///owner/repo/issues/N` URI.
+   - Call `ctxforge_suggest` to flag any imported package that isn't in the Project stack; apply fixes with `ctxforge_suggest_apply`.
+5. Report the result: items added, tokens used, percentage of budget.
+
+Do NOT run this workflow on every skill activation — only when the user has no specific intent. If the user says "add auth.rs", just call `ctxforge_add_files`; don't ask them what they're working on.
+
 ### Debugging a specific bug
 
 1. `/ctxforge:status` — see current state.
@@ -84,12 +100,12 @@ You have access to 31 ctxforge MCP tools for assembling token-disciplined prompt
 ### Cross-session resumption
 
 1. `/ctxforge:resume` — bundle + last few notes in one view.
-2. If nothing recent: `/ctxforge` — guided workflow to build fresh context.
+2. If nothing recent: fall back to the Fresh Start recipe above.
 
 ## What NOT to do
 
 - **Don't guess file paths.** Before claiming a file is or isn't in the bundle, call `ctxforge_list_items`.
 - **Don't paraphrase tool output.** If a tool returns "added 12 items, 4,200 tokens", say that — don't collapse it to "added some files".
 - **Don't call `ctxforge_clear` to "recover" from a schema error.** If the tool errors with `missing field 'path'`, the on-disk bundle is corrupt and `ctxforge_clear` will fail the same way. Tell the user to rename `.ctxforge/bundle.json` out of the way via Bash.
-- **Don't invoke scenario prompts (`ctxforge_bugfix`, etc.) on an empty bundle.** Check `ctxforge_status` first; if empty, direct the user to `/ctxforge` or `/ctxforge:add`.
+- **Don't invoke scenario prompts (`ctxforge_bugfix`, etc.) on an empty bundle.** Check `ctxforge_status` first; if empty, direct the user to `/ctxforge:ctxforge` or `/ctxforge:add`.
 - **Don't use `ctxforge_copy` or `ctxforge_pipe` tools** — these don't exist in the MCP surface. Use `/ctxforge:copy` (which wraps `export` + clipboard) or `/ctxforge:pipe` (which shells out to the `ctxforge` binary).
