@@ -36,7 +36,6 @@ pub fn run(root: &CtxforgeRoot, model_override: Option<&str>) -> Result<()> {
         0.0
     };
 
-    // Header line above the table.
     println!(
         " ctxforge  ·  {} items  ·  ~{} tokens  ·  {} ({} window)",
         bundle.len(),
@@ -45,7 +44,6 @@ pub fn run(root: &CtxforgeRoot, model_override: Option<&str>) -> Result<()> {
         format_window(model.window),
     );
 
-    // Table
     let mut table = Table::new();
     table
         .load_preset(UTF8_FULL)
@@ -80,7 +78,6 @@ pub fn run(root: &CtxforgeRoot, model_override: Option<&str>) -> Result<()> {
 
     println!("{table}");
 
-    // Budget gauge line under the table.
     let bar_color_label = if pct < 25.0 {
         "green"
     } else if pct < 50.0 {
@@ -98,7 +95,6 @@ pub fn run(root: &CtxforgeRoot, model_override: Option<&str>) -> Result<()> {
         bar_color_label,
     );
 
-    // Hotspot callout: warn if any single item exceeds 25% of the bundle.
     if let Some((idx, hot_pct)) = find_hotspot(&item_tokens, total_tokens) {
         let item = &bundle.items[idx];
         println!();

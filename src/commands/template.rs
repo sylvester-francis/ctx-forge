@@ -5,7 +5,6 @@ use crate::error::{CtxforgeError, Result};
 use crate::output;
 use crate::paths::{self, CtxforgeRoot};
 
-/// A single starter template shipped with ctxforge.
 struct Starter {
     name: &'static str,
     description: &'static str,
@@ -112,7 +111,6 @@ fn new(root: &CtxforgeRoot, name: &str, from: Option<&str>) -> Result<()> {
 
     let content = match from {
         None => {
-            // Blank scaffold (existing behavior).
             format!(
                 "# Template: {name}\n\n\
 You are an expert software engineer. Below is the relevant code and notes.\n\n\
@@ -153,7 +151,6 @@ fn rm(root: &CtxforgeRoot, name: &str) -> Result<()> {
     let stem = name.strip_suffix(".md").unwrap_or(name);
     let project_path = root.template_path(stem);
     if !project_path.exists() {
-        // Check if it exists in global — refuse to delete.
         if let Some(g) = paths::global_templates_dir() {
             let global_path = g.join(format!("{stem}.md"));
             if global_path.exists() {
