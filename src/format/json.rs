@@ -32,7 +32,6 @@ pub struct JsonNote<'a> {
 pub struct JsonItem<'a> {
     pub path: String,
     pub language: &'a str,
-    /// `"file"`, `"range"`, `"function"`, `"type"`, or `"url"`.
     pub kind: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lines: Option<JsonLines>,

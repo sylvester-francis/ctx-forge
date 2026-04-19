@@ -69,7 +69,6 @@ impl DocsTier {
         }
     }
 
-    /// Tiers that render in the default (non-`--all`) emission.
     pub fn is_default_emit(&self) -> bool {
         !matches!(self, DocsTier::Library)
     }
@@ -108,7 +107,6 @@ impl DocsSource {
         )
     }
 
-    /// Deterministic sort order for tiers within a subsection.
     pub fn tier_order(&self) -> u8 {
         match self.tier {
             DocsTier::LanguageCore => 0,
@@ -203,7 +201,6 @@ mod tests {
 
     #[test]
     fn forge_absent_deserialises_as_none() {
-        // Existing v2 bundles (pre-P3) don't have a `forge` field.
         let raw = r#"{
             "name": "axum",
             "version": "0.7.5",

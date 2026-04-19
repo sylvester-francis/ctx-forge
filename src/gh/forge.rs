@@ -62,7 +62,6 @@ pub fn parse_forge_url(input: &str) -> Option<ForgeRef> {
         return None;
     }
 
-    // Strip "git+" prefix used by npm.
     let stripped = trimmed.strip_prefix("git+").unwrap_or(trimmed);
 
     // Only HTTPS or HTTP (strip ssh git@ — can't render those as browser URLs).
@@ -70,7 +69,6 @@ pub fn parse_forge_url(input: &str) -> Option<ForgeRef> {
         .strip_prefix("https://")
         .or_else(|| stripped.strip_prefix("http://"))?;
 
-    // Split host from path.
     let (host, rest) = after_scheme.split_once('/')?;
     let rest = rest.trim_end_matches('/').trim_end_matches(".git");
 
@@ -83,7 +81,6 @@ pub fn parse_forge_url(input: &str) -> Option<ForgeRef> {
 
     let raw_url = format!("https://{host}/{rest}");
 
-    // For known forges, extract owner/repo (first two path segments).
     let path = match forge {
         ForgeHost::GitHub | ForgeHost::GitLab | ForgeHost::Codeberg => {
             let mut segs = rest.splitn(3, '/');

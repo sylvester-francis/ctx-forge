@@ -43,7 +43,6 @@ impl Format {
         }
     }
 
-    /// Short name suitable for status messages.
     pub fn name(self) -> &'static str {
         match self {
             Format::Markdown => "markdown",

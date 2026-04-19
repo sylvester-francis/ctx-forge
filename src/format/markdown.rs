@@ -75,15 +75,9 @@ fn write_item(out: &mut String, r: &ResolvedItem, no_provenance: bool) {
             out.push_str(&format!("## `{}`\n\n", u.url));
         }
         Source::Docs(_) => {
-            // Docs items are rendered in the Project stack section, not here.
-            // This branch is unreachable when called via `render` (which
-            // partitions them out), but kept for exhaustiveness.
             return;
         }
         Source::Gh(_) => {
-            // Body is already a complete markdown section (heading + metadata
-            // + body) produced by gh::render::render_markdown_section; emit
-            // verbatim without wrapping in a code fence.
             out.push_str(&r.content);
             out.push('\n');
             return;
@@ -105,7 +99,6 @@ fn write_project_stack(out: &mut String, docs: &[&ResolvedItem], all_items: &[Re
     use std::collections::BTreeMap;
     use std::collections::HashSet;
 
-    // Compute attention weight per manifest dir.
     fn weight_for(dir: &std::path::Path, items: &[ResolvedItem]) -> usize {
         items
             .iter()

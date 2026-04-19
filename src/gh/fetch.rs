@@ -17,8 +17,6 @@ fn auth_token() -> Option<String> {
         .clone()
 }
 
-/// Response from fetching a GhResource — structured so the renderer
-/// can display title + metadata + body without re-parsing.
 #[derive(Debug, Clone)]
 pub struct GhBody {
     pub title: String,
@@ -28,7 +26,6 @@ pub struct GhBody {
     pub body: String,
 }
 
-/// Fetch a GhResource. Returns `GhBody` on success.
 /// Issue / PR / Release use the GitHub REST API; Blob uses raw.githubusercontent.com.
 pub fn fetch_resource(resource: &GhResource) -> Result<GhBody> {
     let cfg = FetchConfig {
@@ -187,8 +184,6 @@ fn github_api_get(cfg: &FetchConfig, url: &str) -> Result<Value> {
         .map_err(|e| CtxforgeError::Fetch(format!("GitHub API response was not valid JSON: {e}")))
 }
 
-/// Convert a raw fetch error string into a more actionable message for
-/// common GitHub failure modes (rate limit, bad token).
 fn map_github_error(e: &str, cfg: &FetchConfig) -> CtxforgeError {
     if e.contains("HTTP 403") {
         if cfg.auth_token.is_none() {
