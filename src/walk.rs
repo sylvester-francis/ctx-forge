@@ -23,11 +23,6 @@ pub fn expand(pattern: &str, cwd: &Path, excludes: &[String]) -> Result<Vec<Path
         b.build()?
     };
 
-    // Two-mode behavior:
-    //   1. If `pattern` contains a glob metacharacter, expand via globset
-    //      against a gitignore-aware walk.
-    //   2. Otherwise treat `pattern` as a literal path. If it's a directory,
-    //      walk it recursively.
     let is_glob = pattern.contains('*')
         || pattern.contains('?')
         || pattern.contains('[')
@@ -45,7 +40,6 @@ pub fn expand(pattern: &str, cwd: &Path, excludes: &[String]) -> Result<Vec<Path
             if !entry.file_type().is_some_and(|t| t.is_file()) {
                 continue;
             }
-            // Match against path relative to cwd.
             let rel = entry.path().strip_prefix(cwd).unwrap_or(entry.path());
             if matcher.is_match(rel) && !exclude_set.is_match(rel) {
                 results.push(rel.to_path_buf());
@@ -73,7 +67,6 @@ pub fn expand(pattern: &str, cwd: &Path, excludes: &[String]) -> Result<Vec<Path
                 }
             }
         }
-        // If neither file nor dir, silently return empty (caller prints warning).
     }
 
     results.sort();

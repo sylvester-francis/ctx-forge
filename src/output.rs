@@ -195,7 +195,6 @@ mod tests {
             .map(String::from)
             .collect();
         let matches = close_matches("mian.py", &candidates, 3);
-        // "main.py" should be the closest (one transposition).
         assert_eq!(matches.first().map(String::as_str), Some("main.py"));
     }
 
@@ -213,14 +212,11 @@ mod tests {
     fn close_matches_filters_low_scores() {
         let candidates: Vec<String> = vec!["totally-different".to_string()];
         let matches = close_matches("xyz", &candidates, 5);
-        // Score should be too low; expect empty.
         assert!(matches.is_empty());
     }
 
     #[test]
     fn colored_percent_low_is_safe_color() {
-        // Just verify the function doesn't panic and produces output.
-        // We can't easily assert on the ANSI escapes themselves.
         let s = colored_percent(5.0);
         assert!(!s.is_empty());
     }
@@ -246,10 +242,6 @@ mod tests {
     #[test]
     fn error_with_suggestion_handles_empty_suggestions() {
         use std::path::Path;
-        // Just verify the function doesn't panic when called with empty
-        // suggestions and no hint. Output goes to stderr so we can't easily
-        // assert on its content, but "doesn't panic" is the real concern
-        // for the empty-suggestions branch.
         error_with_suggestion(
             "test error",
             Path::new("foo"),

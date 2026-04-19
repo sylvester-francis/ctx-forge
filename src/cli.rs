@@ -1,5 +1,3 @@
-//! Clap command definitions.
-
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
@@ -107,9 +105,6 @@ pub enum Command {
         offline: bool,
 
         /// Include provenance comments (uri/sha/fetched_at) in output.
-        /// Default: off — provenance is audit-trail metadata, not prompt
-        /// content, and emitting it wastes ~40 tokens per item.
-        /// Opt in when debugging or when the downstream consumer needs traceability.
         #[arg(long)]
         with_provenance: bool,
     },

@@ -26,7 +26,6 @@ pub const DEFAULT_MODEL: &str = "claude-sonnet-4";
 /// All models ctxforge knows about. Unknown names fall back to `estimate` with
 /// a generic 200k window.
 const MODELS: &[ModelInfo] = &[
-    // ── Anthropic (Claude 4.6 / 4.5 / 4) ───────────────────────────
     ModelInfo {
         name: "claude-opus-4-6",
         window: 1_000_000,
@@ -57,7 +56,6 @@ const MODELS: &[ModelInfo] = &[
         window: 200_000,
         tokenizer: Tokenizer::Estimate,
     },
-    // ── OpenAI (exact tiktoken) ─────────────────────────────────────
     ModelInfo {
         name: "gpt-4.1",
         window: 1_047_576,
@@ -108,7 +106,6 @@ const MODELS: &[ModelInfo] = &[
         window: 128_000,
         tokenizer: Tokenizer::Tiktoken("cl100k_base"),
     },
-    // ── Google ──────────────────────────────────────────────────────
     ModelInfo {
         name: "gemini-2.5-pro",
         window: 1_048_576,

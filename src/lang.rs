@@ -57,7 +57,6 @@ pub fn detect(path: &Path) -> &'static str {
         "r" => "r",
         "jl" => "julia",
         _ => {
-            // Special-cased filenames with no extension
             if let Some(name) = path
                 .file_name()
                 .and_then(|n| n.to_str())

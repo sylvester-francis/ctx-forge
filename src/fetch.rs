@@ -1,15 +1,6 @@
 //! HTTP fetcher. Sync, blocking, ureq-backed. Encapsulates the redirect
 //! policy, content-type/size guards, charset handling, and SSRF
 //! resolver-check applied to every hop.
-//!
-//! **Scope note (2026-04-17):** This pipeline was built for `url://` sources
-//! where the user pastes a specific doc/spec URL into the bundle. P1
-//! (library docs gatherer) takes a different shape — it emits URL *links*
-//! with registry-sourced descriptions, not fetched content. P1 reuses this
-//! fetcher only for the light registry metadata calls
-//! (crates.io / npm / PyPI JSON APIs). The full redirect + body-size + SSRF
-//! apparatus is overkill for those metadata fetches but doesn't hurt;
-//! leaving a single hardened code path is cheaper than forking a lighter one.
 
 #![cfg(feature = "fetch")]
 
