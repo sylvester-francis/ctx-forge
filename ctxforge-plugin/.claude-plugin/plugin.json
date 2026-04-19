@@ -1,6 +1,6 @@
 {
   "name": "ctxforge",
-  "description": "Deterministic prompt engineer for AI coding agents — stack-aware, GitHub-aware, gap-aware. Scans your Cargo.toml / package.json / pyproject.toml / go.mod to attach per-dep doc URLs. Inlines specific GitHub issues, PRs, releases, and files via gh:// URIs. Flags when bundle imports don't match attached docs. 31 MCP tools. Never calls an LLM — the agent does.",
+  "description": "Deterministic prompt engineer for AI coding agents. 25 slash commands covering the full CLI surface — scenarios (bugfix/refactor/explain/code-review/migrate), bundle editing, per-dep docs detection with gap analysis, gh:// GitHub resources, saved profiles, cross-session memory, and cache verification. 31 MCP tools. Never calls an LLM — the agent does.",
   "author": {
     "name": "Sylvester Francis"
   }
