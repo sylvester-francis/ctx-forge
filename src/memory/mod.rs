@@ -1,15 +1,8 @@
 //! Cross-session memory: notes, tag files, JSONL index, recall.
 //!
-//! Memory is stored in two parallel places under `.ctxforge/memory/`:
-//!
-//! 1. `_index.jsonl` — append-only JSONL index, one note per line.
-//!    This is the canonical source of truth for recall and search.
-//!
-//! 2. `<tag>.md` (or `decisions.md` for untagged notes) — human-readable
-//!    markdown files that duplicate the note content in a git-committable
-//!    form. Appended on every write. Not read back on recall.
-//!
-//! Writes touch both files. Recall reads only the JSONL index.
+//! Storage under `.ctxforge/memory/`:
+//! - `_index.jsonl` — append-only, one note per line. Canonical source for recall.
+//! - `<tag>.md` / `decisions.md` — markdown mirror for git review; write-only.
 
 #![allow(dead_code)]
 
@@ -24,8 +17,6 @@ use crate::error::Result;
 use crate::paths::CtxforgeRoot;
 use std::io::Write;
 
-/// Append a note to the appropriate per-tag markdown file. Creates the
-/// file (with a heading) if it does not yet exist.
 pub fn append_to_tag_file(root: &CtxforgeRoot, note: &Note) -> Result<()> {
     std::fs::create_dir_all(root.memory_dir())?;
     let path = root.memory_tag_path(note.tag.as_deref());
@@ -45,8 +36,7 @@ pub fn append_to_tag_file(root: &CtxforgeRoot, note: &Note) -> Result<()> {
     Ok(())
 }
 
-/// Public API: write a note to both the JSONL index and the per-tag
-/// markdown file. Returns the resulting `Note`.
+/// Write a note to both the JSONL index and the per-tag markdown file.
 pub fn write_note(
     root: &CtxforgeRoot,
     body: impl Into<String>,
@@ -64,9 +54,7 @@ pub fn write_note(
     Ok(note)
 }
 
-/// Collect notes to auto-attach to an export. Returns `Vec::new()` when
-/// `no_memory` is true. Otherwise pulls from the index, applies tag
-/// filter, and trims to `limit` newest-first.
+/// Collect notes to auto-attach to an export (newest-first, tag-filtered).
 pub fn collect_for_attach(
     root: &CtxforgeRoot,
     no_memory: bool,

@@ -1,6 +1,3 @@
-//! Three detection modes: scoped (default, follows bundle items), all
-//! (full project scan), explicit (user-provided path).
-
 use crate::bundle::Bundle;
 use crate::docs::parsers::cargo;
 use crate::source::Ecosystem;
@@ -38,7 +35,6 @@ const SKIP_DIRS: &[&str] = &[
     "vendor",
 ];
 
-/// Walk upward from `start` until we find a recognized manifest.
 pub fn manifest_for(start: &Path) -> Option<DetectedManifest> {
     start.ancestors().find_map(|dir| {
         MANIFESTS.iter().find_map(|(name, eco)| {
@@ -51,7 +47,6 @@ pub fn manifest_for(start: &Path) -> Option<DetectedManifest> {
     })
 }
 
-/// Scoped detection — walk up from each bundle file to its nearest manifest.
 pub fn scoped(bundle: &Bundle, project_root: &Path) -> Vec<DetectedManifest> {
     let mut seen: Vec<DetectedManifest> = Vec::new();
     for item in &bundle.items {
@@ -68,12 +63,11 @@ pub fn scoped(bundle: &Bundle, project_root: &Path) -> Vec<DetectedManifest> {
     seen
 }
 
-/// Full-scan mode — enumerate workspace members if the root is workspace-aware,
-/// else shallow walk (cwd + 2 levels) for manifest files.
+/// Enumerate workspace members if the root is workspace-aware, else
+/// shallow walk (cwd + 2 levels).
 pub fn full_scan(project_root: &Path) -> Vec<DetectedManifest> {
     let mut workspace_members: Vec<DetectedManifest> = Vec::new();
 
-    // Cargo workspace.
     let root_cargo = project_root.join("Cargo.toml");
     if root_cargo.is_file() {
         if let Some(members) = cargo::workspace_members(&root_cargo) {
@@ -86,7 +80,6 @@ pub fn full_scan(project_root: &Path) -> Vec<DetectedManifest> {
         }
     }
 
-    // npm / yarn / pnpm workspace via package.json `workspaces` field.
     let root_pkg = project_root.join("package.json");
     if root_pkg.is_file() {
         if let Some(members) = crate::docs::parsers::npm::workspace_members(&root_pkg) {
@@ -99,7 +92,6 @@ pub fn full_scan(project_root: &Path) -> Vec<DetectedManifest> {
         }
     }
 
-    // Standalone pnpm-workspace.yaml.
     let pnpm_ws = project_root.join("pnpm-workspace.yaml");
     if pnpm_ws.is_file() {
         if let Ok(raw) = std::fs::read_to_string(&pnpm_ws) {
@@ -115,7 +107,6 @@ pub fn full_scan(project_root: &Path) -> Vec<DetectedManifest> {
         }
     }
 
-    // go.work.
     let go_work = project_root.join("go.work");
     if go_work.is_file() {
         if let Some(members) = crate::docs::parsers::go::workspace_members(&go_work) {
@@ -132,7 +123,6 @@ pub fn full_scan(project_root: &Path) -> Vec<DetectedManifest> {
         return dedup_manifests(workspace_members);
     }
 
-    // No workspace — shallow walk cwd + 2 levels.
     let mut out = Vec::new();
     scan_directory(project_root, &mut out);
     walk_subdirs(project_root, 2, &mut out);
@@ -205,7 +195,6 @@ fn scan_directory(dir: &Path, out: &mut Vec<DetectedManifest>) {
     }
 }
 
-/// Explicit mode — detect the single manifest at or nearest to `path`.
 pub fn explicit(path: &Path) -> Option<DetectedManifest> {
     manifest_for(path)
 }

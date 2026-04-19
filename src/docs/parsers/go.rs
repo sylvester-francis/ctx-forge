@@ -1,5 +1,4 @@
-//! Go parser — reads go.mod for direct deps (version pinned inline).
-//! Transitive deps are marked `// indirect` and filtered out.
+//! Go parser — reads go.mod for direct deps; `// indirect` lines are filtered out.
 
 use super::DetectedDep;
 use crate::error::{CtxforgeError, Result};
@@ -69,7 +68,6 @@ fn parse_require_line(line: &str, manifest_path: &Path) -> Option<DetectedDep> {
     })
 }
 
-/// Enumerate Go workspace members from a `go.work` file.
 pub fn workspace_members(go_work_path: &Path) -> Option<Vec<PathBuf>> {
     let raw = std::fs::read_to_string(go_work_path).ok()?;
     let root = go_work_path.parent()?;

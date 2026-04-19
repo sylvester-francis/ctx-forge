@@ -1,9 +1,7 @@
-//! One-line description + forge URL fetch from ecosystem registry APIs,
-//! cached via P5.
+//! One-line description + forge URL fetch from ecosystem registry APIs.
 //!
-//! Description cache key is sha256 of a synthetic URI
-//! `description://<ecosystem>/<name>` — never surfaced to users; it just
-//! keys the existing ContentCache for dedup across runs.
+//! Cache key is sha256 of the synthetic URI `description://<ecosystem>/<name>`
+//! — never surfaced to users; keys the ContentCache for dedup across runs.
 
 use crate::cache::{CacheRead, ContentCache};
 use crate::gh::forge::{self, ForgeRef};
@@ -13,9 +11,7 @@ use serde_json::Value;
 const DESC_MAX_CHARS: usize = 120;
 const DESC_TTL_SECS: u64 = 7 * 86_400;
 
-/// Metadata extracted from a single registry-API response — used by
-/// `run_detect` to populate both `description` and `forge` on DocsSource
-/// items without a second HTTP round-trip.
+/// Metadata extracted from a single registry-API response.
 #[derive(Debug, Default, Clone)]
 pub struct Metadata {
     pub description: Option<String>,
@@ -63,7 +59,6 @@ pub fn fetch_metadata(cache: &ContentCache, ecosystem: Ecosystem, name: &str) ->
     }
 }
 
-/// Back-compat shim — existing call sites that only need the description.
 pub fn fetch_description(cache: &ContentCache, ecosystem: Ecosystem, name: &str) -> Option<String> {
     fetch_metadata(cache, ecosystem, name).description
 }
@@ -99,7 +94,6 @@ fn extract_rust(v: &Value) -> Metadata {
 
 fn extract_js(v: &Value) -> Metadata {
     let description = v.get("description").and_then(|d| d.as_str()).map(truncate);
-    // npm `repository` is either a string or { "url": "..." }.
     let repo_url = v.get("repository").and_then(|r| {
         if let Some(s) = r.as_str() {
             Some(s.to_string())
@@ -118,7 +112,6 @@ fn extract_python(v: &Value) -> Metadata {
         .and_then(|s| s.as_str())
         .map(truncate);
 
-    // info.project_urls.Source preferred; fall back to info.home_page.
     let repo_url = info
         .and_then(|i| i.get("project_urls"))
         .and_then(|p| p.get("Source").or_else(|| p.get("Repository")))

@@ -6,12 +6,9 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct MissingDep {
-    /// Canonicalised name (matches the form a `DocsSource.name` would take).
     pub name: String,
     pub ecosystem: Ecosystem,
-    /// Project-relative paths of files that import this package.
     pub imported_in: Vec<PathBuf>,
-    /// The command the user would run to fix this.
     pub suggested_command: String,
 }
 
@@ -49,7 +46,6 @@ impl SuggestReport {
     }
 }
 
-/// Render the report as human-readable text.
 pub fn render_human(report: &SuggestReport) -> String {
     if report.is_empty() {
         return String::from("✓ no suggestions — bundle matches imports\n");
@@ -114,7 +110,6 @@ fn format_paths(paths: &[PathBuf], cap: usize) -> String {
     }
 }
 
-/// Render as JSON (for `--json` and MCP).
 pub fn render_json(report: &SuggestReport) -> String {
     serde_json::to_string_pretty(report).unwrap_or_else(|_| "{}".to_string())
 }

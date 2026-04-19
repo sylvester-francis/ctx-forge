@@ -1,10 +1,9 @@
-//! Generic tree-sitter query runner. Given source code, a language, and a
-//! query pattern, finds the named item and returns its text.
+//! Generic tree-sitter query runner.
 
 use tree_sitter::{Language, Parser, Query, QueryCursor, StreamingIterator};
 
-/// Extract the text of the first definition whose @name capture matches
-/// `target_name`. Returns `None` if no match is found.
+/// Extract the text of the first definition whose `@name` capture matches
+/// `target_name`.
 pub fn extract_by_name(
     source: &str,
     language: &Language,
@@ -35,7 +34,6 @@ pub fn extract_by_name(
     let mut cursor = QueryCursor::new();
     let source_bytes = source.as_bytes();
 
-    // tree-sitter 0.26 returns StreamingIterator, not Iterator.
     let mut matches = cursor.matches(&query, tree.root_node(), source_bytes);
     while let Some(m) = matches.next() {
         let name_node = m.captures.iter().find(|c| c.index as usize == name_idx);

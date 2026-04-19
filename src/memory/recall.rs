@@ -1,15 +1,10 @@
-//! Recall: filter memory notes by tag, search string, and time window.
-//!
-//! All filtering is applied to the `Vec<Note>` returned by
-//! `index::read_all`. Pure logic, no I/O.
+//! Filter notes by tag, search string, and time window. Pure logic, no I/O.
 
 #![allow(dead_code)]
 
 use crate::memory::note::Note;
 use chrono::{DateTime, Duration, Utc};
 
-/// Filter for `recall`. All fields are optional; an empty filter
-/// returns all notes.
 #[derive(Debug, Clone, Default)]
 pub struct RecallFilter {
     pub tag: Option<String>,
@@ -23,8 +18,7 @@ impl RecallFilter {
         Self::default()
     }
 
-    /// Parse a human-readable duration like `"1w"`, `"3d"`, `"12h"`,
-    /// `"30m"` into `Utc::now() - duration`. Used by CLI `--since`.
+    /// Parse `"1w"`, `"3d"`, `"12h"`, `"30m"` into `Utc::now() - duration`.
     pub fn since_from_duration(s: &str) -> Option<DateTime<Utc>> {
         if s.len() < 2 {
             return None;
@@ -42,8 +36,7 @@ impl RecallFilter {
     }
 }
 
-/// Apply `filter` to `notes`, returning matching notes in reverse order
-/// (newest first). Respects `limit` if set.
+/// Apply filter, sort newest-first, truncate to `limit`.
 pub fn recall(notes: &[Note], filter: &RecallFilter) -> Vec<Note> {
     let mut out: Vec<Note> = notes
         .iter()

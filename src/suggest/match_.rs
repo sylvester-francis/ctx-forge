@@ -1,19 +1,12 @@
-//! Canonicalisation: map a raw import token to the set of candidate
-//! `DocsSource.name` values that should be considered a match. Handles
-//! hyphen/underscore differences between source code and package
-//! registries.
+//! Canonicalise raw import tokens to candidate `DocsSource.name` values,
+//! handling hyphen/underscore differences between source and registries.
 
 use crate::source::Ecosystem;
 
-/// Return the set of candidate names a `DocsSource.name` might take for
-/// a given raw import. Includes the raw name itself plus ecosystem-
-/// specific transforms.
 pub fn candidates(raw: &str, ecosystem: Ecosystem) -> Vec<String> {
     let mut out = vec![raw.to_string()];
     match ecosystem {
         Ecosystem::Rust | Ecosystem::Python => {
-            // hyphen ↔ underscore bidirectional: `serde_json` matches
-            // `serde-json` and vice versa.
             if raw.contains('_') {
                 out.push(raw.replace('_', "-"));
             } else if raw.contains('-') {
@@ -21,25 +14,17 @@ pub fn candidates(raw: &str, ecosystem: Ecosystem) -> Vec<String> {
             }
         }
         Ecosystem::Js => {
-            // npm is case-insensitive; store lowercase candidate.
             let lower = raw.to_lowercase();
             if lower != raw {
                 out.push(lower);
             }
         }
-        Ecosystem::Go => {
-            // Go module paths are case-sensitive and use literal path;
-            // no transform.
-        }
+        Ecosystem::Go => {}
     }
     out
 }
 
-/// Does `raw` (imported token) match `name` (DocsSource.name) under the
-/// ecosystem's matching rules?
 pub fn matches_source(raw: &str, name: &str, ecosystem: Ecosystem) -> bool {
-    // Candidate set on both sides so that regardless of which side stores
-    // the hyphen vs underscore form, a match is found.
     let raw_candidates = candidates(raw, ecosystem);
     let name_candidates = candidates(name, ecosystem);
     raw_candidates.iter().any(|r| name_candidates.contains(r))

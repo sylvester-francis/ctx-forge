@@ -7,7 +7,7 @@ pub mod tiktoken;
 
 use crate::models::{ModelInfo, Tokenizer};
 
-/// A counted token total. `exact = false` means it's a char-based estimate.
+/// `exact = false` means char-based estimate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TokenCount {
     pub tokens: usize,
@@ -35,7 +35,6 @@ fn thousands(n: usize) -> String {
     out
 }
 
-/// Count tokens in `text` for the given model.
 pub fn count(text: &str, model: &ModelInfo) -> TokenCount {
     match model.tokenizer {
         Tokenizer::Estimate => TokenCount {

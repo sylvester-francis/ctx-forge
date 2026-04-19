@@ -1,10 +1,8 @@
-//! Per-ecosystem stdlib blocklists. Imports matching these names are
-//! skipped during scan — they're not user-installable deps, they ship
-//! with the language runtime.
+//! Per-ecosystem stdlib blocklists — imports matching these are skipped.
 
 use crate::source::Ecosystem;
 
-/// Rust pseudo-crates — stdlib + the scope-local keywords.
+/// Rust pseudo-crates — stdlib + scope-local keywords.
 const RUST_STDLIB: &[&str] = &[
     "std",
     "core",
@@ -16,7 +14,7 @@ const RUST_STDLIB: &[&str] = &[
     "proc_macro",
 ];
 
-/// Node.js builtins (both bare and `node:`-prefixed forms handled by caller).
+/// Node.js builtins (bare + `node:` prefix both accepted in `is_stdlib`).
 const JS_BUILTINS: &[&str] = &[
     "assert",
     "async_hooks",
@@ -61,7 +59,7 @@ const JS_BUILTINS: &[&str] = &[
     "zlib",
 ];
 
-/// Python stdlib (curated subset covering the most-imported modules).
+/// Python stdlib (curated subset).
 const PYTHON_STDLIB: &[&str] = &[
     "__future__",
     "abc",
@@ -186,15 +184,13 @@ const PYTHON_STDLIB: &[&str] = &[
     "zoneinfo",
 ];
 
-/// Go stdlib detection: a Go import path is stdlib iff its first path
-/// segment contains no `.` (third-party paths start with a domain like
-/// `github.com`, `gopkg.in`, `golang.org/x`).
+/// A Go import is stdlib iff its first path segment contains no `.`
+/// (third-party paths start with a domain like `github.com`, `golang.org/x`).
 fn is_go_stdlib(path: &str) -> bool {
     let first = path.split('/').next().unwrap_or("");
     !first.contains('.')
 }
 
-/// Is the raw import name part of the ecosystem's stdlib?
 pub fn is_stdlib(name: &str, ecosystem: Ecosystem) -> bool {
     match ecosystem {
         Ecosystem::Rust => RUST_STDLIB.contains(&name),

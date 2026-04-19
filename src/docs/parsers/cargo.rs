@@ -1,6 +1,4 @@
 //! Cargo parser — reads Cargo.toml and Cargo.lock for a single crate.
-//! Workspace support is handled by the caller (detect.rs) which passes
-//! the member manifest individually.
 
 use super::DetectedDep;
 use crate::error::{CtxforgeError, Result};
@@ -62,9 +60,8 @@ struct CargoLockPackage {
     version: String,
 }
 
-/// Parse a single `Cargo.toml` plus its nearest `Cargo.lock` ancestor
-/// (for workspace members, the lock lives at the workspace root).
-/// Returns only direct deps; git/path deps are skipped.
+/// Parse a `Cargo.toml` plus its nearest `Cargo.lock` ancestor. Returns
+/// direct deps only; git/path deps are skipped.
 pub fn parse(manifest_path: &Path) -> Result<Vec<DetectedDep>> {
     let raw = std::fs::read_to_string(manifest_path)
         .map_err(|e| CtxforgeError::Msg(format!("read {}: {e}", manifest_path.display())))?;
@@ -75,7 +72,6 @@ pub fn parse(manifest_path: &Path) -> Result<Vec<DetectedDep>> {
         .and_then(|p| std::fs::read_to_string(&p).ok())
         .and_then(|s| toml::from_str::<CargoLock>(&s).ok());
 
-    // Resolve workspace.dependencies for `workspace = true` inheritance.
     let workspace_deps = find_workspace_root_deps(manifest_path).unwrap_or_default();
 
     let mut deps = Vec::new();
@@ -95,7 +91,6 @@ pub fn parse(manifest_path: &Path) -> Result<Vec<DetectedDep>> {
     Ok(deps)
 }
 
-/// Enumerate workspace member manifests (relative paths from the workspace root).
 pub fn workspace_members(manifest_path: &Path) -> Option<Vec<PathBuf>> {
     let raw = std::fs::read_to_string(manifest_path).ok()?;
     let parsed: CargoToml = toml::from_str(&raw).ok()?;
@@ -109,7 +104,6 @@ pub fn workspace_members(manifest_path: &Path) -> Option<Vec<PathBuf>> {
                 out.push(p);
             }
         } else {
-            // Glob: resolve via `read_dir` one level deep.
             let prefix = member_glob.trim_end_matches("/*");
             let dir = root_dir.join(prefix);
             if let Ok(entries) = std::fs::read_dir(&dir) {

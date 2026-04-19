@@ -7,15 +7,10 @@ pub struct Wrapped {
     pub suffix: String,
 }
 
-/// Load a scenario's template body and split it into the text surrounding
-/// the `{{task}}` and `{{bundle}}` placeholders:
-///
-///   prefix = text up to the earliest of the two placeholders
-///   suffix = text after the latest of the two placeholders
-///
-/// Text between the two placeholders is dropped for the structural preview;
-/// the full composed prompt (used by `P` overlay and by delivery) still
-/// renders the whole template.
+/// Split a scenario body around `{{task}}` / `{{bundle}}`:
+/// `prefix` is text before the earliest placeholder, `suffix` is text after
+/// the latest. The structural preview drops text between the two; the
+/// composed prompt (P overlay and delivery) still uses the whole template.
 pub fn load_wrapped(root: &CtxforgeRoot, name: &str) -> Result<Wrapped, String> {
     let body = crate::scenario::load_body(root, name)?;
     Ok(split(&body))
@@ -41,8 +36,6 @@ fn split(body: &str) -> Wrapped {
     Wrapped { prefix, suffix }
 }
 
-/// Returns `(start, end)` byte offsets of the first occurrence of `needle`
-/// in `haystack`, or `None`.
 fn find(haystack: &str, needle: &str) -> Option<(usize, usize)> {
     haystack
         .find(needle)

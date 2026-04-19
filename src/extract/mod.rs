@@ -1,6 +1,5 @@
-//! Tree-sitter-based function and type extraction.
-//!
-//! Behind `--features=extract`. Supports Go, Rust, Python, TypeScript, JavaScript.
+//! Tree-sitter-based function and type extraction (feature-gated by `extract`).
+//! Supports Go, Rust, Python, TypeScript, JavaScript.
 
 mod queries;
 mod runner;
@@ -8,7 +7,6 @@ pub mod scan;
 
 use tree_sitter::Language;
 
-/// Extract a named function from source code. Returns the full function text.
 pub fn extract_function(
     source: &str,
     language_name: &str,
@@ -18,7 +16,6 @@ pub fn extract_function(
     runner::extract_by_name(source, &lang, query, fn_name)
 }
 
-/// Extract a named type (struct, class, interface, enum) from source code.
 pub fn extract_type(
     source: &str,
     language_name: &str,
