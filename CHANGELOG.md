@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.1.0](https://github.com/sylvester-francis/ctx-forge/compare/v2.0.0...v2.1.0) - 2026-04-19
+
+### Added
+
+- *(plugin)* expand ctxforge plugin to full CLI/MCP parity (25 slash commands) ([#20](https://github.com/sylvester-francis/ctx-forge/pull/20))
+
+### Other
+
+- *(comments)* prune verbose/redundant comments across src and tests ([#23](https://github.com/sylvester-francis/ctx-forge/pull/23))
+- *(plugin)* v2.0.0 polish — skills/ folder form, merged workflow, explicit version ([#21](https://github.com/sylvester-francis/ctx-forge/pull/21))
+- *(readme)* clarify Claude plugin install — @claude-community, not @claude-plugin-directory
+
 ## 2.0.0 — prompt engineer release
 
 A major version bump to signal the shift from "context bundler with a TUI" to **prompt engineer** — ctxforge now understands your project stack, attaches GitHub resources on demand, detects gaps between your imports and your attached docs, and exposes 31 MCP tools so an agent can drive it directly.

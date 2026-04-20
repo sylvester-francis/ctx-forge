@@ -1,6 +1,6 @@
 [package]
 name = "ctxforge"
-version = "2.0.0"
+version = "2.1.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Deterministic prompt engineer for AI coding agents. Detects your project stack, attaches GitHub resources, flags missing context — never calls an LLM."
